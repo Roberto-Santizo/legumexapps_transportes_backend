@@ -9,3 +9,5 @@
 | archivo dentro de routes/ y se incluye aquí.
 |
 */
+
+require __DIR__.'/auth.php';
