@@ -3,9 +3,12 @@
 namespace App\Services\Auth;
 
 use App\Errors\BadRequestError;
+use App\Errors\ForbiddenError;
+use App\Errors\UnauthorizedError;
 use App\Interfaces\Auth\AuthServiceInterface;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Override;
@@ -47,13 +50,38 @@ class AuthService implements AuthServiceInterface
     #[Override]
     public function login(array $data): array
     {
-        throw new \LogicException('Pendiente: paso 9 de la spec 01.');
+        $token = auth('api')->attempt([
+            'email' => $data['email'],
+            'password' => $data['password'],
+        ]);
+
+        if (! $token) {
+            throw new UnauthorizedError('Las credenciales son incorrectas');
+        }
+
+        $user = auth('api')->user();
+
+        if (! $user->email_verified_at) {
+            /** El attempt() ya dejó al usuario en el guard y el token en la instancia de JWT: se descartan ambos. */
+            auth('api')->unsetToken();
+            Auth::forgetGuards();
+
+            throw new ForbiddenError('La cuenta aún no ha sido confirmada');
+        }
+
+        return ['user' => $user, 'token' => $token];
     }
 
     #[Override]
     public function checkStatus(): array
     {
-        throw new \LogicException('Pendiente: paso 9 de la spec 01.');
+        $user = auth('api')->user();
+
+        if (! $user) {
+            throw new UnauthorizedError('El token no es válido');
+        }
+
+        return ['user' => $user, 'token' => auth('api')->refresh()];
     }
 
     #[Override]
