@@ -1,0 +1,636 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Legumex Transportes API",
+        "description": "API interna de Legumex Transportes. Todas las respuestas usan el sobre estándar de ResponseHandler: statusCode, message, data.",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "http://localhost:8000",
+            "description": "Servidor de la API"
+        }
+    ],
+    "paths": {
+        "/api/auth/register": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Registrar un usuario",
+                "description": "Crea una cuenta con rol pilot o carrier. La cuenta nace sin confirmar (emailVerifiedAt en null) y no puede iniciar sesión hasta pasar por /api/auth/confirm-account. Este endpoint NO devuelve token: solo se emite token al hacer login. Junto con el usuario se genera y persiste un código de confirmación de 6 dígitos con una hora de vigencia.",
+                "operationId": "registerAuth",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RegisterRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Usuario registrado correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Usuario registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/User"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: el correo ya está registrado, el rol no es pilot ni carrier, la contraseña tiene menos de 8 caracteres o no coincide con password_confirmation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/confirm-account": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Confirmar una cuenta",
+                "description": "Valida el código de 6 dígitos generado en el registro y marca la cuenta como confirmada (emailVerifiedAt deja de ser null). El código expira una hora después de generarse y se elimina al usarse, por lo que no es reutilizable. Mientras la cuenta no esté confirmada, el login responde 403.",
+                "operationId": "confirmAccountAuth",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConfirmAccountRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "La cuenta ha sido confirmada correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "La cuenta ha sido confirmada correctamente"
+                                        },
+                                        "data": {
+                                            "type": "object",
+                                            "example": null,
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Código inválido, expirado o ya utilizado. El mensaje devuelto es: El código es inválido o ya expiró",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: correo con formato incorrecto o código que no tiene exactamente 6 dígitos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/login": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Iniciar sesión",
+                "description": "Valida las credenciales y devuelve el usuario junto con un token JWT con vigencia de 60 minutos. El token se envía en las peticiones protegidas como: Authorization: Bearer {token}. Solo se renueva llamando a /api/auth/check-status.",
+                "operationId": "loginAuth",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LoginRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Sesión iniciada correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Sesión iniciada correctamente"
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "user": {
+                                                    "$ref": "#/components/schemas/User"
+                                                },
+                                                "token": {
+                                                    "description": "Token JWT válido durante 60 minutos.",
+                                                    "type": "string",
+                                                    "example": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.7Hh1c0mFq5Y"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Credenciales incorrectas: el correo no existe o la contraseña no coincide. El mensaje devuelto es: Las credenciales son incorrectas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Las credenciales son correctas pero la cuenta todavía no ha sido confirmada, por lo que no se emite token. El mensaje devuelto es: La cuenta aún no ha sido confirmada. El cliente debe usar este código para redirigir al usuario a la pantalla de confirmación de cuenta con el código de 6 dígitos.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: falta el correo o la contraseña, o el correo tiene un formato incorrecto",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/check-status": {
+            "get": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Verificar la sesión y renovar el token",
+                "description": "Devuelve el usuario autenticado y un token nuevo con otros 60 minutos de vigencia; el token usado en la petición queda invalidado. Es el único endpoint que renueva el token: la API no expone /refresh ni /logout. Requiere el header Authorization: Bearer {token}.",
+                "operationId": "checkStatusAuth",
+                "responses": {
+                    "200": {
+                        "description": "Sesión válida",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Sesión válida"
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "user": {
+                                                    "$ref": "#/components/schemas/User"
+                                                },
+                                                "token": {
+                                                    "description": "Token JWT renovado. Sustituye al enviado en la petición.",
+                                                    "type": "string",
+                                                    "example": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.7Hh1c0mFq5Y"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/auth/forgot-password": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Solicitar código de recuperación de contraseña",
+                "description": "Genera y persiste un código de 6 dígitos con una hora de vigencia para la cuenta indicada, reemplazando cualquier código anterior. Responde 200 exista o no el correo en la base de datos: el endpoint no revela qué correos están registrados, por lo que el cliente no debe interpretar el 200 como confirmación de que la cuenta existe.",
+                "operationId": "forgotPasswordAuth",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ForgotPasswordRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Solicitud procesada. Se devuelve la misma respuesta exista o no la cuenta.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Si el correo está registrado recibirás un código de recuperación"
+                                        },
+                                        "data": {
+                                            "type": "object",
+                                            "example": null,
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: falta el correo o tiene un formato incorrecto",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/reset-password": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Restablecer la contraseña",
+                "description": "Valida el código de recuperación de 6 dígitos y sustituye la contraseña de la cuenta. El código expira una hora después de generarse y se elimina al usarse, por lo que no es reutilizable. No se emite token: el usuario debe iniciar sesión con la nueva contraseña.",
+                "operationId": "resetPasswordAuth",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetPasswordRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "La contraseña ha sido actualizada correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "La contraseña ha sido actualizada correctamente"
+                                        },
+                                        "data": {
+                                            "type": "object",
+                                            "example": null,
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Código inválido, expirado o ya utilizado. El mensaje devuelto es: El código es inválido o ya expiró",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: correo con formato incorrecto, código que no tiene 6 dígitos o contraseña de menos de 8 caracteres",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "ApiError": {
+                "description": "Sobre de error devuelto por ResponseHandler::error().",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 404
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "El recurso no existe"
+                    },
+                    "data": {
+                        "type": "object",
+                        "example": null,
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "ValidationError": {
+                "description": "Errores de validación devueltos por los FormRequests.",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "example": "El campo nombre es obligatorio"
+                    },
+                    "errors": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "ConfirmAccountRequest": {
+                "title": "Confirmación de cuenta",
+                "description": "Correo de la cuenta y código de confirmación de 6 dígitos.",
+                "required": [
+                    "email",
+                    "code"
+                ],
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "piloto@legumex.com"
+                    },
+                    "code": {
+                        "description": "Código de 6 dígitos generado durante el registro. Expira una hora después de generarse.",
+                        "type": "string",
+                        "example": "048213"
+                    }
+                },
+                "type": "object"
+            },
+            "ForgotPasswordRequest": {
+                "title": "Solicitud de recuperación de contraseña",
+                "description": "Correo de la cuenta para la que se solicita el código de recuperación.",
+                "required": [
+                    "email"
+                ],
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "piloto@legumex.com"
+                    }
+                },
+                "type": "object"
+            },
+            "LoginRequest": {
+                "title": "Inicio de sesión",
+                "description": "Credenciales de acceso.",
+                "required": [
+                    "email",
+                    "password"
+                ],
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "piloto@legumex.com"
+                    },
+                    "password": {
+                        "type": "string",
+                        "format": "password",
+                        "example": "secret123"
+                    }
+                },
+                "type": "object"
+            },
+            "RegisterRequest": {
+                "title": "Registro de usuario",
+                "description": "Datos para crear una cuenta. Solo se permite registrar los roles pilot y carrier.",
+                "required": [
+                    "name",
+                    "email",
+                    "password",
+                    "password_confirmation",
+                    "role"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "maxLength": 255
+                    },
+                    "email": {
+                        "description": "Debe ser único: no puede existir otra cuenta con el mismo correo.",
+                        "type": "string",
+                        "format": "email",
+                        "example": "piloto@legumex.com",
+                        "maxLength": 255
+                    },
+                    "password": {
+                        "description": "Mínimo 8 caracteres. Debe coincidir con password_confirmation.",
+                        "type": "string",
+                        "format": "password",
+                        "example": "secret123",
+                        "minLength": 8
+                    },
+                    "password_confirmation": {
+                        "description": "Repetición exacta de password.",
+                        "type": "string",
+                        "format": "password",
+                        "example": "secret123",
+                        "minLength": 8
+                    },
+                    "role": {
+                        "description": "Rol solicitado. Los roles administrator y manager no pueden autoregistrarse.",
+                        "type": "string",
+                        "example": "pilot",
+                        "enum": [
+                            "pilot",
+                            "carrier"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
+            "ResetPasswordRequest": {
+                "title": "Restablecimiento de contraseña",
+                "description": "Correo, código de recuperación de 6 dígitos y nueva contraseña.",
+                "required": [
+                    "email",
+                    "code",
+                    "password"
+                ],
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "piloto@legumex.com"
+                    },
+                    "code": {
+                        "description": "Código de 6 dígitos generado por forgot-password. Expira una hora después de generarse.",
+                        "type": "string",
+                        "example": "048213"
+                    },
+                    "password": {
+                        "description": "Nueva contraseña, mínimo 8 caracteres. Este endpoint no exige confirmación.",
+                        "type": "string",
+                        "format": "password",
+                        "example": "secret123",
+                        "minLength": 8
+                    }
+                },
+                "type": "object"
+            },
+            "User": {
+                "title": "Usuario",
+                "description": "Datos públicos de un usuario. Nunca incluye la contraseña.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "type": "string",
+                        "example": "Roberto Santizo"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "piloto@legumex.com"
+                    },
+                    "role": {
+                        "description": "Rol del usuario dentro del sistema.",
+                        "type": "string",
+                        "example": "pilot",
+                        "enum": [
+                            "administrator",
+                            "carrier",
+                            "pilot",
+                            "manager"
+                        ]
+                    },
+                    "emailVerifiedAt": {
+                        "description": "Fecha de confirmación de la cuenta. Es null mientras la cuenta no haya sido confirmada.",
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2026-07-31T10:15:00.000000Z",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "description": "Token JWT emitido por el login. Se envía como: Authorization: Bearer {token}",
+                "bearerFormat": "JWT",
+                "scheme": "bearer"
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Auth",
+            "description": "Registro, confirmación de cuenta, inicio de sesión y recuperación de contraseña."
+        }
+    ]
+}

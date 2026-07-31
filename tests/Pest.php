@@ -1,6 +1,9 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use Tests\TestCase;
 
 /*
@@ -15,8 +18,8 @@ use Tests\TestCase;
 */
 
 pest()->extend(TestCase::class)
- // ->use(RefreshDatabase::class)
-    ->in('Feature');
+    ->use(RefreshDatabase::class)
+    ->in('Feature', 'Unit');
 
 /*
 |--------------------------------------------------------------------------
@@ -47,4 +50,37 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Store a known confirmation/reset code for an email.
+ *
+ * The service hashes the generated code and discards the plain value, so tests
+ * that need to submit a valid code must plant the row themselves.
+ */
+function seedAuthCode(string $table, string $email, string $code = '123456', ?DateTimeInterface $expirationDate = null): void
+{
+    DB::table($table)->updateOrInsert(
+        ['email' => $email],
+        [
+            'token' => Hash::make($code),
+            'expiration_date' => $expirationDate ?? now()->addHour(),
+            'created_at' => now(),
+        ],
+    );
+}
+
+/**
+ * Drop the guard and JWT state kept in memory between calls of the same test.
+ *
+ * In production every request boots its own process; here the "tymon.jwt" and
+ * "tymon.jwt.auth" singletons survive between calls and would keep serving the
+ * token parsed by the previous request.
+ */
+function resetAuthState(): void
+{
+    app('auth')->forgetGuards();
+
+    JWTAuth::unsetToken();
+    app('tymon.jwt')->unsetToken();
 }

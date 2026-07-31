@@ -6,7 +6,49 @@ use App\Enums\UserRole;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: 'RegisterRequest',
+    title: 'Registro de usuario',
+    description: 'Datos para crear una cuenta. Solo se permite registrar los roles pilot y carrier.',
+    required: ['name', 'email', 'password', 'password_confirmation', 'role'],
+    properties: [
+        new OA\Property(property: 'name', type: 'string', maxLength: 255, example: 'Roberto Santizo'),
+        new OA\Property(
+            property: 'email',
+            description: 'Debe ser único: no puede existir otra cuenta con el mismo correo.',
+            type: 'string',
+            format: 'email',
+            maxLength: 255,
+            example: 'piloto@legumex.com',
+        ),
+        new OA\Property(
+            property: 'password',
+            description: 'Mínimo 8 caracteres. Debe coincidir con password_confirmation.',
+            type: 'string',
+            format: 'password',
+            minLength: 8,
+            example: 'secret123',
+        ),
+        new OA\Property(
+            property: 'password_confirmation',
+            description: 'Repetición exacta de password.',
+            type: 'string',
+            format: 'password',
+            minLength: 8,
+            example: 'secret123',
+        ),
+        new OA\Property(
+            property: 'role',
+            description: 'Rol solicitado. Los roles administrator y manager no pueden autoregistrarse.',
+            type: 'string',
+            enum: ['pilot', 'carrier'],
+            example: 'pilot',
+        ),
+    ],
+    type: 'object',
+)]
 class RegisterRequest extends FormRequest
 {
     public function authorize(): bool

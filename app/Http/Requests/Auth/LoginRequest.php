@@ -4,7 +4,19 @@ namespace App\Http\Requests\Auth;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: 'LoginRequest',
+    title: 'Inicio de sesión',
+    description: 'Credenciales de acceso.',
+    required: ['email', 'password'],
+    properties: [
+        new OA\Property(property: 'email', type: 'string', format: 'email', example: 'piloto@legumex.com'),
+        new OA\Property(property: 'password', type: 'string', format: 'password', example: 'secret123'),
+    ],
+    type: 'object',
+)]
 class LoginRequest extends FormRequest
 {
     public function authorize(): bool
