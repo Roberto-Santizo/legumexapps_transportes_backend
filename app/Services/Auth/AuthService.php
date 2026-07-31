@@ -20,6 +20,11 @@ class AuthService implements AuthServiceInterface
      */
     private const CONFIRMATION_TABLE = 'account_confirmation_tokens';
 
+    /**
+     * Table holding the pending password reset codes.
+     */
+    private const RESET_TABLE = 'password_reset_tokens';
+
     #[Override]
     public function register(array $data): User
     {
@@ -87,13 +92,27 @@ class AuthService implements AuthServiceInterface
     #[Override]
     public function forgotPassword(array $data): void
     {
-        throw new \LogicException('Pendiente: paso 10 de la spec 01.');
+        $user = User::where('email', '=', $data['email'])->first();
+
+        /** Se responde igual exista o no la cuenta: el endpoint no revela qué correos están registrados. */
+        if (! $user) {
+            return;
+        }
+
+        $this->storeCode(self::RESET_TABLE, $user->email);
     }
 
     #[Override]
     public function resetPassword(array $data): void
     {
-        throw new \LogicException('Pendiente: paso 10 de la spec 01.');
+        $user = $this->getUserByValidCode(self::RESET_TABLE, $data['email'], $data['code']);
+
+        DB::transaction(function () use ($user, $data): void {
+            $user->password = $data['password'];
+            $user->save();
+
+            DB::table(self::RESET_TABLE)->where('email', '=', $data['email'])->delete();
+        });
     }
 
     /**
