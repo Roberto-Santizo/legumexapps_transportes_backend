@@ -20,13 +20,15 @@ class AuthService implements AuthServiceInterface
     #[Override]
     public function register(array $data): User
     {
-        $user = new User($data);
-        $user->email_verified_at = null;
-        $user->save();
+        return DB::transaction(function () use ($data): User {
+            $user = new User($data);
+            $user->email_verified_at = null;
+            $user->save();
 
-        $this->storeCode(self::CONFIRMATION_TABLE, $user->email);
+            $this->storeCode(self::CONFIRMATION_TABLE, $user->email);
 
-        return $user;
+            return $user;
+        });
     }
 
     #[Override]
@@ -34,10 +36,12 @@ class AuthService implements AuthServiceInterface
     {
         $user = $this->getUserByValidCode(self::CONFIRMATION_TABLE, $data['email'], $data['code']);
 
-        $user->email_verified_at = now();
-        $user->save();
+        DB::transaction(function () use ($user, $data): void {
+            $user->email_verified_at = now();
+            $user->save();
 
-        DB::table(self::CONFIRMATION_TABLE)->where('email', '=', $data['email'])->delete();
+            DB::table(self::CONFIRMATION_TABLE)->where('email', '=', $data['email'])->delete();
+        });
     }
 
     #[Override]
