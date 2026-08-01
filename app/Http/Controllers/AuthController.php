@@ -53,7 +53,7 @@ class AuthController extends Controller
         try {
             $user = $authService->register($request->validated());
 
-            return ResponseHandler::success(new UserResource($user), 'Usuario registrado correctamente', 201);
+            return ResponseHandler::success(new UserResource($user), 'Hemos enviado instrucciones a tu correo electronico', 201);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }

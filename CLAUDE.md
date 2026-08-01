@@ -1,3 +1,54 @@
+# Legumex Transportes — Backend
+
+API REST interna de transportes (Laravel 13 + PHP 8.5). Sin frontend propio: solo expone JSON bajo `/api`. Autenticación con JWT (`php-open-source-saver/jwt-auth`) y documentación OpenAPI con `darkaonline/l5-swagger`.
+
+## Arquitectura por capas
+
+Cada recurso se implementa con la misma cadena de archivos, agrupados en subcarpeta por dominio (`Auth/`, etc.):
+
+| Capa | Ubicación | Responsabilidad |
+|---|---|---|
+| Rutas | `routes/<recurso>.php`, incluido desde `routes/api.php` | Prefijo + `name()` propios; middleware `jwt.auth` en lo protegido |
+| Controller | `app/Http/Controllers/` | `try/catch` → `ResponseHandler`; sin lógica de negocio; atributos `OpenApi\Attributes` |
+| FormRequest | `app/Http/Requests/<Dominio>/` | Validación + `messages()` en español; schema OA del body |
+| Resource | `app/Http/Resources/<Dominio>/` | Salida en **camelCase** (`emailVerifiedAt`); schema OA del modelo |
+| Interface | `app/Interfaces/<Dominio>/` | Contrato del service, con PHPDoc de array shapes |
+| Service | `app/Services/<Dominio>/` | Lógica de negocio; lanza errores de `App\Errors`; `#[Override]` en cada método |
+| Provider | `app/Providers/<Dominio>/` | `bind(Interface::class, Service::class)`, registrado en `bootstrap/providers.php` |
+
+El service se inyecta **por parámetro del método del controller** (`public function login(LoginRequest $request, AuthServiceInterface $authService)`), no por constructor.
+
+## Respuestas y errores
+
+- Todo pasa por `App\Helpers\ResponseHandler`: sobre `{ statusCode, message, data }`. `success($data, $message, $statusCode)` resuelve `JsonResource` automáticamente y aplana metadata de paginación.
+- Los errores de negocio son subclases de `App\Errors\ApiException` (`BadRequestError`, `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `NotAcceptable`); el controller los captura y `ResponseHandler::error()` mapea el status. Cualquier otro `Throwable` cae a 500.
+- `bootstrap/app.php` renderiza JSON para `api/*` y traduce el `UnauthorizedHttpException` del middleware `jwt.auth` al mismo sobre.
+- Mensajes de cara al usuario en español; nombres de código y PHPDoc en inglés.
+
+## Autenticación
+
+- Guard `api` de JWT; alias de middleware `jwt.auth`. `JWT_TTL=60` minutos.
+- `User` implementa `JWTSubject` y añade claims `id/name/email/role`; roles en `App\Enums\UserRole` (administrator, carrier, pilot, manager) — solo `pilot` y `carrier` pueden autoregistrarse.
+- Flujo: register (sin token, cuenta sin confirmar) → confirm-account → login (emite token) → check-status (único endpoint que renueva token; no hay `/refresh` ni `/logout`).
+- Códigos de 6 dígitos hasheados con vigencia de 1 h en `account_confirmation_tokens` y `password_reset_tokens`.
+
+## Documentación OpenAPI
+
+- Anotada con atributos PHP `OpenApi\Attributes as OA` sobre Controller / FormRequest / Resource. Los schemas base (`Info`, `bearerAuth`, `ApiError`, `ValidationError`) viven en `app/Http/Controllers/Controller.php`.
+- Regenerar: `php artisan l5-swagger:generate` → `storage/api-docs/api-docs.json`. UI en `/api/documentation`.
+
+## Tests
+
+- Pest 5, SQLite en memoria, `RefreshDatabase` aplicado globalmente desde `tests/Pest.php`.
+- Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash) y `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test).
+- Ejecutar: `php artisan test --compact` (o `--filter=`).
+
+## Flujo de trabajo
+
+- Specs en `specs/NN-slug.md`; `/spec-impl` crea la rama `spec-NN-slug` automáticamente (`specs/.spec-config.yml`).
+- Scaffolding de un CRUD completo: skill `new-feature` (genera todas las capas y las cablea). Después dispara los agentes `feature-tests` y `endpoint-docs`.
+- Tras tocar PHP: `vendor/bin/pint --dirty --format agent`.
+
 <laravel-boost-guidelines>
 === foundation rules ===
 
