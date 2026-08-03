@@ -51,7 +51,7 @@ it('registra un usuario y devuelve 201 con el recurso del usuario', function () 
     $response->assertCreated()
         ->assertJson([
             'statusCode' => 201,
-            'message' => 'Usuario registrado correctamente',
+            'message' => 'Hemos enviado instrucciones a tu correo electronico',
             'data' => [
                 'name' => 'Juan Pérez',
                 'email' => 'juan.perez@example.com',
@@ -156,7 +156,7 @@ it('confirma la cuenta con el código correcto y elimina el código usado', func
     ])->assertOk()
         ->assertExactJson([
             'statusCode' => 200,
-            'message' => 'La cuenta ha sido confirmada correctamente',
+            'message' => 'La cuenta ha sido confirmada correctamente, inicie sesión.',
             'data' => null,
         ]);
 
