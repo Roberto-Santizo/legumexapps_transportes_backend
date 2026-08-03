@@ -5,6 +5,7 @@ namespace App\Services\Auth;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\UnauthorizedError;
+use App\Interfaces\Auth\AuthEmailsInterface;
 use App\Interfaces\Auth\AuthServiceInterface;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -24,6 +25,14 @@ class AuthService implements AuthServiceInterface
      * Table holding the pending password reset codes.
      */
     private const RESET_TABLE = 'password_reset_tokens';
+
+    /**
+     * Injected by constructor, unlike the controllers' per-method injection:
+     * the emails are a dependency of several methods of this service.
+     */
+    public function __construct(
+        private AuthEmailsInterface $authEmails,
+    ) {}
 
     #[Override]
     public function register(array $data): User
