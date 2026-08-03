@@ -99,7 +99,7 @@ class AuthController extends Controller
         try {
             $authService->confirmAccount($request->validated());
 
-            return ResponseHandler::success(null, 'La cuenta ha sido confirmada correctamente', 200);
+            return ResponseHandler::success(null, 'La cuenta ha sido confirmada correctamente, inicie sesión.', 200);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }
