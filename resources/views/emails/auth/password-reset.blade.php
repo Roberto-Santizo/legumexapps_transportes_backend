@@ -1,16 +1,17 @@
 <x-mail::message>
+<p class="eyebrow">Seguridad de la cuenta</p>
+
 # Restablece tu contraseña
 
-Hola {{ $user->name }},
+Hola {{ $user->name }}, recibimos una solicitud para cambiar la contraseña de tu cuenta. Escribe este código en la aplicación para crear la nueva.
 
-Recibimos una solicitud para restablecer la contraseña de tu cuenta. Usa este código para continuar:
+<x-mail::code
+    :code="$code"
+    label="Código de restablecimiento"
+    note="Caduca 1 hora después de este envío."
+/>
 
-<x-mail::panel>
-{{ $code }}
-</x-mail::panel>
-
-El código caduca dentro de **1 hora**. Si no solicitaste el cambio, ignora este correo: tu contraseña actual sigue siendo válida.
-
-Gracias,<br>
-{{ config('mail.from.name') }}
+<x-mail::notice>
+Si no pediste el cambio, ignora este correo: tu contraseña actual sigue vigente. Avisa al administrador si esto se repite.
+</x-mail::notice>
 </x-mail::message>

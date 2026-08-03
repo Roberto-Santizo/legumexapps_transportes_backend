@@ -1,0 +1,423 @@
+/* Legumex Transportes — paleta tomada del propio logo
+   ink #10261A · monte #153C24 · campo #31743F · lima #8CC63F · husk #EEF1E7 */
+
+body,
+body *:not(html):not(style):not(br):not(tr):not(code) {
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    position: relative;
+}
+
+body {
+    -webkit-text-size-adjust: none;
+    background-color: #eef1e7;
+    color: #24402c;
+    height: 100%;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0;
+    width: 100% !important;
+}
+
+/* Tipografía */
+
+p {
+    color: #24402c;
+    font-size: 16px;
+    line-height: 1.65;
+    margin-top: 0;
+    margin-bottom: 18px;
+    text-align: left;
+}
+
+h1 {
+    color: #10261a;
+    font-size: 27px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+    margin-top: 0;
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+h2 {
+    color: #10261a;
+    font-size: 17px;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 12px;
+    text-align: left;
+}
+
+h3 {
+    color: #10261a;
+    font-size: 15px;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 10px;
+    text-align: left;
+}
+
+strong {
+    color: #10261a;
+    font-weight: 700;
+}
+
+a {
+    color: #31743f;
+    text-decoration: underline;
+}
+
+img {
+    border: none;
+    max-width: 100%;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid #dce3d3;
+    margin: 28px 0;
+}
+
+/* Estructura */
+
+.wrapper {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    background-color: #eef1e7;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.content {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.body {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    background-color: #eef1e7;
+    border-bottom: none;
+    border-top: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+}
+
+.inner-body {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 570px;
+    background-color: #fefefe;
+    border-bottom: 4px solid #153c24;
+    margin: 0 auto;
+    padding: 0;
+    width: 570px;
+}
+
+.content-cell {
+    max-width: 100vw;
+    padding: 38px 40px 34px;
+}
+
+/* Membrete: el logo sobre la hoja, cerrado por el filo de lima */
+
+.brand {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 570px;
+    background-color: #fefefe;
+    margin: 0 auto;
+    width: 570px;
+}
+
+/* La sangría es menor que la del cuerpo: el logo trae su propio margen
+   interno, y así el logotipo cae ópticamente sobre la columna de texto. */
+.brand-cell {
+    padding: 26px 36px 20px 28px;
+    text-align: left;
+}
+
+.brand-cell a {
+    color: #153c24;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-decoration: none;
+}
+
+.logo {
+    display: block;
+    height: 118px;
+    margin: 0;
+    max-height: 118px;
+    width: auto;
+}
+
+.header-rule {
+    background-color: #8cc63f;
+    font-size: 0;
+    height: 4px;
+    line-height: 4px;
+}
+
+/* Antetítulo del trámite */
+
+.eyebrow {
+    color: #5b6a5c;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+    margin: 0 0 10px;
+    text-transform: uppercase;
+}
+
+/* Guía: el código como número de manifiesto */
+
+.ticket {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    background-color: #153c24;
+    margin: 4px 0 26px;
+    width: 100%;
+}
+
+.ticket-perforation {
+    background-color: #fefefe;
+    border-bottom: 2px dashed #c3d2b4;
+    font-size: 0;
+    height: 1px;
+    line-height: 1px;
+}
+
+.ticket-cell {
+    padding: 24px 20px 26px;
+    text-align: center;
+}
+
+.ticket-label {
+    color: #8cc63f;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.8px;
+    margin: 0 0 16px;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.digits {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    margin: 0 auto;
+}
+
+/* El text-indent compensa el espacio que letter-spacing añade tras el
+   último dígito, para que la cifra quede ópticamente centrada. */
+.digit {
+    border-bottom: 2px solid #8cc63f;
+    color: #ffffff;
+    font-family: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+    font-size: 31px;
+    font-weight: 700;
+    letter-spacing: 11px;
+    line-height: 1.2;
+    padding: 0 6px 8px;
+    text-align: center;
+    text-indent: 11px;
+}
+
+.ticket-note {
+    color: #c6dbb8;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    margin: 18px 0 0;
+    text-align: center;
+}
+
+/* Ficha de datos */
+
+.record {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    border: 1px solid #dce3d3;
+    border-left: 4px solid #31743f;
+    margin: 0 0 26px;
+    width: 100%;
+}
+
+.record-cell {
+    padding: 16px 22px;
+}
+
+.record-term {
+    color: #5b6a5c;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    padding: 5px 0 3px;
+    text-transform: uppercase;
+    width: 27%;
+}
+
+.record-value {
+    color: #10261a;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 5px 0 3px;
+}
+
+/* Aviso al pie del mensaje */
+
+.notice {
+    border-top: 1px solid #dce3d3;
+    margin-top: 4px;
+    padding-top: 20px;
+}
+
+.notice p {
+    color: #5b6a5c;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* Botón */
+
+.action {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 0 0 28px;
+    padding: 0;
+    width: 100%;
+}
+
+.button {
+    -webkit-text-size-adjust: none;
+    background-color: #31743f;
+    border-radius: 3px;
+    color: #ffffff;
+    display: inline-block;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 14px 26px;
+    text-align: center;
+    text-decoration: none;
+}
+
+.button-green,
+.button-success,
+.button-primary,
+.button-error,
+.button-red,
+.button-danger {
+    background-color: #31743f;
+}
+
+/* Panel heredado de Laravel */
+
+.panel {
+    border-left: 4px solid #31743f;
+    margin: 22px 0;
+}
+
+.panel-content {
+    background-color: #f3f7ee;
+    color: #10261a;
+    padding: 18px;
+}
+
+.panel-content p {
+    color: #10261a;
+}
+
+.panel-item {
+    padding: 0;
+}
+
+.panel-item p:last-of-type {
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+/* Tablas de Markdown */
+
+.table table {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 100%;
+    margin: 26px auto;
+    width: 100%;
+}
+
+.table th {
+    border-bottom: 1px solid #dce3d3;
+    color: #5b6a5c;
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    margin: 0;
+    padding-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.table td {
+    color: #24402c;
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 0;
+    padding: 10px 0;
+}
+
+.content-cell img {
+    max-width: 100%;
+}
+
+/* Subcopy */
+
+.subcopy {
+    border-top: 1px solid #dce3d3;
+    margin-top: 26px;
+    padding-top: 20px;
+}
+
+.subcopy p {
+    color: #5b6a5c;
+    font-size: 13px;
+}
+
+/* Pie */
+
+.footer {
+    -premailer-cellpadding: 0;
+    -premailer-cellspacing: 0;
+    -premailer-width: 570px;
+    margin: 0 auto;
+    padding: 0;
+    text-align: center;
+    width: 570px;
+}
+
+.footer p {
+    color: #5b6a5c;
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: center;
+}
+
+.footer a {
+    color: #5b6a5c;
+    text-decoration: underline;
+}

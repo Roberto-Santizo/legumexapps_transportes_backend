@@ -1,12 +1,20 @@
 <x-mail::message>
-# Bienvenido a Legumex Transportes
+<p class="eyebrow">Cuenta activa</p>
 
-Hola {{ $user->name }},
+# Bienvenido a bordo, {{ $user->name }}
 
-Tu cuenta ya está confirmada. A partir de ahora puedes iniciar sesión con tu correo y tu contraseña.
+Tu cuenta quedó confirmada. Ya puedes iniciar sesión con tu correo y tu contraseña, y trabajar con los transportes asignados a tu perfil.
 
-Si no reconoces esta cuenta, avisa al administrador.
+<x-mail::record :rows="[
+    'Correo' => $user->email,
+    'Perfil' => $user->role->label(),
+]" />
 
-Gracias,<br>
-{{ config('mail.from.name') }}
+<x-mail::button :url="config('app.url')" align="left">
+Iniciar sesión
+</x-mail::button>
+
+<x-mail::notice>
+¿No reconoces esta cuenta o el perfil no corresponde a tu puesto? Avisa al administrador para darla de baja.
+</x-mail::notice>
 </x-mail::message>
