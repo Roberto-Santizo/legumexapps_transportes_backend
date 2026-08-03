@@ -37,15 +37,18 @@ class AuthService implements AuthServiceInterface
     #[Override]
     public function register(array $data): User
     {
-        return DB::transaction(function () use ($data): User {
+        /** El correo sale fuera de la transacción: un commit fallido no debe dejar un código enviado que no existe. */
+        [$user, $code] = DB::transaction(function () use ($data): array {
             $user = new User($data);
             $user->email_verified_at = null;
             $user->save();
 
-            $this->storeCode(self::CONFIRMATION_TABLE, $user->email);
-
-            return $user;
+            return [$user, $this->storeCode(self::CONFIRMATION_TABLE, $user->email)];
         });
+
+        $this->authEmails->sendAccountConfirmation($user, $code);
+
+        return $user;
     }
 
     #[Override]
