@@ -17,6 +17,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Logo
+    |--------------------------------------------------------------------------
+    |
+    | Absolute URL of the logo rendered in the transactional emails. It must be
+    | publicly reachable, since mail clients download it from the recipient's
+    | device with no access to this application.
+    |
+    */
+
+    'logo_url' => env('LOGO_URL'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |
