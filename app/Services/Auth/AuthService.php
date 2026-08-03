@@ -111,7 +111,9 @@ class AuthService implements AuthServiceInterface
             return;
         }
 
-        $this->storeCode(self::RESET_TABLE, $user->email);
+        $code = $this->storeCode(self::RESET_TABLE, $user->email);
+
+        $this->authEmails->sendPasswordReset($user, $code);
     }
 
     #[Override]
