@@ -4,12 +4,20 @@ use App\Enums\UserRole;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\UnauthorizedError;
+use App\Interfaces\Auth\AuthEmailsInterface;
 use App\Interfaces\Auth\AuthServiceInterface;
+use App\Mail\Auth\AccountConfirmationMail;
+use App\Mail\Auth\PasswordResetMail;
+use App\Mail\Auth\WelcomeMail;
+use App\Mail\Services\AuthEmails;
 use App\Models\User;
 use App\Services\Auth\AuthService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 const SERVICE_CONFIRMATION_TABLE = 'account_confirmation_tokens';
 const SERVICE_RESET_TABLE = 'password_reset_tokens';
@@ -242,3 +250,110 @@ it('lanza BadRequestError al restablecer con un código inválido y conserva la 
     'código expirado' => ['-1 minute', '123456'],
     'sin código pendiente' => [null, '123456'],
 ]);
+
+/*
+|--------------------------------------------------------------------------
+| AuthEmails
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * @return array<string, string>
+ */
+function serviceRegisterPayload(array $overrides = []): array
+{
+    return array_merge([
+        'name' => 'Juan Pérez',
+        'email' => 'juan.perez@example.com',
+        'password' => 'password123',
+        'role' => UserRole::Pilot->value,
+    ], $overrides);
+}
+
+it('resuelve siempre la misma instancia del emisor de correos', function () {
+    expect(app(AuthEmailsInterface::class))->toBeInstanceOf(AuthEmails::class)
+        ->and(app(AuthEmailsInterface::class))->toBe(app(AuthEmailsInterface::class));
+});
+
+it('entrega al emisor de correos el código en claro que corresponde al hash persistido', function () {
+    $code = null;
+
+    $emails = Mockery::mock(AuthEmailsInterface::class);
+    $emails->shouldReceive('sendAccountConfirmation')
+        ->once()
+        ->with(Mockery::type(User::class), Mockery::capture($code));
+
+    $this->app->instance(AuthEmailsInterface::class, $emails);
+
+    $user = authService()->register(serviceRegisterPayload());
+
+    $stored = DB::table(SERVICE_CONFIRMATION_TABLE)->where('email', '=', $user->email)->value('token');
+
+    expect($code)->toMatch('/^\d{6}$/')
+        ->and(Hash::check($code, $stored))->toBeTrue();
+});
+
+/**
+ * El try/catch real vive dentro de AuthEmails, no en AuthService: por eso el fallo
+ * se fuerza en el transporte y se deja actuar a la implementación registrada, en
+ * lugar de inyectar un doble que lanza (eso solo probaría el doble).
+ */
+it('no rompe el registro ni pierde el código cuando el proveedor de correo falla', function () {
+    Log::spy();
+    Mail::shouldReceive('to')->once()->andThrow(new RuntimeException('proveedor de correo caído'));
+
+    $user = authService()->register(serviceRegisterPayload());
+
+    expect($user)->toBeInstanceOf(User::class)
+        ->and($user->email)->toBe('juan.perez@example.com');
+
+    $this->assertDatabaseHas('users', ['email' => 'juan.perez@example.com', 'email_verified_at' => null]);
+    $this->assertDatabaseCount(SERVICE_CONFIRMATION_TABLE, 1);
+});
+
+it('registra el fallo del proveedor con el correo del usuario y sin el código en claro', function () {
+    $user = User::factory()->create(['email' => 'juan.perez@example.com']);
+
+    Log::spy();
+    Mail::shouldReceive('to')->once()->andThrow(new RuntimeException('proveedor de correo caído'));
+
+    app(AuthEmails::class)->sendAccountConfirmation($user, '123456');
+
+    Log::shouldHaveReceived('error')
+        ->once()
+        ->withArgs(function (string $message, array $context): bool {
+            return $message === 'No se pudo enviar el correo de autenticación'
+                && $context['mailable'] === AccountConfirmationMail::class
+                && $context['email'] === 'juan.perez@example.com'
+                && $context['exception'] === 'proveedor de correo caído'
+                && ! str_contains((string) json_encode($context), '123456');
+        });
+});
+
+it('renderiza cada plantilla de correo con el nombre del usuario y su código cuando lo lleva', function (string $mailable, bool $withCode) {
+    $user = User::factory()->make(['name' => 'Juan Perez']);
+
+    $html = $withCode
+        ? (new $mailable($user, '123456'))->render()
+        : (new $mailable($user))->render();
+
+    expect($html)->toContain('Juan Perez');
+
+    $withCode
+        ? expect($html)->toContain('123456')
+        : expect($html)->not->toContain('123456');
+})->with([
+    'confirmación de cuenta' => [AccountConfirmationMail::class, true],
+    'restablecimiento de contraseña' => [PasswordResetMail::class, true],
+    'bienvenida' => [WelcomeMail::class, false],
+]);
+
+it('no envía ningún correo cuando falla el guardado del usuario en el registro', function () {
+    User::factory()->create(['email' => 'juan.perez@example.com']);
+
+    expect(fn () => authService()->register(serviceRegisterPayload()))->toThrow(QueryException::class);
+
+    $this->assertDatabaseCount(SERVICE_CONFIRMATION_TABLE, 0);
+
+    Mail::assertNothingSent();
+});

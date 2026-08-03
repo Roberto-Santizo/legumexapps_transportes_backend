@@ -1,10 +1,15 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Mail\Auth\AccountConfirmationMail;
+use App\Mail\Auth\PasswordResetMail;
+use App\Mail\Auth\WelcomeMail;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 
 const CONFIRMATION_TABLE = 'account_confirmation_tokens';
@@ -51,7 +56,7 @@ it('registra un usuario y devuelve 201 con el recurso del usuario', function () 
     $response->assertCreated()
         ->assertJson([
             'statusCode' => 201,
-            'message' => 'Usuario registrado correctamente',
+            'message' => 'Hemos enviado instrucciones a tu correo electronico',
             'data' => [
                 'name' => 'Juan Pérez',
                 'email' => 'juan.perez@example.com',
@@ -156,7 +161,7 @@ it('confirma la cuenta con el código correcto y elimina el código usado', func
     ])->assertOk()
         ->assertExactJson([
             'statusCode' => 200,
-            'message' => 'La cuenta ha sido confirmada correctamente',
+            'message' => 'La cuenta ha sido confirmada correctamente, inicie sesión.',
             'data' => null,
         ]);
 
@@ -565,3 +570,106 @@ it('valida los campos obligatorios al restablecer la contraseña', function (arr
     'sin contraseña' => [['email' => 'juan.perez@example.com', 'code' => '123456'], 'password'],
     'contraseña demasiado corta' => [['email' => 'juan.perez@example.com', 'code' => '123456', 'password' => 'corta'], 'password'],
 ]);
+
+/*
+|--------------------------------------------------------------------------
+| Correos de autenticación
+|--------------------------------------------------------------------------
+*/
+
+it('envía exactamente un correo de confirmación al correo recién registrado', function () {
+    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+
+    Mail::assertSentCount(1);
+    Mail::assertSent(
+        AccountConfirmationMail::class,
+        fn (AccountConfirmationMail $mail): bool => $mail->hasTo('juan.perez@example.com'),
+    );
+});
+
+it('envía en el correo de confirmación el código que valida el confirm-account siguiente', function () {
+    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+
+    $code = null;
+
+    Mail::assertSent(AccountConfirmationMail::class, function (AccountConfirmationMail $mail) use (&$code): bool {
+        $code = $mail->code;
+
+        /** El código de 6 dígitos llega renderizado en el cuerpo del correo, no solo como propiedad. */
+        $mail->assertSeeInHtml($code);
+
+        return true;
+    });
+
+    expect($code)->toMatch('/^\d{6}$/');
+
+    $this->postJson(route('auth.confirm-account'), [
+        'email' => 'juan.perez@example.com',
+        'code' => $code,
+    ])->assertOk();
+
+    expect(User::where('email', '=', 'juan.perez@example.com')->first()->email_verified_at)->not->toBeNull();
+});
+
+it('envía exactamente un correo de bienvenida al confirmar la cuenta', function () {
+    $user = User::factory()->unverified()->create();
+    seedAuthCode(CONFIRMATION_TABLE, $user->email);
+
+    $this->postJson(route('auth.confirm-account'), [
+        'email' => $user->email,
+        'code' => '123456',
+    ])->assertOk();
+
+    Mail::assertSentCount(1);
+    Mail::assertSent(WelcomeMail::class, fn (WelcomeMail $mail): bool => $mail->hasTo($user->email));
+});
+
+it('no envía ningún correo cuando la confirmación falla por un código incorrecto', function () {
+    $user = User::factory()->unverified()->create();
+    seedAuthCode(CONFIRMATION_TABLE, $user->email);
+
+    $this->postJson(route('auth.confirm-account'), [
+        'email' => $user->email,
+        'code' => '999999',
+    ])->assertBadRequest();
+
+    Mail::assertNothingSent();
+});
+
+it('envía exactamente un correo de recuperación al correo registrado', function () {
+    $user = User::factory()->create();
+
+    $this->postJson(route('auth.forgot-password'), ['email' => $user->email])->assertOk();
+
+    Mail::assertSentCount(1);
+    Mail::assertSent(PasswordResetMail::class, fn (PasswordResetMail $mail): bool => $mail->hasTo($user->email));
+});
+
+it('no envía ningún correo de recuperación cuando el correo no está registrado', function () {
+    $this->postJson(route('auth.forgot-password'), ['email' => 'nadie@example.com'])->assertOk();
+
+    Mail::assertNothingSent();
+});
+
+it('no envía ningún correo al iniciar sesión', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+
+    $this->postJson(route('auth.login'), [
+        'email' => $user->email,
+        'password' => 'password123',
+    ])->assertOk();
+
+    Mail::assertNothingSent();
+
+    resetAuthState();
+});
+
+it('devuelve 201 en el registro aunque el proveedor de correo falle', function () {
+    Log::spy();
+    Mail::shouldReceive('to')->once()->andThrow(new RuntimeException('proveedor de correo caído'));
+
+    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+
+    $this->assertDatabaseHas('users', ['email' => 'juan.perez@example.com']);
+    $this->assertDatabaseCount(CONFIRMATION_TABLE, 1);
+});

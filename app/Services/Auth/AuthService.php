@@ -5,6 +5,7 @@ namespace App\Services\Auth;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\UnauthorizedError;
+use App\Interfaces\Auth\AuthEmailsInterface;
 use App\Interfaces\Auth\AuthServiceInterface;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -25,18 +26,29 @@ class AuthService implements AuthServiceInterface
      */
     private const RESET_TABLE = 'password_reset_tokens';
 
+    /**
+     * Injected by constructor, unlike the controllers' per-method injection:
+     * the emails are a dependency of several methods of this service.
+     */
+    public function __construct(
+        private AuthEmailsInterface $authEmails,
+    ) {}
+
     #[Override]
     public function register(array $data): User
     {
-        return DB::transaction(function () use ($data): User {
+        /** El correo sale fuera de la transacción: un commit fallido no debe dejar un código enviado que no existe. */
+        [$user, $code] = DB::transaction(function () use ($data): array {
             $user = new User($data);
             $user->email_verified_at = null;
             $user->save();
 
-            $this->storeCode(self::CONFIRMATION_TABLE, $user->email);
-
-            return $user;
+            return [$user, $this->storeCode(self::CONFIRMATION_TABLE, $user->email)];
         });
+
+        $this->authEmails->sendAccountConfirmation($user, $code);
+
+        return $user;
     }
 
     #[Override]
@@ -50,6 +62,8 @@ class AuthService implements AuthServiceInterface
 
             DB::table(self::CONFIRMATION_TABLE)->where('email', '=', $data['email'])->delete();
         });
+
+        $this->authEmails->sendWelcome($user);
     }
 
     #[Override]
@@ -99,7 +113,9 @@ class AuthService implements AuthServiceInterface
             return;
         }
 
-        $this->storeCode(self::RESET_TABLE, $user->email);
+        $code = $this->storeCode(self::RESET_TABLE, $user->email);
+
+        $this->authEmails->sendPasswordReset($user, $code);
     }
 
     #[Override]
