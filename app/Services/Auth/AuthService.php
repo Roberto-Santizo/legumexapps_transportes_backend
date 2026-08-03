@@ -62,6 +62,8 @@ class AuthService implements AuthServiceInterface
 
             DB::table(self::CONFIRMATION_TABLE)->where('email', '=', $data['email'])->delete();
         });
+
+        $this->authEmails->sendWelcome($user);
     }
 
     #[Override]
