@@ -14,8 +14,8 @@
 - Instalación de `resend/resend-laravel` y registro del mailer `resend` en `config/mail.php`.
 - Variables `RESEND_API_KEY`, `MAIL_FROM_ADDRESS` y `MAIL_FROM_NAME` en `.env.example`, con `MAIL_MAILER=log` como valor por defecto de desarrollo.
 - Contrato `App\Interfaces\Auth\AuthEmailsInterface` con tres métodos.
-- Implementación `App\Mail\AuthEmails`, registrada como **singleton** en el `AuthProvider` existente.
-- Tres Mailables en `app/Mail/`: `AccountConfirmationMail`, `PasswordResetMail`, `WelcomeMail`.
+- Implementación `App\Mail\Services\AuthEmails`, registrada como **singleton** en el `AuthProvider` existente.
+- Tres Mailables en `app/Mail/Auth/`: `AccountConfirmationMail`, `PasswordResetMail`, `WelcomeMail`.
 - Tres plantillas Markdown en `resources/views/emails/auth/`, con textos en español.
 - Captura de cualquier `Throwable` del proveedor dentro de `AuthEmails`, con `Log::error` y sin propagar.
 - Refactor de `AuthService`: recibe `AuthEmailsInterface` por constructor, extrae el código en claro fuera de la transacción y dispara el envío tras el commit en `register`, `confirmAccount` y `forgotPassword`.
@@ -110,13 +110,13 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 2. **Contrato de correos.** Crear `app/Interfaces/Auth/AuthEmailsInterface.php` con los tres métodos y su PHPDoc. Sin implementación todavía; nada lo consume.
 
-3. **Mailable de confirmación.** `php artisan make:mail AccountConfirmationMail --markdown=emails.auth.account-confirmation`, con `User` y `string $code` promovidos, asunto *Confirma tu cuenta* y la plantilla con el código en un `mail::panel`. *Verificación:* `php artisan tinker --execute '(new App\Mail\AccountConfirmationMail(App\Models\User::factory()->make(), "123456"))->render();'` no lanza.
+3. **Mailable de confirmación.** `php artisan make:mail Auth/AccountConfirmationMail --markdown=emails.auth.account-confirmation`, con `User` y `string $code` promovidos, asunto *Confirma tu cuenta* y la plantilla con el código en un `mail::panel`. *Verificación:* `php artisan tinker --execute '(new App\Mail\Auth\AccountConfirmationMail(App\Models\User::factory()->make(), "123456"))->render();'` no lanza.
 
 4. **Mailable de reseteo.** Igual que el anterior, `PasswordResetMail` con asunto *Restablece tu contraseña*.
 
 5. **Mailable de bienvenida.** `WelcomeMail`, solo recibe `User`, asunto *Bienvenido a Legumex Transportes*, sin código.
 
-6. **Implementación `AuthEmails`.** `app/Mail/AuthEmails.php` implementando la interfaz, con `#[Override]` en cada método. Cada uno hace `Mail::to($user->email)->send(...)` dentro de un `try/catch (\Throwable)` que loguea con `Log::error` y no propaga.
+6. **Implementación `AuthEmails`.** `app/Mail/Services/AuthEmails.php` implementando la interfaz, con `#[Override]` en cada método. Cada uno hace `Mail::to($user->email)->send(...)` dentro de un `try/catch (\Throwable)` que loguea con `Log::error` y no propaga.
 
 7. **Registro del singleton.** En `app/Providers/Auth/AuthProvider.php`, `$this->app->singleton(AuthEmailsInterface::class, AuthEmails::class);` junto al bind existente. *Verificación:* `php artisan tinker --execute 'var_dump(app(App\Interfaces\Auth\AuthEmailsInterface::class) === app(App\Interfaces\Auth\AuthEmailsInterface::class));'` imprime `true`.
 
@@ -146,7 +146,7 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 **Singleton**
 
-- [ ] `app(AuthEmailsInterface::class)` resuelve a una instancia de `App\Mail\AuthEmails`.
+- [ ] `app(AuthEmailsInterface::class)` resuelve a una instancia de `App\Mail\Services\AuthEmails`.
 - [ ] Dos resoluciones consecutivas de `AuthEmailsInterface` devuelven **la misma instancia**.
 - [ ] `AuthService` recibe el contrato por constructor; ningún método de `AuthService` usa la facade `Mail` directamente.
 
@@ -190,7 +190,7 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 **Forma del singleton**
 
-- **Sí:** `AuthEmailsInterface` en `app/Interfaces/Auth/` e implementación en `app/Mail/AuthEmails.php`. La interfaz sigue la convención por capas del proyecto; la implementación vive junto a los Mailables que instancia.
+- **Sí:** `AuthEmailsInterface` en `app/Interfaces/Auth/` e implementación en `app/Mail/Services/AuthEmails.php`, con los tres Mailables en `app/Mail/Auth/`. La interfaz sigue la convención por capas del proyecto; la implementación vive dentro de `app/Mail/`, junto a los Mailables que instancia, pero separada de ellos para que la carpeta no mezcle emisor y correos.
 - **Sí:** `singleton()` y no `bind()`. La clase no tiene estado por petición: una instancia por request es suficiente y es lo que pidió el requisito.
 - **Sí:** bind dentro del `AuthProvider` existente. Hoy hay un solo dominio de correos; un `MailProvider` propio sería un provider con un único registro.
 - **No:** un `MailService` genérico con `AuthEmails` encima. La indirección extra no compra nada mientras solo existan correos de autenticación.
