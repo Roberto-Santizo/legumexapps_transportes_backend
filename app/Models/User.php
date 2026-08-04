@@ -83,15 +83,24 @@ class User extends Authenticatable implements JWTSubject
     /**
      * Get the custom claims added to the JWT payload.
      *
-     * @return array{id: int, name: string, email: string, role: string}
+     * The carrier claims mirror the user's company, and are null while the user
+     * has none. They are informative for the front end, never a source of truth
+     * for authorization.
+     *
+     * @return array{id: int, name: string, email: string, role: string, carrierId: int|null, carrierName: string|null, carrierCode: string|null}
      */
     public function getJWTCustomClaims(): array
     {
+        $carrier = $this->currentCarrier();
+
         return [
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
             'role' => $this->role->value,
+            'carrierId' => $carrier?->id,
+            'carrierName' => $carrier?->name,
+            'carrierCode' => $carrier?->code,
         ];
     }
 }
