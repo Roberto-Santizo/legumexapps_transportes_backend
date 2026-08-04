@@ -22,7 +22,7 @@ class EnsureUserHasCarrier
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $user = $request->user();
+        $user = auth('api')->user();
 
         if ($user === null) {
             return ResponseHandler::error(new ForbiddenError('Debes estar vinculado a un transportista para acceder a este recurso'));

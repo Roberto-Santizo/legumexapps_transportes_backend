@@ -22,7 +22,7 @@ class EnsureUserHasRole
      */
     public function handle(Request $request, Closure $next, string ...$roles): Response
     {
-        $user = $request->user();
+        $user = auth('api')->user();
 
         if ($user === null || ! in_array($user->role->value, $roles, true)) {
             return ResponseHandler::error(new ForbiddenError('No tienes permisos para acceder a este recurso'));

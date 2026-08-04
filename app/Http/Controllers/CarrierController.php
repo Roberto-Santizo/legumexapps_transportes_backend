@@ -33,7 +33,7 @@ class CarrierController extends Controller
     public function store(StoreCarrierRequest $request, CarrierServiceInterface $carrierService)
     {
         try {
-            $carrier = $carrierService->createCarrier($request->validated(), $request->user());
+            $carrier = $carrierService->createCarrier($request->validated(), auth('api')->user());
 
             return ResponseHandler::success(new CarrierResource($carrier), 'Empresa transportista creada correctamente', 201);
         } catch (\Throwable $th) {
@@ -55,7 +55,7 @@ class CarrierController extends Controller
     public function update(UpdateCarrierRequest $request, int $carrier, CarrierServiceInterface $carrierService)
     {
         try {
-            $updated = $carrierService->updateCarrier($request->validated(), $carrier, $request->user());
+            $updated = $carrierService->updateCarrier($request->validated(), $carrier, auth('api')->user());
 
             return ResponseHandler::success(new CarrierResource($updated), 'Transportista actualizado correctamente', 200);
         } catch (\Throwable $th) {
@@ -77,7 +77,7 @@ class CarrierController extends Controller
     public function join(JoinCarrierRequest $request, CarrierServiceInterface $carrierService)
     {
         try {
-            $carrierService->joinCarrier($request->validated(), $request->user());
+            $carrierService->joinCarrier($request->validated(), auth('api')->user());
 
             return ResponseHandler::success(null, 'Te has vinculado a la empresa transportista correctamente', 200);
         } catch (\Throwable $th) {
@@ -88,7 +88,7 @@ class CarrierController extends Controller
     public function me(Request $request, CarrierServiceInterface $carrierService)
     {
         try {
-            $carrier = $carrierService->getMyCarrier($request->user());
+            $carrier = $carrierService->getMyCarrier(auth('api')->user());
 
             return ResponseHandler::success(new CarrierResource($carrier), 'Empresa transportista obtenida correctamente', 200);
         } catch (\Throwable $th) {
@@ -99,7 +99,7 @@ class CarrierController extends Controller
     public function pilots(Request $request, CarrierServiceInterface $carrierService)
     {
         try {
-            $pilots = $carrierService->getMyPilots($request->user(), $this->limit($request));
+            $pilots = $carrierService->getMyPilots(auth('api')->user(), $this->limit($request));
 
             $data = $pilots instanceof LengthAwarePaginator
                 ? new PaginatedResource($pilots, CarrierPilotResource::class)
