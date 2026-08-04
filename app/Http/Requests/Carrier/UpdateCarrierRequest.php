@@ -4,7 +4,35 @@ namespace App\Http\Requests\Carrier;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: 'UpdateCarrierRequest',
+    title: 'Actualización de empresa transportista',
+    description: 'Actualización parcial: los tres campos son opcionales y solo se modifica lo que llega. Un campo enviado vacío sí es error (422). El code no se puede modificar ni rotar.',
+    properties: [
+        new OA\Property(
+            property: 'name',
+            description: 'Nuevo nombre de la empresa. Si se envía, no puede estar vacío.',
+            type: 'string',
+            maxLength: 255,
+            example: 'Transportes del Sur',
+        ),
+        new OA\Property(
+            property: 'image',
+            description: 'Nuevo archivo de imagen. Solo jpg, jpeg y png. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión. Requiere enviar el cuerpo como multipart/form-data.',
+            type: 'string',
+            format: 'binary',
+        ),
+        new OA\Property(
+            property: 'active',
+            description: 'Estado de la empresa. Hoy es informativo: no bloquea a los pilotos ni impide que se unan.',
+            type: 'boolean',
+            example: false,
+        ),
+    ],
+    type: 'object',
+)]
 class UpdateCarrierRequest extends FormRequest
 {
     public function authorize(): bool
