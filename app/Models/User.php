@@ -8,6 +8,8 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
@@ -31,6 +33,43 @@ class User extends Authenticatable implements JWTSubject
             'password' => 'hashed',
             'role' => UserRole::class,
         ];
+    }
+
+    /**
+     * The company this user owns, when the user has the carrier role.
+     *
+     * @return HasOne<Carrier, $this>
+     */
+    public function carrier(): HasOne
+    {
+        return $this->hasOne(Carrier::class);
+    }
+
+    /**
+     * The company this user joined as a pilot, resolved through carrier_pilots.
+     *
+     * @return HasOneThrough<Carrier, CarrierPilot, $this>
+     */
+    public function pilotCarrier(): HasOneThrough
+    {
+        return $this->hasOneThrough(
+            Carrier::class,
+            CarrierPilot::class,
+            'user_id',
+            'id',
+            'id',
+            'carrier_id',
+        );
+    }
+
+    /**
+     * The company this user belongs to, either as owner or as pilot.
+     *
+     * Single source of truth for "does this user have a carrier?".
+     */
+    public function currentCarrier(): ?Carrier
+    {
+        return $this->carrier ?? $this->pilotCarrier;
     }
 
     /**
