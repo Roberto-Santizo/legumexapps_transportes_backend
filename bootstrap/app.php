@@ -2,6 +2,7 @@
 
 use App\Errors\UnauthorizedError;
 use App\Helpers\ResponseHandler;
+use App\Http\Middleware\EnsureUserHasCarrier;
 use App\Http\Middleware\EnsureUserHasRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -21,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'jwt.auth' => Authenticate::class,
             'role' => EnsureUserHasRole::class,
+            'carrier.required' => EnsureUserHasCarrier::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
