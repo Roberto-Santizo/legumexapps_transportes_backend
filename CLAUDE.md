@@ -4,11 +4,11 @@ API REST interna de transportes (Laravel 13 + PHP 8.5). Sin frontend propio: sol
 
 ## Arquitectura por capas
 
-Cada recurso se implementa con la misma cadena de archivos, agrupados en subcarpeta por dominio (`Auth/`, etc.):
+Cada recurso se implementa con la misma cadena de archivos, agrupados en subcarpeta por dominio (`Auth/`, `Carrier/`, etc.):
 
 | Capa | Ubicación | Responsabilidad |
 |---|---|---|
-| Rutas | `routes/<recurso>.php`, incluido desde `routes/api.php` | Prefijo + `name()` propios; middleware `jwt.auth` en lo protegido |
+| Rutas | `routes/<recurso>.php`, incluido desde `routes/api.php` | Prefijo + `name()` propios; `jwt.auth` + `role:`/`carrier.required` en lo protegido |
 | Controller | `app/Http/Controllers/` | `try/catch` → `ResponseHandler`; sin lógica de negocio; atributos `OpenApi\Attributes` |
 | FormRequest | `app/Http/Requests/<Dominio>/` | Validación + `messages()` en español; schema OA del body |
 | Resource | `app/Http/Resources/<Dominio>/` | Salida en **camelCase** (`emailVerifiedAt`); schema OA del modelo |
@@ -18,6 +18,8 @@ Cada recurso se implementa con la misma cadena de archivos, agrupados en subcarp
 
 El service se inyecta **por parámetro del método del controller** (`public function login(LoginRequest $request, AuthServiceInterface $authService)`), no por constructor.
 
+En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
+
 ## Respuestas y errores
 
 - Todo pasa por `App\Helpers\ResponseHandler`: sobre `{ statusCode, message, data }`. `success($data, $message, $statusCode)` resuelve `JsonResource` automáticamente y aplana metadata de paginación.
@@ -25,12 +27,26 @@ El service se inyecta **por parámetro del método del controller** (`public fun
 - `bootstrap/app.php` renderiza JSON para `api/*` y traduce el `UnauthorizedHttpException` del middleware `jwt.auth` al mismo sobre.
 - Mensajes de cara al usuario en español; nombres de código y PHPDoc en inglés.
 
-## Autenticación
+## Paginación
+
+- Opt-in por query param `limit`: sin `limit` (o no numérico) el service devuelve una `Collection` completa; con `limit` numérico pagina, acotado a `[10, 100]`.
+- El listado paginado se envuelve en `App\Http\Resources\PaginatedResource` (`new PaginatedResource($paginator, CarrierResource::class)`), y `ResponseHandler` funde `total/currentPage/lastPage` en la raíz del sobre, no bajo `meta`.
+
+## Autenticación y autorización
 
 - Guard `api` de JWT; alias de middleware `jwt.auth`. `JWT_TTL=60` minutos.
-- `User` implementa `JWTSubject` y añade claims `id/name/email/role`; roles en `App\Enums\UserRole` (administrator, carrier, pilot, manager) — solo `pilot` y `carrier` pueden autoregistrarse.
+- `User` implementa `JWTSubject` y añade claims `id/name/email/role` + `carrierId/carrierName/carrierCode` (null si no tiene empresa; **informativos para el front, nunca fuente de verdad para autorizar**). Roles en `App\Enums\UserRole` (administrator, carrier, pilot, manager) — solo `pilot` y `carrier` pueden autoregistrarse.
 - Flujo: register (sin token, cuenta sin confirmar) → confirm-account → login (emite token) → check-status (único endpoint que renueva token; no hay `/refresh` ni `/logout`).
 - Códigos de 6 dígitos hasheados con vigencia de 1 h en `account_confirmation_tokens` y `password_reset_tokens`.
+- Middlewares de autorización (alias en `bootstrap/app.php`), ambos resuelven el usuario con `auth('api')->user()` y **devuelven** `ResponseHandler::error(new ForbiddenError(...))` en vez de lanzar, porque el `try/catch` del controller no ve excepciones de middleware:
+  - `role:admin,carrier` — filtro grueso por rol.
+  - `carrier.required` (`EnsureUserHasCarrier`) — exige vínculo con una empresa, consultando la BD (`$user->currentCarrier()`), no el claim del token, que puede llevar hasta 1 h obsoleto. `administrator` y `manager` están exentos.
+
+## Dominio Carriers
+
+- `Carrier` pertenece a un `User` con rol `carrier` (`owner`); los `pilot` se vinculan por la pivote `carrier_pilots` (`Carrier::pilots()` / `User::pilotCarrier()`). `User::currentCarrier()` es la única fuente de verdad de "¿tiene empresa?" (dueño o piloto).
+- Un `carrier` solo puede registrar **una** empresa; el service genera un `code` único de 6 caracteres `[A-Z0-9]` y el piloto se une con `POST /api/carriers/join` mandando ese código (se normaliza a mayúsculas).
+- El `image` del body se valida pero **no se almacena**: solo se persiste el nombre generado (`uuid.ext`). Subir el archivo queda fuera de la spec 03, igual que el borrado real en `destroy` (solo resuelve 404).
 
 ## Documentación OpenAPI
 
@@ -39,8 +55,10 @@ El service se inyecta **por parámetro del método del controller** (`public fun
 
 ## Tests
 
-- Pest 5, SQLite en memoria, `RefreshDatabase` aplicado globalmente desde `tests/Pest.php`.
+- Pest 5, SQLite en memoria, `RefreshDatabase` y `Mail::fake()` aplicados globalmente desde `tests/Pest.php`.
 - Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash) y `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test).
+- Helpers locales por archivo de test (ver `tests/Feature/CarrierTest.php`): `userWithRole()`, `asUser()` (llama a `resetAuthState()` y adjunta el token) y un `<recurso>Endpoints()` que alimenta los datasets de middleware.
+- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service.
 - Ejecutar: `php artisan test --compact` (o `--filter=`).
 
 ## Flujo de trabajo

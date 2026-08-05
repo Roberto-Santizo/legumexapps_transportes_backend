@@ -8,6 +8,8 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
@@ -34,6 +36,43 @@ class User extends Authenticatable implements JWTSubject
     }
 
     /**
+     * The company this user owns, when the user has the carrier role.
+     *
+     * @return HasOne<Carrier, $this>
+     */
+    public function carrier(): HasOne
+    {
+        return $this->hasOne(Carrier::class);
+    }
+
+    /**
+     * The company this user joined as a pilot, resolved through carrier_pilots.
+     *
+     * @return HasOneThrough<Carrier, CarrierPilot, $this>
+     */
+    public function pilotCarrier(): HasOneThrough
+    {
+        return $this->hasOneThrough(
+            Carrier::class,
+            CarrierPilot::class,
+            'user_id',
+            'id',
+            'id',
+            'carrier_id',
+        );
+    }
+
+    /**
+     * The company this user belongs to, either as owner or as pilot.
+     *
+     * Single source of truth for "does this user have a carrier?".
+     */
+    public function currentCarrier(): ?Carrier
+    {
+        return $this->carrier ?? $this->pilotCarrier;
+    }
+
+    /**
      * Get the identifier that will be stored in the "sub" claim of the JWT.
      */
     public function getJWTIdentifier(): mixed
@@ -44,15 +83,24 @@ class User extends Authenticatable implements JWTSubject
     /**
      * Get the custom claims added to the JWT payload.
      *
-     * @return array{id: int, name: string, email: string, role: string}
+     * The carrier claims mirror the user's company, and are null while the user
+     * has none. They are informative for the front end, never a source of truth
+     * for authorization.
+     *
+     * @return array{id: int, name: string, email: string, role: string, carrierId: int|null, carrierName: string|null, carrierCode: string|null}
      */
     public function getJWTCustomClaims(): array
     {
+        $carrier = $this->currentCarrier();
+
         return [
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
             'role' => $this->role->value,
+            'carrierId' => $carrier?->id,
+            'carrierName' => $carrier?->name,
+            'carrierCode' => $carrier?->code,
         ];
     }
 }

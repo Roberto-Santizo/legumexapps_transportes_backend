@@ -402,6 +402,788 @@
                     }
                 }
             }
+        },
+        "/api/carriers": {
+            "get": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Listar todas las empresas transportistas",
+                "description": "Devuelve el listado completo de empresas. Solo el rol administrator puede llamarlo (middlewares role:administrator y carrier.required; el administrator está exento del segundo). La forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos aplanados en la raíz. No hay búsqueda, filtros ni ordenación.",
+                "operationId": "indexCarriers",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=1 devuelve páginas de 10 y limit=500 devuelve páginas de 100.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Transportistas obtenidos correctamente. Sin limit se devuelve CarrierListResponse; con limit numérico, PaginatedCarrierListResponse.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/CarrierListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedCarrierListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator. El mensaje devuelto por el middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Crear la empresa transportista propia",
+                "description": "Crea la empresa del usuario autenticado, que debe tener rol carrier (middleware role:carrier; este endpoint NO lleva carrier.required, porque es justamente el que deja de tener empresa a tenerla). La cardinalidad es uno a uno: un carrier tiene como máximo una empresa, y un segundo intento devuelve 400.\n\nEl cuerpo va como multipart/form-data, con name e image. El code lo genera el servidor (6 caracteres alfanuméricos en mayúsculas, único) y active nace siempre en true: ninguno de los dos se puede enviar.\n\nATENCIÓN — la imagen no se almacena. El archivo se valida (jpg, jpeg o png; cualquier otro tipo es 422) y a continuación se descarta: no se guarda en disco ni en la nube. Lo único que se persiste es un identificador UUID con la extensión original, que es el valor que devuelve el campo image. El consumidor NO debe confiar en que el archivo quedó guardado ni intentar recuperarlo: hoy ese identificador no resuelve a ningún archivo. La subida real está fuera del alcance de la SPEC 03 y llegará en una spec posterior.\n\nEste endpoint no devuelve token nuevo: los claims carrierId, carrierName y carrierCode del JWT siguen en null hasta que el cliente llame a GET /api/auth/check-status.",
+                "operationId": "storeCarrier",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreCarrierRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Empresa transportista creada correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Empresa transportista creada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Carrier"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El usuario autenticado ya tiene una empresa registrada y no se crea una segunda. El mensaje devuelto es: Ya tienes una empresa transportista registrada",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es carrier. El mensaje devuelto por el middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: falta el nombre o supera los 255 caracteres, falta la imagen, la imagen no es un archivo o su tipo no es jpg, jpeg ni png",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/carriers/{carrier}": {
+            "get": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Obtener una empresa transportista por id",
+                "description": "Devuelve una empresa concreta, incluido su code. Solo el rol administrator puede llamarlo (middlewares role:administrator y carrier.required; el administrator está exento del segundo).",
+                "operationId": "showCarrier",
+                "parameters": [
+                    {
+                        "name": "carrier",
+                        "in": "path",
+                        "description": "Identificador numérico de la empresa (carriers.id). No es el código de 6 caracteres.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Transportista obtenido correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Transportista obtenido correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Carrier"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator. El mensaje devuelto por el middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna empresa con ese id. El mensaje devuelto es: El transportista no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Actualizar una empresa transportista (alias PUT)",
+                "description": "Mismo comportamiento que PATCH /api/carriers/{carrier}: la ruta admite ambos verbos y la actualización es parcial en los dos, no un reemplazo completo del recurso. Consulta esa operación para el detalle de permisos, del tratamiento de la imagen y de los errores.",
+                "operationId": "replaceCarrier",
+                "parameters": [
+                    {
+                        "name": "carrier",
+                        "in": "path",
+                        "description": "Identificador numérico de la empresa (carriers.id). No es el código de 6 caracteres.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateCarrierRequest"
+                            }
+                        },
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateCarrierRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Transportista actualizado correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Transportista actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Carrier"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator, el carrier autenticado todavía no tiene empresa, o el carrier intenta actualizar una empresa ajena (mensaje: No puedes actualizar una empresa transportista que no te pertenece)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna empresa con ese id. El mensaje devuelto es: El transportista no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: nombre vacío o de más de 255 caracteres, imagen que no es un archivo o cuyo tipo no es jpg, jpeg ni png, o estado que no es booleano",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Eliminar una empresa transportista (sin efecto)",
+                "description": "ATENCIÓN — este endpoint NO borra nada. Comprueba que la empresa existe (404 si no) y responde 200, pero la fila sigue en base de datos y los pilotos vinculados conservan su empresa. El borrado real está fuera del alcance de la SPEC 03, para no dejar pilotos huérfanos ni empresas fantasma; la operación existe solo para completar el apiResource.\n\nEl cliente no debe interpretar el 200 como confirmación de borrado ni retirar la empresa de su estado local: una lectura posterior la seguirá devolviendo.\n\nSolo el rol administrator puede llamarlo (middlewares role:administrator y carrier.required; el administrator está exento del segundo).",
+                "operationId": "destroyCarrier",
+                "parameters": [
+                    {
+                        "name": "carrier",
+                        "in": "path",
+                        "description": "Identificador numérico de la empresa (carriers.id). No es el código de 6 caracteres.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Respuesta de éxito. La empresa NO ha sido eliminada: la fila sigue existiendo.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Transportista eliminado correctamente"
+                                        },
+                                        "data": {
+                                            "type": "object",
+                                            "example": null,
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator. El mensaje devuelto por el middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna empresa con ese id. El mensaje devuelto es: El transportista no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Actualizar una empresa transportista",
+                "description": "Actualiza name, image y active de una empresa. La ruta acepta PATCH y PUT indistintamente: en ambos casos la actualización es parcial, solo se modifican los campos presentes en el cuerpo y ninguno es obligatorio.\n\nPueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required). Un carrier solo puede actualizar su propia empresa: si intenta actualizar una ajena recibe 403. Un administrator puede actualizar cualquiera.\n\nSi se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión, que no resuelve a ningún archivo almacenado. Si solo se actualizan name o active, basta con application/json.\n\nEl code no se puede modificar ni rotar, y active es hoy un dato informativo: ponerlo en false no bloquea a los pilotos ni impide que se unan con el código.",
+                "operationId": "updateCarrier",
+                "parameters": [
+                    {
+                        "name": "carrier",
+                        "in": "path",
+                        "description": "Identificador numérico de la empresa (carriers.id). No es el código de 6 caracteres.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateCarrierRequest"
+                            }
+                        },
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateCarrierRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Transportista actualizado correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Transportista actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Carrier"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator (mensaje del middleware role: No tienes permisos para acceder a este recurso), el carrier autenticado todavía no tiene empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso) o el carrier intenta actualizar una empresa ajena (mensaje: No puedes actualizar una empresa transportista que no te pertenece)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna empresa con ese id. El mensaje devuelto es: El transportista no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: nombre vacío o de más de 255 caracteres, imagen que no es un archivo o cuyo tipo no es jpg, jpeg ni png, o estado que no es booleano",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/carriers/join": {
+            "post": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Vincular al piloto autenticado con una empresa",
+                "description": "Vincula al usuario autenticado, que debe tener rol pilot (middleware role:pilot; este endpoint NO lleva carrier.required, porque es el que hace pasar al piloto de no tener empresa a tenerla), con la empresa dueña del código enviado.\n\nEl código se normaliza a mayúsculas antes de buscarlo, así que a7k2qx y A7K2QX vinculan a la misma empresa. Un código que no pertenece a ninguna empresa devuelve 404, y un piloto que ya pertenece a una empresa devuelve 400 sin alterar su vínculo original.\n\nLa cardinalidad es de una empresa por piloto y está impuesta por un índice único en base de datos. La SPEC 03 no ofrece forma de deshacer la vinculación: no hay salida voluntaria ni expulsión, de modo que un código tecleado mal que acierte el de otra empresa solo se corrige a mano en base. Conviene que el cliente pida confirmación antes de enviar.\n\nLa respuesta solo trae un mensaje, con data en null: no devuelve ni la empresa ni un token nuevo. Para refrescar los claims carrierId, carrierName y carrierCode, el cliente debe llamar después a GET /api/auth/check-status.",
+                "operationId": "joinCarrier",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JoinCarrierRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "El piloto ha quedado vinculado a la empresa transportista",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Te has vinculado a la empresa transportista correctamente"
+                                        },
+                                        "data": {
+                                            "type": "object",
+                                            "example": null,
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El piloto ya pertenece a una empresa transportista y su vínculo original no cambia. El mensaje devuelto es: Ya perteneces a una empresa transportista",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es pilot. El mensaje devuelto por el middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El código tiene el formato correcto pero no pertenece a ninguna empresa, y no se crea ningún vínculo. El mensaje devuelto es: El código no pertenece a ninguna empresa transportista",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: falta el código, no es texto o no tiene exactamente 6 caracteres",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/carriers/me": {
+            "get": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Obtener la empresa transportista propia",
+                "description": "Devuelve la empresa del usuario autenticado, incluido su code, que es el que debe compartir con sus pilotos. Solo el rol carrier puede llamarlo (middlewares role:carrier y carrier.required), por lo que un carrier que todavía no ha creado su empresa recibe 403 del middleware antes de llegar al controller. La ruta está declarada antes del apiResource para que me no entre por el comodín {carrier}.",
+                "operationId": "meCarrier",
+                "responses": {
+                    "200": {
+                        "description": "Empresa transportista obtenida correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Empresa transportista obtenida correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Carrier"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es carrier (mensaje: No tienes permisos para acceder a este recurso) o es un carrier que todavía no ha registrado su empresa (mensaje: Debes estar vinculado a un transportista para acceder a este recurso)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/carriers/me/pilots": {
+            "get": {
+                "tags": [
+                    "Carriers"
+                ],
+                "summary": "Listar los pilotos de la empresa propia",
+                "description": "Devuelve los pilotos vinculados a la empresa del usuario autenticado, con su fecha de unión; los pilotos de otras empresas nunca aparecen. Solo el rol carrier puede llamarlo (middlewares role:carrier y carrier.required). La paginación funciona igual que en GET /api/carriers: sin limit se devuelven todos los pilotos y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se pagina, acotado al rango [10, 100], y esos tres campos salen aplanados en la raíz. No hay búsqueda, filtros ni ordenación.",
+                "operationId": "pilotsCarrier",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los pilotos sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=1 devuelve páginas de 10 y limit=500 devuelve páginas de 100.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Pilotos obtenidos correctamente. Sin limit se devuelve CarrierPilotListResponse; con limit numérico, PaginatedCarrierPilotListResponse.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/CarrierPilotListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedCarrierPilotListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es carrier (mensaje: No tienes permisos para acceder a este recurso) o es un carrier que todavía no ha registrado su empresa (mensaje: Debes estar vinculado a un transportista para acceder a este recurso)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
         }
     },
     "components": {
@@ -579,6 +1361,68 @@
                 },
                 "type": "object"
             },
+            "JoinCarrierRequest": {
+                "title": "Vinculación de un piloto a una empresa",
+                "description": "Código de 6 caracteres que el carrier comparte con sus pilotos.",
+                "required": [
+                    "code"
+                ],
+                "properties": {
+                    "code": {
+                        "description": "Código de la empresa: exactamente 6 caracteres. Se normaliza a mayúsculas antes de buscarlo, así que a7k2qx y A7K2QX vinculan a la misma empresa.",
+                        "type": "string",
+                        "example": "A7K2QX",
+                        "maxLength": 6,
+                        "minLength": 6
+                    }
+                },
+                "type": "object"
+            },
+            "StoreCarrierRequest": {
+                "title": "Alta de empresa transportista",
+                "description": "Cuerpo multipart/form-data para crear la empresa. El code y el estado active no se envían: el code lo genera el servidor y active nace siempre en true.",
+                "required": [
+                    "name",
+                    "image"
+                ],
+                "properties": {
+                    "name": {
+                        "description": "Nombre de la empresa. No es único: dos empresas pueden llamarse igual.",
+                        "type": "string",
+                        "example": "Transportes del Norte",
+                        "maxLength": 255
+                    },
+                    "image": {
+                        "description": "Archivo de imagen, obligatorio. Solo se aceptan jpg, jpeg y png; cualquier otro tipo devuelve 422. ATENCIÓN: el archivo se valida y se descarta. No se guarda en disco ni en la nube; lo único que se persiste es un UUID con la extensión original, que se devuelve en el campo image del recurso. El consumidor no debe asumir que el archivo quedó almacenado ni que la imagen es recuperable.",
+                        "type": "string",
+                        "format": "binary"
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateCarrierRequest": {
+                "title": "Actualización de empresa transportista",
+                "description": "Actualización parcial: los tres campos son opcionales y solo se modifica lo que llega. Un campo enviado vacío sí es error (422). El code no se puede modificar ni rotar.",
+                "properties": {
+                    "name": {
+                        "description": "Nuevo nombre de la empresa. Si se envía, no puede estar vacío.",
+                        "type": "string",
+                        "example": "Transportes del Sur",
+                        "maxLength": 255
+                    },
+                    "image": {
+                        "description": "Nuevo archivo de imagen. Solo jpg, jpeg y png. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión. Requiere enviar el cuerpo como multipart/form-data.",
+                        "type": "string",
+                        "format": "binary"
+                    },
+                    "active": {
+                        "description": "Estado de la empresa. Hoy es informativo: no bloquea a los pilotos ni impide que se unan.",
+                        "type": "boolean",
+                        "example": false
+                    }
+                },
+                "type": "object"
+            },
             "User": {
                 "title": "Usuario",
                 "description": "Datos públicos de un usuario. Nunca incluye la contraseña.",
@@ -616,6 +1460,156 @@
                     }
                 },
                 "type": "object"
+            },
+            "CarrierPilot": {
+                "title": "Piloto vinculado",
+                "description": "Piloto vinculado a una empresa transportista. Es un usuario con rol pilot más la fecha en que se unió.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador del usuario piloto, no el de la fila del pivote carrier_pilots.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "name": {
+                        "type": "string",
+                        "example": "Roberto Santizo"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "piloto@legumex.com"
+                    },
+                    "joinedAt": {
+                        "description": "Fecha en la que el piloto se vinculó a la empresa, tomada de carrier_pilots.created_at.",
+                        "type": "string",
+                        "format": "date-time",
+                        "example": "2026-08-04T10:15:00.000000Z",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "CarrierPilotListResponse": {
+                "title": "Listado de pilotos sin paginar",
+                "description": "Respuesta de GET /api/carriers/me/pilots cuando no se envía limit o cuando el limit no es numérico: se devuelven todos los pilotos y el sobre no incluye total, currentPage ni lastPage.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Pilotos obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CarrierPilot"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedCarrierPilotListResponse": {
+                "title": "Listado de pilotos paginado",
+                "description": "Respuesta de GET /api/carriers/me/pilots cuando se envía un limit numérico: los metadatos de paginación salen aplanados en la raíz del sobre, no anidados.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/CarrierPilotListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
+            "Carrier": {
+                "title": "Empresa transportista",
+                "description": "Datos de una empresa transportista. El code es el que el carrier comparte con sus pilotos para que se vinculen mediante POST /api/carriers/join.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "type": "string",
+                        "example": "Transportes del Norte",
+                        "maxLength": 255
+                    },
+                    "image": {
+                        "description": "Identificador de la imagen: un UUID con la extensión del archivo enviado. ATENCIÓN: hoy el archivo se valida y se descarta, no se guarda en disco ni en la nube, así que este valor NO resuelve a ninguna URL descargable. El cliente no debe construir enlaces con él ni asumir que la imagen quedó almacenada.",
+                        "type": "string",
+                        "example": "9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d.png",
+                        "nullable": true
+                    },
+                    "code": {
+                        "description": "Código de la empresa: 6 caracteres alfanuméricos en mayúsculas, único y permanente. No caduca ni se puede rotar.",
+                        "type": "string",
+                        "example": "A7K2QX",
+                        "maxLength": 6,
+                        "minLength": 6
+                    },
+                    "active": {
+                        "description": "Estado de la empresa. Hoy es solo informativo: un active en false no bloquea a los pilotos ni impide que se unan.",
+                        "type": "boolean",
+                        "example": true
+                    }
+                },
+                "type": "object"
+            },
+            "CarrierListResponse": {
+                "title": "Listado de transportistas sin paginar",
+                "description": "Respuesta de GET /api/carriers cuando no se envía limit o cuando el limit no es numérico: se devuelven todos los registros y el sobre no incluye total, currentPage ni lastPage.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Transportistas obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Carrier"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedCarrierListResponse": {
+                "title": "Listado de transportistas paginado",
+                "description": "Respuesta de GET /api/carriers cuando se envía un limit numérico: los metadatos de paginación salen aplanados en la raíz del sobre, no anidados.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/CarrierListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
+            "PaginationMeta": {
+                "title": "Metadatos de paginación",
+                "description": "Metadatos que acompañan a un listado paginado. ResponseHandler los funde en la raíz del sobre, junto a statusCode, message y data, en vez de anidarlos bajo una clave meta. Solo aparecen cuando la petición incluye un limit numérico: sin limit, la respuesta trae únicamente statusCode, message y data.",
+                "properties": {
+                    "total": {
+                        "description": "Número total de registros existentes, no los de la página actual.",
+                        "type": "integer",
+                        "example": 42
+                    },
+                    "currentPage": {
+                        "description": "Página devuelta. Se controla con el parámetro de query page.",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "lastPage": {
+                        "description": "Número de la última página disponible con el tamaño de página aplicado.",
+                        "type": "integer",
+                        "example": 5
+                    }
+                },
+                "type": "object"
             }
         },
         "securitySchemes": {
@@ -631,6 +1625,10 @@
         {
             "name": "Auth",
             "description": "Registro, confirmación de cuenta, inicio de sesión y recuperación de contraseña."
+        },
+        {
+            "name": "Carriers",
+            "description": "Empresas transportistas y vinculación de pilotos. Todos los endpoints requieren token JWT (Authorization: Bearer {token}) y están filtrados por rol; además, los marcados con carrier.required exigen que el usuario autenticado esté vinculado a una empresa, salvo si es administrator o manager, que quedan exentos. El rol manager no puede llamar a ninguno de estos endpoints."
         }
     ]
 }
