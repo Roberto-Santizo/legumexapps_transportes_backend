@@ -1184,6 +1184,590 @@
                     }
                 ]
             }
+        },
+        "/api/vehicles": {
+            "get": {
+                "tags": [
+                    "Vehicles"
+                ],
+                "summary": "Listar vehículos",
+                "description": "Devuelve los vehículos visibles para el usuario autenticado. Pueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required; el administrator está exento del segundo).\n\nEl ámbito lo fija el rol, no la petición: un carrier recibe únicamente los vehículos de su empresa y nunca los de otra; un administrator recibe los de todas las empresas.\n\nATENCIÓN — el listado devuelve por defecto TODOS los estados, incluidos los inactive (los desactivados con DELETE) y los under_repair. Un cliente que pinte \"mis vehículos\" sin filtrar mostrará vehículos dados de baja como si estuvieran operativos: filtrar es responsabilidad del consumidor, y para eso está el parámetro status.\n\nLos filtros son tolerantes: un status que no pertenece al enum, un carrierId no numérico o un limit no numérico se ignoran en silencio y la lectura devuelve 200, nunca 422. No hay búsqueda por texto ni ordenación.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros del ámbito y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos aplanados en la raíz.",
+                "operationId": "indexVehicles",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filtra por estado operativo. Solo se aplica si el valor pertenece al enum; cualquier otro valor (por ejemplo status=cualquiercosa) se ignora sin error y se devuelven todos los registros del ámbito. Si se omite, el listado incluye los tres estados.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "under_repair",
+                            "enum": [
+                                "active",
+                                "inactive",
+                                "under_repair"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "carrierId",
+                        "in": "query",
+                        "description": "Filtra por empresa transportista. ATENCIÓN: solo lo aplica el rol administrator. En un carrier se ignora en silencio —no devuelve 403 ni 422—, porque su ámbito ya está fijado por su empresa: seguirá recibiendo solo los suyos aunque envíe el id de otra empresa. Un valor no numérico se ignora igualmente.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=3 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status y con carrierId.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Vehículos obtenidos correctamente. Sin limit se devuelve VehicleListResponse; con limit numérico, PaginatedVehicleListResponse.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/VehicleListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedVehicleListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es carrier ni administrator —un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso) o es un carrier que todavía no está vinculado a ninguna empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Vehicles"
+                ],
+                "summary": "Registrar un vehículo en la empresa propia",
+                "description": "Registra un vehículo en la empresa del usuario autenticado, que debe tener rol carrier (middlewares role:carrier y carrier.required). Un administrator recibe 403: supervisa y corrige el inventario, pero el alta la hace quien es dueño de él.\n\nLa empresa no se envía en el cuerpo: se resuelve desde el usuario autenticado, por eso un carrier sin empresa queda cortado por carrier.required antes de llegar al servicio. El status tampoco se envía: el vehículo nace siempre en active y mandarlo no cambia nada.\n\nLa placa se normaliza a mayúsculas antes de validarla y de persistirla (p123abc se guarda como P123ABC). Su unicidad es condicional y se comprueba en el servicio, no en base de datos: hay conflicto —400— si existe cualquier vehículo, de la propia empresa o de otra, con esa misma placa y un status distinto de inactive. Un vehículo under_repair también bloquea la placa; solo el desactivado la libera, y entonces el alta devuelve 201 y quedan dos filas con la misma placa sin vínculo entre ellas.\n\nLa capacidad va EN LIBRAS. La unidad no se guarda ni se valida: nada impide que un cliente envíe kilos y nada lo detectará.\n\nATENCIÓN — la imagen no se almacena. El archivo se valida (jpg, jpeg o png; cualquier otro tipo es 422) y a continuación se descarta: no se guarda en disco ni en la nube. Lo único que se persiste es un identificador UUID con la extensión original, que es el valor que devuelve el campo image. El consumidor NO debe confiar en que el archivo quedó guardado ni intentar recuperarlo. Es la misma deuda de la SPEC 03 y la subida real llegará en una spec posterior.",
+                "operationId": "storeVehicle",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreVehicleRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Vehículo registrado correctamente, con carrier_id el de la empresa del usuario autenticado y status active.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Vehículo registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Vehicle"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "La placa ya la usa un vehículo cuyo status no es inactive, sea de la propia empresa o de otra, y no se registra nada. El mensaje devuelto es: La placa ya está registrada en un vehículo que no está desactivado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es carrier —un administrator, un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso) o es un carrier que todavía no ha registrado su empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: falta alguno de los siete campos obligatorios, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, o la imagen no es un archivo jpg, jpeg ni png",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/vehicles/{vehicle}": {
+            "get": {
+                "tags": [
+                    "Vehicles"
+                ],
+                "summary": "Obtener un vehículo por id",
+                "description": "Devuelve un vehículo concreto, con carrierName incluido. Pueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required; el administrator está exento del segundo).\n\nEl ámbito se comprueba en el servicio: un carrier solo alcanza los vehículos de su propia empresa y recibe 403 si pide uno ajeno; un administrator obtiene el de cualquier empresa. Se responde 403 y no 404 en ese caso, de forma coherente con el resto del proyecto: se acepta revelar que el id existe a cambio de un mensaje honesto.\n\nUn vehículo desactivado (status inactive) se sigue obteniendo con normalidad: la fila nunca se borra.",
+                "operationId": "showVehicle",
+                "parameters": [
+                    {
+                        "name": "vehicle",
+                        "in": "path",
+                        "description": "Identificador numérico del vehículo (vehicles.id). No es la placa.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Vehículo obtenido correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Vehículo obtenido correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Vehicle"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator —un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso), el carrier autenticado todavía no tiene empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso) o el carrier pide un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún vehículo con ese id. El mensaje devuelto es: El vehículo no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Vehicles"
+                ],
+                "summary": "Actualizar un vehículo (alias PUT)",
+                "description": "Mismo comportamiento que PATCH /api/vehicles/{vehicle}: la ruta admite ambos verbos y la actualización es parcial en los dos, no un reemplazo completo del recurso. Consulta esa operación para el detalle de permisos, del ámbito por rol, de la revalidación de la placa, del caso de la reactivación y del tratamiento de la imagen.",
+                "operationId": "replaceVehicle",
+                "parameters": [
+                    {
+                        "name": "vehicle",
+                        "in": "path",
+                        "description": "Identificador numérico del vehículo (vehicles.id). No es la placa.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateVehicleRequest"
+                            }
+                        },
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateVehicleRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Vehículo actualizado correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Vehículo actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Vehicle"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "La placa nueva ya la usa un vehículo cuyo status no es inactive (mensaje: La placa ya está registrada en un vehículo que no está desactivado), o se intenta sacar de inactive un vehículo cuya placa ya tomó otro que sigue en servicio (mensaje: No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator, el carrier autenticado todavía no tiene empresa, o el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún vehículo con ese id. El mensaje devuelto es: El vehículo no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: algún campo enviado va vacío o incumple su regla de tipo, longitud, rango o enum",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Vehicles"
+                ],
+                "summary": "Desactivar un vehículo (no lo borra)",
+                "description": "ATENCIÓN — este endpoint NO borra nada. Lo único que hace es poner el status del vehículo en inactive y devolver el vehículo ya desactivado en data. La fila sigue existiendo en base de datos y sigue apareciendo en GET /api/vehicles, porque el listado devuelve por defecto todos los estados: el cliente no debe retirar el vehículo de su estado local al recibir el 200, sino releer o filtrar por status. El borrado real queda fuera del alcance de la SPEC 04.\n\nDesactivar un vehículo que ya está inactive responde 200 sin efectos adicionales: la operación es idempotente.\n\nDesactivar libera la placa: a partir de ese momento otra empresa —o la misma— puede registrar un vehículo con esa misma placa y recibir 201, quedando dos filas con el mismo valor y sin vínculo entre ellas. Volver a activar el vehículo desactivado después de eso no está resuelto; consulta PATCH /api/vehicles/{vehicle}.\n\nPueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required). Un carrier solo puede desactivar vehículos de su propia empresa: con uno ajeno recibe 403.",
+                "operationId": "destroyVehicle",
+                "parameters": [
+                    {
+                        "name": "vehicle",
+                        "in": "path",
+                        "description": "Identificador numérico del vehículo (vehicles.id). No es la placa.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Vehículo desactivado correctamente. El vehículo NO ha sido eliminado: data devuelve la fila con status inactive y esa fila sigue existiendo y apareciendo en los listados.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Vehículo desactivado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Vehicle"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator —un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso), el carrier autenticado todavía no tiene empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso) o el carrier intenta desactivar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún vehículo con ese id. El mensaje devuelto es: El vehículo no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Vehicles"
+                ],
+                "summary": "Actualizar un vehículo",
+                "description": "Actualiza plate, brand, model, year, capacity, type, image y status de un vehículo. La ruta acepta PATCH y PUT indistintamente: en ambos casos la actualización es parcial, solo se modifican los campos presentes en el cuerpo y ninguno es obligatorio. La empresa dueña no se puede cambiar.\n\nPueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required). Un carrier solo puede actualizar vehículos de su propia empresa: si intenta uno ajeno recibe 403. Un administrator puede actualizar el de cualquier empresa.\n\nA diferencia del alta, aquí sí se acepta status, con los tres valores del enum. La placa se normaliza a mayúsculas y su unicidad se revalida cuando cambia respecto a la que ya tiene el vehículo, excluyéndolo a él mismo: reenviar la placa que ya se tiene devuelve 200 y nunca colisiona consigo mismo. Cambiarla a una que usa un vehículo no desactivado de cualquier empresa devuelve 400.\n\nATENCIÓN — sacar un vehículo de inactive (a active o a under_repair) también revalida su placa, aunque el cuerpo no la envíe: un vehículo que vuelve al servicio no puede compartir placa con otro que ya la usa. Si otra empresa registró esa placa mientras el vehículo estaba desactivado, la reactivación devuelve 400 con el mensaje \"No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado\" y el vehículo se queda desactivado. Resolver ese conflicto (liberar la placa ajena o asignarle otra en la misma operación) está fuera del alcance de la SPEC 04. Mientras el vehículo siga en inactive su placa duplicada no molesta: el resto de campos se actualizan con normalidad.\n\nSi se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión, que no resuelve a ningún archivo almacenado. Si no se toca la imagen, basta con application/json. La capacidad sigue siendo EN LIBRAS.",
+                "operationId": "updateVehicle",
+                "parameters": [
+                    {
+                        "name": "vehicle",
+                        "in": "path",
+                        "description": "Identificador numérico del vehículo (vehicles.id). No es la placa.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateVehicleRequest"
+                            }
+                        },
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateVehicleRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Vehículo actualizado correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Vehículo actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Vehicle"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "La placa nueva ya la usa un vehículo cuyo status no es inactive, sea de la propia empresa o de otra, y no se guarda ningún cambio (mensaje: La placa ya está registrada en un vehículo que no está desactivado); o se intenta sacar de inactive un vehículo cuya placa ya tomó otro que sigue en servicio (mensaje: No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator —un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso), el carrier autenticado todavía no tiene empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso) o el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún vehículo con ese id. El mensaje devuelto es: El vehículo no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: algún campo enviado va vacío, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, la imagen no es un archivo jpg, jpeg ni png, o el estado no pertenece al enum",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
         }
     },
     "components": {
@@ -1423,6 +2007,135 @@
                 },
                 "type": "object"
             },
+            "StoreVehicleRequest": {
+                "title": "Alta de vehículo",
+                "description": "Cuerpo multipart/form-data para registrar un vehículo. Los siete campos son obligatorios: omitir cualquiera devuelve 422.\n\nEl status NO se acepta: el vehículo nace siempre en active y enviarlo en el cuerpo no cambia nada, se descarta sin error. El carrier_id tampoco se envía: se resuelve desde la empresa del usuario autenticado.\n\nLa unicidad de la placa no es una regla de este FormRequest, vive en el servicio y depende del estado de las filas existentes, por lo que una placa ya tomada devuelve 400 y no 422.",
+                "required": [
+                    "plate",
+                    "brand",
+                    "model",
+                    "year",
+                    "capacity",
+                    "type",
+                    "image"
+                ],
+                "properties": {
+                    "plate": {
+                        "description": "Placa del vehículo. Se normaliza a mayúsculas antes de validar la unicidad y antes de persistir, así que p123abc y P123ABC son la misma placa.",
+                        "type": "string",
+                        "example": "P123ABC",
+                        "maxLength": 15
+                    },
+                    "brand": {
+                        "description": "Marca del vehículo.",
+                        "type": "string",
+                        "example": "Kenworth",
+                        "maxLength": 100
+                    },
+                    "model": {
+                        "description": "Modelo del vehículo.",
+                        "type": "string",
+                        "example": "T680",
+                        "maxLength": 100
+                    },
+                    "year": {
+                        "description": "Año del vehículo. Debe ser un entero entre 1900 y el año siguiente al actual; fuera de ese rango devuelve 422.",
+                        "type": "integer",
+                        "example": 2021,
+                        "maximum": 2027,
+                        "minimum": 1900
+                    },
+                    "capacity": {
+                        "description": "Capacidad de carga EN LIBRAS. Debe ser numérica y no negativa. La unidad es solo una convención del dominio: nada impide enviar kilos y nada lo detectará.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 15000.5,
+                        "minimum": 0
+                    },
+                    "type": {
+                        "description": "Tipo de vehículo. Un valor fuera del enum devuelve 422.",
+                        "type": "string",
+                        "example": "truck",
+                        "enum": [
+                            "truck",
+                            "van",
+                            "trailer",
+                            "pickup"
+                        ]
+                    },
+                    "image": {
+                        "description": "Archivo de imagen, obligatorio. Solo se aceptan jpg, jpeg y png; cualquier otro tipo devuelve 422. ATENCIÓN: el archivo se valida y se descarta. No se guarda en disco ni en la nube; lo único que se persiste es un UUID con la extensión original, que es el valor devuelto en el campo image del recurso y que no resuelve a ningún archivo. Misma deuda que en la SPEC 03.",
+                        "type": "string",
+                        "format": "binary"
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateVehicleRequest": {
+                "title": "Actualización de vehículo",
+                "description": "Actualización parcial: los ocho campos son opcionales y solo se modifica lo que llega. Un campo enviado vacío sí es error (422). A diferencia del alta, aquí sí se acepta status.\n\nLa empresa dueña del vehículo no se puede cambiar: no existe campo para ello.",
+                "properties": {
+                    "plate": {
+                        "description": "Nueva placa. Se normaliza a mayúsculas. Solo se revalida la unicidad cuando cambia respecto a la que ya tiene el vehículo, así que reenviar la misma placa nunca es un conflicto consigo mismo. Si la placa nueva la usa un vehículo de cualquier empresa cuyo status no sea inactive, la respuesta es 400.",
+                        "type": "string",
+                        "example": "P456XYZ",
+                        "maxLength": 15
+                    },
+                    "brand": {
+                        "description": "Nueva marca. Si se envía, no puede estar vacía.",
+                        "type": "string",
+                        "example": "Freightliner",
+                        "maxLength": 100
+                    },
+                    "model": {
+                        "description": "Nuevo modelo. Si se envía, no puede estar vacío.",
+                        "type": "string",
+                        "example": "Cascadia",
+                        "maxLength": 100
+                    },
+                    "year": {
+                        "description": "Nuevo año. Entero entre 1900 y el año siguiente al actual.",
+                        "type": "integer",
+                        "example": 2023,
+                        "maximum": 2027,
+                        "minimum": 1900
+                    },
+                    "capacity": {
+                        "description": "Nueva capacidad de carga EN LIBRAS. Numérica y no negativa; la unidad no se valida.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 18000.75,
+                        "minimum": 0
+                    },
+                    "type": {
+                        "description": "Nuevo tipo de vehículo. Un valor fuera del enum devuelve 422.",
+                        "type": "string",
+                        "example": "trailer",
+                        "enum": [
+                            "truck",
+                            "van",
+                            "trailer",
+                            "pickup"
+                        ]
+                    },
+                    "image": {
+                        "description": "Nuevo archivo de imagen. Solo jpg, jpeg y png. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión, que no resuelve a ningún archivo almacenado. Requiere enviar el cuerpo como multipart/form-data.",
+                        "type": "string",
+                        "format": "binary"
+                    },
+                    "status": {
+                        "description": "Nuevo estado operativo. Un valor fuera del enum devuelve 422. ATENCIÓN: sacar un vehículo de inactive (a active o a under_repair) revalida su placa aunque no se envíe, porque un vehículo que vuelve al servicio no puede compartir placa con otro que ya la usa. Si en el intervalo otra empresa registró esa placa, la reactivación devuelve 400 con el mensaje: No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado. Resolver ese conflicto (liberar la placa o cambiarla en la misma operación) está fuera del alcance de la SPEC 04: hoy el vehículo se queda desactivado. Mientras el vehículo siga en inactive, su placa duplicada no molesta y el resto de campos se pueden actualizar con normalidad.",
+                        "type": "string",
+                        "example": "under_repair",
+                        "enum": [
+                            "active",
+                            "inactive",
+                            "under_repair"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
             "User": {
                 "title": "Usuario",
                 "description": "Datos públicos de un usuario. Nunca incluye la contraseña.",
@@ -1610,6 +2323,110 @@
                     }
                 },
                 "type": "object"
+            },
+            "Vehicle": {
+                "title": "Vehículo",
+                "description": "Vehículo del inventario de una empresa transportista. El recurso no expone el carrier_id, sino el nombre de la empresa dueña en carrierName: al carrier siempre es la suya, y al administrator le permite leer el listado sin resolver ids a mano.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "plate": {
+                        "description": "Placa del vehículo, siempre normalizada a mayúsculas: si se envía p123abc se persiste y se devuelve P123ABC. Su unicidad es condicional y se valida en el servicio, no en base de datos: solo puede repetirse si todos los vehículos que ya la usan están en inactive.",
+                        "type": "string",
+                        "example": "P123ABC",
+                        "maxLength": 15
+                    },
+                    "brand": {
+                        "type": "string",
+                        "example": "Kenworth",
+                        "maxLength": 100
+                    },
+                    "model": {
+                        "type": "string",
+                        "example": "T680",
+                        "maxLength": 100
+                    },
+                    "year": {
+                        "type": "integer",
+                        "example": 2021,
+                        "maximum": 2027,
+                        "minimum": 1900
+                    },
+                    "capacity": {
+                        "description": "Capacidad de carga EN LIBRAS. La unidad es una convención del dominio: no se guarda en base y nada valida que el valor enviado sean libras y no kilos. Viaja como cadena decimal con dos decimales, por el casting decimal:2 del modelo, no como número.",
+                        "type": "string",
+                        "example": "15000.50"
+                    },
+                    "type": {
+                        "description": "Tipo de vehículo. Los valores viajan en inglés; traducirlos es responsabilidad del cliente.",
+                        "type": "string",
+                        "example": "truck",
+                        "enum": [
+                            "truck",
+                            "van",
+                            "trailer",
+                            "pickup"
+                        ]
+                    },
+                    "image": {
+                        "description": "Identificador de la imagen: un UUID con la extensión del archivo enviado. ATENCIÓN: hoy el archivo se valida y se descarta, no se guarda en disco ni en la nube, así que este valor NO resuelve a ninguna URL descargable. El cliente no debe construir enlaces con él ni asumir que la imagen quedó almacenada. Es la misma deuda declarada en la SPEC 03.",
+                        "type": "string",
+                        "example": "9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d.png",
+                        "nullable": true
+                    },
+                    "status": {
+                        "description": "Estado operativo. Un vehículo nace siempre en active; under_repair sigue reteniendo su placa y solo inactive la libera. DELETE /api/vehicles/{vehicle} lo pone en inactive sin borrar la fila, por lo que un vehículo desactivado sigue apareciendo en los listados: filtrarlo es responsabilidad del cliente. Hoy el estado es informativo, todavía no bloquea nada.",
+                        "type": "string",
+                        "example": "active",
+                        "enum": [
+                            "active",
+                            "inactive",
+                            "under_repair"
+                        ]
+                    },
+                    "carrierName": {
+                        "description": "Nombre de la empresa transportista dueña del vehículo, obtenido de la relación carrier.",
+                        "type": "string",
+                        "example": "Transportes del Norte",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleListResponse": {
+                "title": "Listado de vehículos sin paginar",
+                "description": "Respuesta de GET /api/vehicles cuando no se envía limit o cuando el limit no es numérico: se devuelven todos los registros del ámbito y el sobre no incluye total, currentPage ni lastPage. El listado trae por defecto TODOS los estados, incluidos los inactive y los under_repair.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Vehículos obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Vehicle"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedVehicleListResponse": {
+                "title": "Listado de vehículos paginado",
+                "description": "Respuesta de GET /api/vehicles cuando se envía un limit numérico: los metadatos de paginación salen aplanados en la raíz del sobre, no anidados bajo meta.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/VehicleListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
             }
         },
         "securitySchemes": {
@@ -1629,6 +2446,10 @@
         {
             "name": "Carriers",
             "description": "Empresas transportistas y vinculación de pilotos. Todos los endpoints requieren token JWT (Authorization: Bearer {token}) y están filtrados por rol; además, los marcados con carrier.required exigen que el usuario autenticado esté vinculado a una empresa, salvo si es administrator o manager, que quedan exentos. El rol manager no puede llamar a ninguno de estos endpoints."
+        },
+        {
+            "name": "Vehicles",
+            "description": "Inventario de vehículos de las empresas transportistas. Todos los endpoints requieren token JWT (Authorization: Bearer {token}), llevan el middleware carrier.required y están filtrados por rol: solo carrier y administrator entran, y el alta es exclusiva del carrier. Los roles pilot y manager reciben 403 en los cinco endpoints. El ámbito se resuelve en el servicio: un carrier solo alcanza los vehículos de su propia empresa y un administrator los de todas; el administrator está exento de carrier.required, así que opera aunque no esté vinculado a ninguna empresa. La capacidad va siempre EN LIBRAS y la imagen se valida pero no se almacena."
         }
     ]
 }
