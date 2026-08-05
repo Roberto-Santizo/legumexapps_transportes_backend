@@ -12,6 +12,8 @@ use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
 use Override;
 
 class VehicleService implements VehicleServiceInterface
@@ -68,6 +70,76 @@ class VehicleService implements VehicleServiceInterface
         return $vehicle;
     }
 
+    #[Override]
+    public function createVehicle(array $data, User $user): Vehicle
+    {
+        $carrier = $user->currentCarrier();
+
+        if ($carrier === null) {
+            throw new ForbiddenError('Necesitas pertenecer a una empresa transportista para registrar un vehículo');
+        }
+
+        $plate = Str::upper($data['plate']);
+
+        $this->ensurePlateIsAvailable($plate);
+
+        return Vehicle::create([
+            'carrier_id' => $carrier->id,
+            'plate' => $plate,
+            'brand' => $data['brand'],
+            'model' => $data['model'],
+            'year' => $data['year'],
+            'capacity' => $data['capacity'],
+            'type' => $data['type'],
+            'image' => $this->buildImageName($data['image']),
+            'status' => VehicleStatus::Active,
+        ]);
+    }
+
+    #[Override]
+    public function updateVehicle(array $data, int $id, User $user): Vehicle
+    {
+        $vehicle = $this->getVehicleById($user, $id);
+
+        if (array_key_exists('plate', $data)) {
+            $plate = Str::upper($data['plate']);
+
+            /** Resubmitting the plate the vehicle already holds is not a conflict with itself. */
+            if ($plate !== $vehicle->plate) {
+                $this->ensurePlateIsAvailable($plate, $vehicle->id);
+            }
+
+            $vehicle->plate = $plate;
+        }
+
+        foreach (['brand', 'model', 'year', 'capacity', 'type', 'status'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $vehicle->{$field} = $data[$field];
+            }
+        }
+
+        if (array_key_exists('image', $data)) {
+            $vehicle->image = $this->buildImageName($data['image']);
+        }
+
+        $vehicle->save();
+
+        return $vehicle;
+    }
+
+    #[Override]
+    public function deleteVehicle(int $id, User $user): Vehicle
+    {
+        $vehicle = $this->getVehicleById($user, $id);
+
+        /** El borrado real queda fuera de esta spec: dar de baja un vehículo es desactivarlo. */
+        $vehicle->status = VehicleStatus::Inactive;
+
+        $vehicle->save();
+
+        return $vehicle;
+    }
+
     /**
      * Fail when the given plate is already held by a vehicle still in service.
      *
@@ -111,6 +183,17 @@ class VehicleService implements VehicleServiceInterface
         }
 
         return $carrier->id;
+    }
+
+    /**
+     * Build the stored name of an uploaded image.
+     *
+     * The file itself is validated and discarded: uploading it is out of the
+     * scope of this spec, only its identifier is persisted.
+     */
+    private function buildImageName(UploadedFile $file): string
+    {
+        return Str::uuid().'.'.$file->getClientOriginalExtension();
     }
 
     /**
