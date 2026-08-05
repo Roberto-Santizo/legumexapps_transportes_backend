@@ -4,6 +4,7 @@ namespace App\Services\Vehicle;
 
 use App\Enums\UserRole;
 use App\Enums\VehicleStatus;
+use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
 use App\Interfaces\Vehicle\VehicleServiceInterface;
@@ -65,6 +66,30 @@ class VehicleService implements VehicleServiceInterface
         }
 
         return $vehicle;
+    }
+
+    /**
+     * Fail when the given plate is already held by a vehicle still in service.
+     *
+     * The uniqueness of a plate is conditional — a deactivated vehicle releases
+     * it — so it cannot live in a database index and is checked here instead.
+     *
+     * @param  string  $plate  Already normalized to upper case.
+     * @param  int|null  $exceptId  Vehicle updating its own plate, never a conflict with itself.
+     */
+    private function ensurePlateIsAvailable(string $plate, ?int $exceptId = null): void
+    {
+        $query = Vehicle::query()
+            ->where('plate', '=', $plate)
+            ->where('status', '!=', VehicleStatus::Inactive->value);
+
+        if ($exceptId !== null) {
+            $query->whereKeyNot($exceptId);
+        }
+
+        if ($query->exists()) {
+            throw new BadRequestError('La placa ya está registrada en un vehículo que no está desactivado');
+        }
     }
 
     /**
