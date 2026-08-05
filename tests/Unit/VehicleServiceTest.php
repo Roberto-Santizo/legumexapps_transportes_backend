@@ -396,6 +396,52 @@ it('lanza BadRequestError al mover la placa a una ya ocupada', function () {
     $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'plate' => 'P123ABC']);
 });
 
+it('lanza BadRequestError al reactivar un vehículo cuya placa ya está ocupada', function (array $payload) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'status' => VehicleStatus::Inactive,
+    ]);
+    Vehicle::factory()->create(['plate' => 'P123ABC', 'status' => VehicleStatus::Active]);
+
+    expect(fn () => vehicleService()->updateVehicle($payload, $vehicle->id, $carrier->owner))
+        ->toThrow(BadRequestError::class, 'No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado');
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'status' => 'inactive']);
+})->with([
+    'solo el status' => [['status' => 'active']],
+    'reenviando su propia placa' => [['status' => 'active', 'plate' => 'p123abc']],
+    'volviendo a under_repair' => [['status' => 'under_repair']],
+]);
+
+it('reactiva el vehículo cuando su placa sigue libre', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'status' => VehicleStatus::Inactive,
+    ]);
+
+    expect(vehicleService()->updateVehicle(['status' => 'active'], $vehicle->id, $carrier->owner)->status)
+        ->toBe(VehicleStatus::Active);
+});
+
+it('no revalida la placa de un vehículo desactivado que sigue desactivado', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'status' => VehicleStatus::Inactive,
+    ]);
+    Vehicle::factory()->create(['plate' => 'P123ABC', 'status' => VehicleStatus::Active]);
+
+    $updated = vehicleService()->updateVehicle(['brand' => 'Volvo'], $vehicle->id, $carrier->owner);
+
+    expect($updated->brand)->toBe('Volvo')
+        ->and($updated->status)->toBe(VehicleStatus::Inactive);
+});
+
 it('lanza ForbiddenError cuando un carrier actualiza un vehículo ajeno', function () {
     $carrier = Carrier::factory()->create();
     $ajeno = Vehicle::factory()->create(['brand' => 'Intacta']);

@@ -101,18 +101,28 @@ class VehicleService implements VehicleServiceInterface
     {
         $vehicle = $this->getVehicleById($user, $id);
 
-        if (array_key_exists('plate', $data)) {
-            $plate = Str::upper($data['plate']);
+        $plate = array_key_exists('plate', $data) ? Str::upper($data['plate']) : $vehicle->plate;
 
+        $status = array_key_exists('status', $data) ? VehicleStatus::from($data['status']) : $vehicle->status;
+
+        /** A vehicle coming back into service has to hold a plate nobody else is using. */
+        $isBackInService = $vehicle->status === VehicleStatus::Inactive && $status !== VehicleStatus::Inactive;
+
+        if ($plate !== $vehicle->plate) {
             /** Resubmitting the plate the vehicle already holds is not a conflict with itself. */
-            if ($plate !== $vehicle->plate) {
-                $this->ensurePlateIsAvailable($plate, $vehicle->id);
-            }
-
-            $vehicle->plate = $plate;
+            $this->ensurePlateIsAvailable($plate, $vehicle->id);
+        } elseif ($isBackInService) {
+            $this->ensurePlateIsAvailable(
+                $plate,
+                $vehicle->id,
+                'No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado',
+            );
         }
 
-        foreach (['brand', 'model', 'year', 'capacity', 'type', 'status'] as $field) {
+        $vehicle->plate = $plate;
+        $vehicle->status = $status;
+
+        foreach (['brand', 'model', 'year', 'capacity', 'type'] as $field) {
             if (array_key_exists($field, $data)) {
                 $vehicle->{$field} = $data[$field];
             }
@@ -148,8 +158,9 @@ class VehicleService implements VehicleServiceInterface
      *
      * @param  string  $plate  Already normalized to upper case.
      * @param  int|null  $exceptId  Vehicle updating its own plate, never a conflict with itself.
+     * @param  string|null  $message  Overrides the error when the plate is not what the caller was changing.
      */
-    private function ensurePlateIsAvailable(string $plate, ?int $exceptId = null): void
+    private function ensurePlateIsAvailable(string $plate, ?int $exceptId = null, ?string $message = null): void
     {
         $query = Vehicle::query()
             ->where('plate', '=', $plate)
@@ -160,7 +171,7 @@ class VehicleService implements VehicleServiceInterface
         }
 
         if ($query->exists()) {
-            throw new BadRequestError('La placa ya está registrada en un vehículo que no está desactivado');
+            throw new BadRequestError($message ?? 'La placa ya está registrada en un vehículo que no está desactivado');
         }
     }
 

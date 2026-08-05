@@ -730,6 +730,62 @@ it('acepta que el vehículo reenvíe su propia placa sin colisionar consigo mism
         ->assertJsonPath('data.brand', 'Volvo');
 });
 
+it('rechaza con 400 reactivar un vehículo cuya placa ya tomó otro vehículo no desactivado', function (array $payload) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'status' => VehicleStatus::Inactive,
+    ]);
+
+    Vehicle::factory()->create(['plate' => 'P123ABC', 'status' => VehicleStatus::Active]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", $payload)
+        ->assertBadRequest()
+        ->assertExactJson([
+            'statusCode' => 400,
+            'message' => 'No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado',
+            'data' => null,
+        ]);
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'status' => 'inactive']);
+})->with([
+    'solo el status' => [['status' => 'active']],
+    'reenviando su propia placa' => [['status' => 'active', 'plate' => 'p123abc']],
+    'volviendo a under_repair' => [['status' => 'under_repair']],
+]);
+
+it('permite reactivar un vehículo cuya placa sigue libre', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'status' => VehicleStatus::Inactive,
+    ]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['status' => 'active'])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'active');
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'status' => 'active']);
+});
+
+it('permite actualizar un vehículo desactivado que sigue desactivado aunque su placa esté tomada', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'status' => VehicleStatus::Inactive,
+    ]);
+
+    Vehicle::factory()->create(['plate' => 'P123ABC', 'status' => VehicleStatus::Active]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['brand' => 'Volvo'])
+        ->assertOk()
+        ->assertJsonPath('data.brand', 'Volvo')
+        ->assertJsonPath('data.status', 'inactive');
+});
+
 it('rechaza con 403 a un carrier que actualiza un vehículo de otra empresa', function () {
     $carrier = Carrier::factory()->create();
     $ajeno = Vehicle::factory()->create(['brand' => 'Intacta']);
