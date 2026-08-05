@@ -86,7 +86,7 @@ it('no expone la contraseña ni un token en la respuesta del registro', function
         ->assertJsonMissingPath('token');
 
     expect(array_keys($response->json('data')))
-        ->toBe(['id', 'name', 'email', 'role', 'emailVerifiedAt']);
+        ->toBe(['id', 'name', 'email', 'role', 'carrierId', 'carrierName', 'carrierCode', 'emailVerifiedAt']);
 });
 
 it('guarda un único código de confirmación hasheado que expira una hora después de crearse', function () {
