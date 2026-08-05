@@ -9,7 +9,6 @@ $carrier = UserRole::Carrier->value;
 $pilot = UserRole::Pilot->value;
 
 Route::prefix('carriers')->name('carriers.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $pilot): void {
-    /** Declaradas antes del apiResource: si no, /join, /me y /me/pilots entran por el comodín {carrier} y devuelven 404. */
     Route::post('/join', [CarrierController::class, 'join'])
         ->middleware("role:{$pilot}")
         ->name('join');

@@ -41,11 +41,16 @@ class UserResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $carrier = $this->currentCarrier();
+
         return [
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
             'role' => $this->role->value,
+            'carrierId' => $carrier?->id,
+            'carrierName' => $carrier?->name,
+            'carrierCode' => $carrier?->code,
             'emailVerifiedAt' => $this->email_verified_at,
         ];
     }

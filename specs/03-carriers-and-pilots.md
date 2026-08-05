@@ -203,38 +203,38 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 **Base de datos y modelos**
 
-- [ ] `php artisan migrate:fresh` crea `carriers` y `carrier_pilots` sin errores.
-- [ ] Insertar dos `carriers` con el mismo `user_id` falla por constraint único.
-- [ ] Insertar dos filas de `carrier_pilots` con el mismo `user_id` falla por constraint único.
-- [ ] `Carrier::factory()->create()->owner` devuelve un `User`, y `$carrier->pilots` una colección de `User`.
-- [ ] `$user->currentCarrier()` devuelve la empresa propia si el usuario es el dueño, la empresa vinculada si es piloto, y `null` para `administrator` y `manager`.
-- [ ] La tabla `users` no gana ninguna columna nueva.
+- [x] `php artisan migrate:fresh` crea `carriers` y `carrier_pilots` sin errores.
+- [x] Insertar dos `carriers` con el mismo `user_id` falla por constraint único.
+- [x] Insertar dos filas de `carrier_pilots` con el mismo `user_id` falla por constraint único.
+- [x] `Carrier::factory()->create()->owner` devuelve un `User`, y `$carrier->pilots` una colección de `User`.
+- [x] `$user->currentCarrier()` devuelve la empresa propia si el usuario es el dueño, la empresa vinculada si es piloto, y `null` para `administrator` y `manager`.
+- [x] La tabla `users` no gana ninguna columna nueva.
 
 **Claims del JWT**
 
-- [ ] El token de un `carrier` con empresa incluye `carrierId`, `carrierName` y `carrierCode` con los valores de su empresa.
-- [ ] El token de un `carrier` sin empresa y el de un `pilot` sin unir traen los tres claims en `null`.
-- [ ] El token de un `administrator` y el de un `manager` traen los tres claims en `null`.
-- [ ] Tras crear la empresa, `GET /api/auth/check-status` devuelve un token nuevo con los tres claims ya poblados.
+- [x] El token de un `carrier` con empresa incluye `carrierId`, `carrierName` y `carrierCode` con los valores de su empresa.
+- [x] El token de un `carrier` sin empresa y el de un `pilot` sin unir traen los tres claims en `null`.
+- [x] El token de un `administrator` y el de un `manager` traen los tres claims en `null`.
+- [x] Tras crear la empresa, `GET /api/auth/check-status` devuelve un token nuevo con los tres claims ya poblados.
 
 **Middlewares**
 
-- [ ] Un `carrier` sin empresa que llama a `GET /api/carriers/me` recibe 403 con el sobre `{ statusCode, message, data: null }`.
-- [ ] Un `administrator` sin empresa atraviesa `carrier.required` y recibe 200 en `GET /api/carriers`.
-- [ ] `GET /api/auth/check-status` **no** está bloqueado por `carrier.required`.
-- [ ] Un `pilot` que llama a `POST /api/carriers` recibe 403 por el middleware `role`.
-- [ ] Un `manager` recibe 403 en los ocho endpoints de carriers.
-- [ ] Una petición sin token a cualquier endpoint de carriers recibe 401.
+- [x] Un `carrier` sin empresa que llama a `GET /api/carriers/me` recibe 403 con el sobre `{ statusCode, message, data: null }`.
+- [x] Un `administrator` sin empresa atraviesa `carrier.required` y recibe 200 en `GET /api/carriers`.
+- [x] `GET /api/auth/check-status` **no** está bloqueado por `carrier.required`.
+- [x] Un `pilot` que llama a `POST /api/carriers` recibe 403 por el middleware `role`.
+- [x] Un `manager` recibe 403 en los ocho endpoints de carriers.
+- [x] Una petición sin token a cualquier endpoint de carriers recibe 401.
 
 **`POST /api/carriers`**
 
-- [ ] Un `carrier` confirmado y sin empresa recibe 201 y la empresa queda persistida con `active = true`.
-- [ ] La respuesta incluye un `code` de exactamente 6 caracteres alfanuméricos en mayúsculas.
-- [ ] Dos empresas creadas seguidas nunca comparten el mismo `code`.
-- [ ] La columna `image` guarda un UUID con la extensión del archivo enviado, y **no** aparece ningún archivo nuevo en `storage/`.
-- [ ] Enviar un `.pdf` como `image` devuelve 422.
-- [ ] Un `carrier` que ya tiene empresa recibe 400 y no se crea una segunda fila.
-- [ ] Dos empresas pueden llamarse igual: el `name` repetido no es error.
+- [x] Un `carrier` confirmado y sin empresa recibe 201 y la empresa queda persistida con `active = true`.
+- [x] La respuesta incluye un `code` de exactamente 6 caracteres alfanuméricos en mayúsculas.
+- [x] Dos empresas creadas seguidas nunca comparten el mismo `code`.
+- [x] La columna `image` guarda un UUID con la extensión del archivo enviado, y **no** aparece ningún archivo nuevo en `storage/`.
+- [x] Enviar un `.pdf` como `image` devuelve 422.
+- [x] Un `carrier` que ya tiene empresa recibe 400 y no se crea una segunda fila.
+- [x] Dos empresas pueden llamarse igual: el `name` repetido no es error.
 
 **`POST /api/carriers/join`**
 
@@ -269,10 +269,10 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 **Calidad**
 
-- [ ] `php artisan test --compact` pasa en verde, incluidos todos los tests de SPEC 01 y SPEC 02 sin modificarlos.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan route:list --path=carriers` muestra las ocho rutas con sus middlewares.
-- [ ] `php artisan l5-swagger:generate` regenera sin errores y los ocho endpoints aparecen en `/api/documentation`.
+- [x] `php artisan test --compact` pasa en verde, incluidos todos los tests de SPEC 01 y SPEC 02 sin modificarlos.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan route:list --path=carriers` muestra las ocho rutas con sus middlewares.
+- [x] `php artisan l5-swagger:generate` regenera sin errores y los ocho endpoints aparecen en `/api/documentation`.
 
 ---
 
