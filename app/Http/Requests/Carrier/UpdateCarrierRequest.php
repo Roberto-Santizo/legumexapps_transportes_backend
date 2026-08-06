@@ -47,7 +47,7 @@ class UpdateCarrierRequest extends FormRequest
     {
         return [
             'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'image' => ['sometimes', 'required', 'file', 'mimes:jpg,jpeg,png'],
+            'image' => ['sometimes', 'required', 'file', 'mimes:jpg,jpeg,png', 'max:3072'],
             'active' => ['sometimes', 'required', 'boolean'],
         ];
     }
@@ -64,6 +64,7 @@ class UpdateCarrierRequest extends FormRequest
             'image.required' => 'La imagen no puede estar vacía',
             'image.file' => 'La imagen debe ser un archivo',
             'image.mimes' => 'La imagen debe ser un archivo jpg, jpeg o png',
+            'image.max' => 'La imagen no puede pesar más de 3 MB',
             'active.required' => 'El estado no puede estar vacío',
             'active.boolean' => 'El estado debe ser verdadero o falso',
         ];

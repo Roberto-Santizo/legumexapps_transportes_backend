@@ -300,6 +300,43 @@ it('rechaza con 422 una imagen que no es jpg, jpeg ni png', function () {
     $this->assertDatabaseCount('carriers', 0);
 });
 
+it('rechaza con 422 una imagen de más de 3 MB al crear la empresa', function () {
+    asUser(userWithRole(UserRole::Carrier))
+        ->post('/api/carriers', validCarrierPayload([
+            'image' => UploadedFile::fake()->create('grande.jpg', 4096, 'image/jpeg'),
+        ]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['image'])
+        ->assertJsonPath('errors.image.0', 'La imagen no puede pesar más de 3 MB');
+
+    $this->assertDatabaseCount('carriers', 0);
+
+    expect(Storage::allFiles())->toBeEmpty();
+});
+
+it('rechaza con 422 una imagen de más de 3 MB al actualizar la empresa', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->patch("/api/carriers/{$carrier->id}", [
+        'image' => UploadedFile::fake()->create('grande.jpg', 4096, 'image/jpeg'),
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['image'])
+        ->assertJsonPath('errors.image.0', 'La imagen no puede pesar más de 3 MB');
+
+    expect(Storage::allFiles())->toBeEmpty();
+});
+
+it('acepta una imagen de 3 MB justos, porque el límite es inclusivo', function () {
+    asUser(userWithRole(UserRole::Carrier))
+        ->post('/api/carriers', validCarrierPayload([
+            'image' => UploadedFile::fake()->image('justa.png', 800, 800)->size(3072),
+        ]))
+        ->assertCreated();
+
+    $this->assertDatabaseCount('carriers', 1);
+});
+
 it('valida los campos obligatorios al crear la empresa', function (array $payload, string $field) {
     asUser(userWithRole(UserRole::Carrier))
         ->post('/api/carriers', $payload)

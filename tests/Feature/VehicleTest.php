@@ -256,6 +256,45 @@ it('rechaza con 422 una imagen que no es jpg, jpeg ni png', function () {
     $this->assertDatabaseCount('vehicles', 0);
 });
 
+it('rechaza con 422 una imagen de más de 3 MB al crear el vehículo', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload([
+        'image' => UploadedFile::fake()->create('grande.jpg', 4096, 'image/jpeg'),
+    ]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['image'])
+        ->assertJsonPath('errors.image.0', 'La imagen no puede pesar más de 3 MB');
+
+    $this->assertDatabaseCount('vehicles', 0);
+
+    expect(Storage::allFiles())->toBeEmpty();
+});
+
+it('rechaza con 422 una imagen de más de 3 MB al actualizar el vehículo', function () {
+    $vehicle = Vehicle::factory()->create();
+
+    asUser($vehicle->carrier->owner)->patch("/api/vehicles/{$vehicle->id}", [
+        'image' => UploadedFile::fake()->create('grande.jpg', 4096, 'image/jpeg'),
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['image'])
+        ->assertJsonPath('errors.image.0', 'La imagen no puede pesar más de 3 MB');
+
+    expect(Storage::allFiles())->toBeEmpty();
+});
+
+it('acepta una imagen de 3 MB justos al crear el vehículo, porque el límite es inclusivo', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload([
+        'image' => UploadedFile::fake()->image('justa.png', 800, 800)->size(3072),
+    ]))
+        ->assertCreated();
+
+    $this->assertDatabaseCount('vehicles', 1);
+});
+
 it('guarda un uuid con la extensión del archivo y no escribe nada en storage', function () {
     Storage::fake('local');
     Storage::fake('public');

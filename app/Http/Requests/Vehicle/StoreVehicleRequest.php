@@ -80,7 +80,7 @@ class StoreVehicleRequest extends FormRequest
             'year' => ['required', 'integer', 'min:1900', 'max:'.(date('Y') + 1)],
             'capacity' => ['required', 'numeric', 'min:0'],
             'type' => ['required', Rule::enum(VehicleType::class)],
-            'image' => ['required', 'file', 'mimes:jpg,jpeg,png'],
+            'image' => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:3072'],
         ];
     }
 
@@ -111,6 +111,7 @@ class StoreVehicleRequest extends FormRequest
             'image.required' => 'La imagen es obligatoria',
             'image.file' => 'La imagen debe ser un archivo',
             'image.mimes' => 'La imagen debe ser un archivo jpg, jpeg o png',
+            'image.max' => 'La imagen no puede pesar más de 3 MB',
         ];
     }
 }

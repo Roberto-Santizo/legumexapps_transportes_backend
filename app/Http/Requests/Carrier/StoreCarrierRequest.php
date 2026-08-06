@@ -42,7 +42,7 @@ class StoreCarrierRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'image' => ['required', 'file', 'mimes:jpg,jpeg,png'],
+            'image' => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:3072'],
         ];
     }
 
@@ -58,6 +58,7 @@ class StoreCarrierRequest extends FormRequest
             'image.required' => 'La imagen es obligatoria',
             'image.file' => 'La imagen debe ser un archivo',
             'image.mimes' => 'La imagen debe ser un archivo jpg, jpeg o png',
+            'image.max' => 'La imagen no puede pesar más de 3 MB',
         ];
     }
 }

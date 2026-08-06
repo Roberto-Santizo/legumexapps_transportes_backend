@@ -85,7 +85,7 @@ class UpdateVehicleRequest extends FormRequest
             'year' => ['sometimes', 'required', 'integer', 'min:1900', 'max:'.(date('Y') + 1)],
             'capacity' => ['sometimes', 'required', 'numeric', 'min:0'],
             'type' => ['sometimes', 'required', Rule::enum(VehicleType::class)],
-            'image' => ['sometimes', 'required', 'file', 'mimes:jpg,jpeg,png'],
+            'image' => ['sometimes', 'required', 'file', 'mimes:jpg,jpeg,png', 'max:3072'],
             'status' => ['sometimes', 'required', Rule::enum(VehicleStatus::class)],
         ];
     }
@@ -117,6 +117,7 @@ class UpdateVehicleRequest extends FormRequest
             'image.required' => 'La imagen no puede estar vacía',
             'image.file' => 'La imagen debe ser un archivo',
             'image.mimes' => 'La imagen debe ser un archivo jpg, jpeg o png',
+            'image.max' => 'La imagen no puede pesar más de 3 MB',
             'status.required' => 'El estado no puede estar vacío',
             'status.enum' => 'El estado del vehículo no es válido',
         ];
