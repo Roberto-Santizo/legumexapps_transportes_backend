@@ -4,6 +4,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use Tests\TestCase;
 
@@ -23,6 +24,9 @@ pest()->extend(TestCase::class)
     ->beforeEach(function (): void {
         /** Ningún test manda correo de verdad, ni siquiera por descuido. */
         Mail::fake();
+
+        /** Ningún test sube nada de verdad: el disco por defecto se sustituye entero. */
+        fakeDefaultDisk();
     })
     ->in('Feature', 'Unit');
 
@@ -55,6 +59,22 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Swap the default filesystem disk for an in-memory fake.
+ *
+ * The fake is given the url of the real disk — or a stand-in host when it has
+ * none — because a bare fake resolves to the relative "/storage/{key}" and the
+ * application promises absolute URLs.
+ */
+function fakeDefaultDisk(): void
+{
+    $disk = config('filesystems.default');
+
+    Storage::fake($disk, [
+        'url' => config("filesystems.disks.{$disk}.url") ?: 'https://bucket.s3.test',
+    ]);
 }
 
 /**

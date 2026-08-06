@@ -52,7 +52,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'image',
-            description: 'Nuevo archivo de imagen. Solo jpg, jpeg y png. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión, que no resuelve a ningún archivo almacenado. Requiere enviar el cuerpo como multipart/form-data.',
+            description: 'Nuevo archivo de imagen. Solo jpg, jpeg y png, y no más de 3 MB (3072 KB, límite inclusivo). Igual que en el alta, se recorta a un cuadrado centrado de 800x800 px antes de subirla, conservando el formato. Al reemplazarla se borra la imagen anterior del almacenamiento, de forma irreversible. Requiere enviar el cuerpo como multipart/form-data.',
             type: 'string',
             format: 'binary',
         ),
@@ -85,7 +85,7 @@ class UpdateVehicleRequest extends FormRequest
             'year' => ['sometimes', 'required', 'integer', 'min:1900', 'max:'.(date('Y') + 1)],
             'capacity' => ['sometimes', 'required', 'numeric', 'min:0'],
             'type' => ['sometimes', 'required', Rule::enum(VehicleType::class)],
-            'image' => ['sometimes', 'required', 'file', 'mimes:jpg,jpeg,png'],
+            'image' => ['sometimes', 'required', 'file', 'mimes:jpg,jpeg,png', 'max:3072'],
             'status' => ['sometimes', 'required', Rule::enum(VehicleStatus::class)],
         ];
     }
@@ -117,6 +117,7 @@ class UpdateVehicleRequest extends FormRequest
             'image.required' => 'La imagen no puede estar vacía',
             'image.file' => 'La imagen debe ser un archivo',
             'image.mimes' => 'La imagen debe ser un archivo jpg, jpeg o png',
+            'image.max' => 'La imagen no puede pesar más de 3 MB',
             'status.required' => 'El estado no puede estar vacío',
             'status.enum' => 'El estado del vehículo no es válido',
         ];

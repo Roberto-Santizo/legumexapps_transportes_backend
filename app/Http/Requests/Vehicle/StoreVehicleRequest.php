@@ -54,7 +54,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'image',
-            description: 'Archivo de imagen, obligatorio. Solo se aceptan jpg, jpeg y png; cualquier otro tipo devuelve 422. ATENCIÓN: el archivo se valida y se descarta. No se guarda en disco ni en la nube; lo único que se persiste es un UUID con la extensión original, que es el valor devuelto en el campo image del recurso y que no resuelve a ningún archivo. Misma deuda que en la SPEC 03.',
+            description: 'Archivo de imagen, obligatorio. Solo se aceptan jpg, jpeg y png; cualquier otro tipo devuelve 422. No puede pesar más de 3 MB (3072 KB, límite inclusivo). El archivo se almacena, pero NO tal cual: antes de subirlo se recorta a un cuadrado centrado y se reescala a 800x800 px, conservando el formato de entrada. Se pierden los bordes del lado largo y el original no se guarda en ningún sitio. Si la imagen no se puede procesar o el almacenamiento falla, la respuesta es 400 y el vehículo no se crea.',
             type: 'string',
             format: 'binary',
         ),
@@ -80,7 +80,7 @@ class StoreVehicleRequest extends FormRequest
             'year' => ['required', 'integer', 'min:1900', 'max:'.(date('Y') + 1)],
             'capacity' => ['required', 'numeric', 'min:0'],
             'type' => ['required', Rule::enum(VehicleType::class)],
-            'image' => ['required', 'file', 'mimes:jpg,jpeg,png'],
+            'image' => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:3072'],
         ];
     }
 
@@ -111,6 +111,7 @@ class StoreVehicleRequest extends FormRequest
             'image.required' => 'La imagen es obligatoria',
             'image.file' => 'La imagen debe ser un archivo',
             'image.mimes' => 'La imagen debe ser un archivo jpg, jpeg o png',
+            'image.max' => 'La imagen no puede pesar más de 3 MB',
         ];
     }
 }

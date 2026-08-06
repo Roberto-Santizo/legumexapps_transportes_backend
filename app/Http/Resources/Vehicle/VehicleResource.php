@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Vehicle;
 
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
@@ -37,10 +38,11 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'image',
-            description: 'Identificador de la imagen: un UUID con la extensión del archivo enviado. ATENCIÓN: hoy el archivo se valida y se descarta, no se guarda en disco ni en la nube, así que este valor NO resuelve a ninguna URL descargable. El cliente no debe construir enlaces con él ni asumir que la imagen quedó almacenada. Es la misma deuda declarada en la SPEC 03.',
+            description: 'URL pública y permanente de la imagen del vehículo, lista para usar como src. La imagen almacenada es siempre un cuadrado de 800x800 px recortado desde el centro del archivo que se subió, en el formato original (jpg o png). Es null cuando el vehículo no tiene imagen. No es la clave interna del objeto: el cliente no debe derivarla ni componerla a mano.',
             type: 'string',
+            format: 'uri',
             nullable: true,
-            example: '9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d.png',
+            example: 'https://mi-bucket.s3.us-east-1.amazonaws.com/vehicles/9f1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d.png',
         ),
         new OA\Property(
             property: 'status',
@@ -96,7 +98,8 @@ class VehicleResource extends JsonResource
             'year' => $this->year,
             'capacity' => $this->capacity,
             'type' => $this->type->value,
-            'image' => $this->image,
+            /** Un JsonResource se instancia con new, así que el contrato se resuelve del contenedor. */
+            'image' => app(FileStorageServiceInterface::class)->url($this->image),
             'status' => $this->status->value,
             'carrierName' => $this->carrier?->name,
         ];

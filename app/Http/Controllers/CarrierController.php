@@ -90,7 +90,7 @@ class CarrierController extends Controller
 
         El cuerpo va como multipart/form-data, con name e image. El code lo genera el servidor (6 caracteres alfanuméricos en mayúsculas, único) y active nace siempre en true: ninguno de los dos se puede enviar.
 
-        ATENCIÓN — la imagen no se almacena. El archivo se valida (jpg, jpeg o png; cualquier otro tipo es 422) y a continuación se descarta: no se guarda en disco ni en la nube. Lo único que se persiste es un identificador UUID con la extensión original, que es el valor que devuelve el campo image. El consumidor NO debe confiar en que el archivo quedó guardado ni intentar recuperarlo: hoy ese identificador no resuelve a ningún archivo. La subida real está fuera del alcance de la SPEC 03 y llegará en una spec posterior.
+        La imagen sí se almacena, pero no tal cual llegó. El archivo se valida (jpg, jpeg o png; cualquier otro tipo es 422, y más de 3 MB también) y antes de subirlo se recorta a un cuadrado centrado de 800x800 px conservando su formato: se pierden los bordes del lado largo y el original no se guarda en ningún sitio. El campo image de la respuesta es la URL pública y permanente del resultado. La subida ocurre ANTES de crear la fila: si la imagen no se puede procesar o el almacenamiento falla, la respuesta es 400 y la empresa no se crea.
 
         Este endpoint no devuelve token nuevo: los claims carrierId, carrierName y carrierCode del JWT siguen en null hasta que el cliente llame a GET /api/auth/check-status.
         TEXT,
@@ -215,7 +215,7 @@ class CarrierController extends Controller
 
         Pueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required). Un carrier solo puede actualizar su propia empresa: si intenta actualizar una ajena recibe 403. Un administrator puede actualizar cualquiera.
 
-        Si se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión, que no resuelve a ningún archivo almacenado. Si solo se actualizan name o active, basta con application/json.
+        Si se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, la imagen se recorta a un cuadrado centrado de 800x800 px antes de subirla y no puede pasar de 3 MB. Al reemplazarla se borra la anterior del almacenamiento, de forma irreversible y solo después de que la fila quede guardada. Si solo se actualizan name o active, basta con application/json y la imagen no se toca.
 
         El code no se puede modificar ni rotar, y active es hoy un dato informativo: ponerlo en false no bloquea a los pilotos ni impide que se unan con el código.
         TEXT,

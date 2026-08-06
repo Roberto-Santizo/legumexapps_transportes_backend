@@ -116,7 +116,7 @@ class VehicleController extends Controller
 
         La capacidad va EN LIBRAS. La unidad no se guarda ni se valida: nada impide que un cliente envíe kilos y nada lo detectará.
 
-        ATENCIÓN — la imagen no se almacena. El archivo se valida (jpg, jpeg o png; cualquier otro tipo es 422) y a continuación se descarta: no se guarda en disco ni en la nube. Lo único que se persiste es un identificador UUID con la extensión original, que es el valor que devuelve el campo image. El consumidor NO debe confiar en que el archivo quedó guardado ni intentar recuperarlo. Es la misma deuda de la SPEC 03 y la subida real llegará en una spec posterior.
+        La imagen sí se almacena, pero no tal cual llegó. El archivo se valida (jpg, jpeg o png; cualquier otro tipo es 422, y más de 3 MB también) y antes de subirlo se recorta a un cuadrado centrado de 800x800 px conservando su formato: se pierden los bordes del lado largo y el original no se guarda en ningún sitio. El campo image de la respuesta es la URL pública y permanente del resultado. La subida ocurre ANTES de crear la fila y DESPUÉS de comprobar el ámbito y la placa: si la imagen no se puede procesar o el almacenamiento falla, la respuesta es 400 y el vehículo no se crea.
         TEXT,
         requestBody: new OA\RequestBody(
             required: true,
@@ -249,7 +249,7 @@ class VehicleController extends Controller
 
         ATENCIÓN — sacar un vehículo de inactive (a active o a under_repair) también revalida su placa, aunque el cuerpo no la envíe: un vehículo que vuelve al servicio no puede compartir placa con otro que ya la usa. Si otra empresa registró esa placa mientras el vehículo estaba desactivado, la reactivación devuelve 400 con el mensaje "No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado" y el vehículo se queda desactivado. Resolver ese conflicto (liberar la placa ajena o asignarle otra en la misma operación) está fuera del alcance de la SPEC 04. Mientras el vehículo siga en inactive su placa duplicada no molesta: el resto de campos se actualizan con normalidad.
 
-        Si se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión, que no resuelve a ningún archivo almacenado. Si no se toca la imagen, basta con application/json. La capacidad sigue siendo EN LIBRAS.
+        Si se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, la imagen se recorta a un cuadrado centrado de 800x800 px antes de subirla y no puede pasar de 3 MB. Al reemplazarla se borra la anterior del almacenamiento, de forma irreversible y solo después de que la fila quede guardada. Si no se toca la imagen, basta con application/json y la que hubiera se queda como está. La capacidad sigue siendo EN LIBRAS.
         TEXT,
         requestBody: new OA\RequestBody(
             required: true,

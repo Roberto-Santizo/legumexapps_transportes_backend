@@ -18,6 +18,8 @@
         </include>
     </source>
     <php>
+        <!-- GD reserva memoria por píxeles, no por bytes del archivo: una foto de 4000x3000 pide ~48 MB. -->
+        <ini name="memory_limit" value="256M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

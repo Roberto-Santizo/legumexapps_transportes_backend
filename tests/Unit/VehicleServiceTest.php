@@ -290,7 +290,7 @@ it('persiste el vehículo en la empresa del usuario, activo y con la placa en ma
         ->and($vehicle->plate)->toBe('P123ABC')
         ->and($vehicle->status)->toBe(VehicleStatus::Active)
         ->and($vehicle->type)->toBe(VehicleType::Truck)
-        ->and($vehicle->image)->toEndWith('.png');
+        ->and($vehicle->image)->toStartWith('vehicles/')->toEndWith('.png');
 
     $this->assertDatabaseHas('vehicles', [
         'carrier_id' => $carrier->id,
@@ -364,7 +364,7 @@ it('actualiza el status y la imagen del vehículo', function () {
     ], $vehicle->id, $carrier->owner);
 
     expect($updated->status)->toBe(VehicleStatus::UnderRepair)
-        ->and($updated->image)->toEndWith('.jpg');
+        ->and($updated->image)->toStartWith('vehicles/')->toEndWith('.jpg');
 
     $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'status' => 'under_repair']);
 });

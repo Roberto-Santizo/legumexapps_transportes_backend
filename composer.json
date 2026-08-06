@@ -11,8 +11,10 @@
     "require": {
         "php": "^8.3",
         "darkaonline/l5-swagger": "^11.1",
+        "intervention/image": "^4.2",
         "laravel/framework": "^13.8",
         "laravel/tinker": "^3.0",
+        "league/flysystem-aws-s3-v3": "^3.35",
         "php-open-source-saver/jwt-auth": "^2.9",
         "resend/resend-laravel": "^1.4"
     },
