@@ -4,6 +4,7 @@ namespace App\Services\FuelPrice;
 
 use App\Enums\FuelPriceStatus;
 use App\Enums\FuelType;
+use App\Errors\BadRequestError;
 use App\Errors\NotFoundError;
 use App\Interfaces\FuelPrice\FuelPriceServiceInterface;
 use App\Models\FuelPrice;
@@ -125,6 +126,25 @@ class FuelPriceService implements FuelPriceServiceInterface
     public function destroy(int $id): FuelPrice
     {
         //
+    }
+
+    /**
+     * Resolve the row matching the given id, refusing to touch the history.
+     *
+     * Every write of this domain goes through here: once a price has been
+     * displaced it is read-only, so an inactive row is a client error, not a
+     * missing one. Throws a NotFoundError when the row does not exist and a
+     * BadRequestError when it is already inactive.
+     */
+    private function resolveActiveFuelPrice(int $id): FuelPrice
+    {
+        $fuelPrice = $this->getFuelPriceById($id);
+
+        if ($fuelPrice->status === FuelPriceStatus::Inactive) {
+            throw new BadRequestError('Solo se puede modificar el precio vigente');
+        }
+
+        return $fuelPrice;
     }
 
     /**
