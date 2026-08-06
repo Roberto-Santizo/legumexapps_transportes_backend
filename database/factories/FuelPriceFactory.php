@@ -28,4 +28,24 @@ class FuelPriceFactory extends Factory
             'registered_by' => User::factory()->state(['role' => UserRole::Administrator]),
         ];
     }
+
+    /**
+     * Indicate that the price is the one currently in effect for its fuel type.
+     */
+    public function active(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => FuelPriceStatus::Active,
+        ]);
+    }
+
+    /**
+     * Indicate that the price has already been displaced and belongs to the history.
+     */
+    public function inactive(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => FuelPriceStatus::Inactive,
+        ]);
+    }
 }
