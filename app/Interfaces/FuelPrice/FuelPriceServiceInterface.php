@@ -16,8 +16,8 @@ interface FuelPriceServiceInterface
      * with no company scoping. Invalid filters are ignored instead of failing.
      *
      * @param  array{fuelType?: string|null, status?: string|null, limit?: string|null}  $filters
-     *                                                                                            fuelType: value of FuelType; status: value of FuelPriceStatus;
-     *                                                                                            limit: page size requested by the client, clamped to [10, 100].
+     *                                                                                             fuelType: value of FuelType; status: value of FuelPriceStatus;
+     *                                                                                             limit: page size requested by the client, clamped to [10, 100].
      * @return LengthAwarePaginator<int, FuelPrice>|Collection<int, FuelPrice>
      */
     public function getFuelPrices(array $filters): LengthAwarePaginator|Collection;
