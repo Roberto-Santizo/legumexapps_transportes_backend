@@ -113,19 +113,39 @@ class FuelPriceService implements FuelPriceServiceInterface
     #[Override]
     public function update(int $id, array $data): FuelPrice
     {
-        //
+        $fuelPrice = $this->resolveActiveFuelPrice($id);
+
+        /** Solo el monto: cambiar el tipo dejaría dos vigentes y cambiar el estado duplicaría deactivate. */
+        $fuelPrice->price = $data['price'];
+
+        $fuelPrice->save();
+
+        return $fuelPrice;
     }
 
     #[Override]
     public function deactivate(int $id): FuelPrice
     {
-        //
+        $fuelPrice = $this->resolveActiveFuelPrice($id);
+
+        /** Ese tipo queda sin vigente: ninguna fila inactiva asciende para reemplazarla. */
+        $fuelPrice->status = FuelPriceStatus::Inactive;
+
+        $fuelPrice->save();
+
+        return $fuelPrice;
     }
 
     #[Override]
     public function destroy(int $id): FuelPrice
     {
-        //
+        $fuelPrice = $this->resolveActiveFuelPrice($id);
+
+        /** Borrado real, no baja lógica: desactivar sin reemplazo ya lo hace deactivate. */
+        $fuelPrice->delete();
+
+        /** El modelo en memoria sobrevive al borrado, para que la respuesta diga qué se eliminó. */
+        return $fuelPrice;
     }
 
     /**
