@@ -52,7 +52,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'image',
-            description: 'Nuevo archivo de imagen. Solo jpg, jpeg y png. Igual que en el alta, el archivo se valida y se descarta: solo se persiste un UUID con la extensión, que no resuelve a ningún archivo almacenado. Requiere enviar el cuerpo como multipart/form-data.',
+            description: 'Nuevo archivo de imagen. Solo jpg, jpeg y png, y no más de 3 MB (3072 KB, límite inclusivo). Igual que en el alta, se recorta a un cuadrado centrado de 800x800 px antes de subirla, conservando el formato. Al reemplazarla se borra la imagen anterior del almacenamiento, de forma irreversible. Requiere enviar el cuerpo como multipart/form-data.',
             type: 'string',
             format: 'binary',
         ),
