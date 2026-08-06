@@ -58,6 +58,15 @@ it('genera keys distintas para el mismo contenido', function () {
     Storage::assertExists($second);
 });
 
+it('sube el objeto con ACL de acceso público', function () {
+    Storage::shouldReceive('put')
+        ->once()
+        ->withArgs(fn ($key, $contents, $options) => $options === ['ACL' => 'public-read'])
+        ->andReturnTrue();
+
+    fileStorage()->store('bytes', 'carriers', 'png');
+});
+
 it('traduce a BadRequestError el false de retorno del disco', function () {
     Storage::shouldReceive('put')->once()->andReturnFalse();
 

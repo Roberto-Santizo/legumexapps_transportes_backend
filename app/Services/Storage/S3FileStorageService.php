@@ -16,6 +16,12 @@ final class S3FileStorageService implements FileStorageServiceInterface
      */
     private const STORE_ERROR_MESSAGE = 'No se pudo almacenar la imagen';
 
+    /**
+     * ACL applied to every upload: the bucket is public and the front-end links
+     * the object URL directly, so the object must be world-readable.
+     */
+    private const PUBLIC_ACL = 'public-read';
+
     #[Override]
     public function store(string $contents, string $directory, string $extension): string
     {
@@ -26,7 +32,7 @@ final class S3FileStorageService implements FileStorageServiceInterface
          * false return value; a bad region, DNS or credentials do throw.
          */
         try {
-            $stored = Storage::put($key, $contents);
+            $stored = Storage::put($key, $contents, ['ACL' => self::PUBLIC_ACL]);
         } catch (Throwable) {
             throw new BadRequestError(self::STORE_ERROR_MESSAGE);
         }

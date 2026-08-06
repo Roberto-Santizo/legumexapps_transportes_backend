@@ -32,7 +32,7 @@
 - `league/flysystem-aws-s3-v3` instalado y las variables `AWS_*` con valores reales en el `.env`. Lo hace el usuario antes de empezar la implementación.
 - `intervention/image` (^3) instalado. Usa el driver **GD**, que ya está compilado en el PHP del proyecto; no hace falta Imagick.
 - `upload_max_filesize` y `post_max_size` del PHP de cada entorno **≥ 4M**. Si PHP corta antes, el request llega vacío y la validación devuelve un `required` confuso en vez del `max` correcto. Es configuración de infraestructura, no de código.
-- El bucket creado, público y con su política de acceso resuelta. Es tarea de operaciones.
+- El bucket creado, público y con su política de acceso resuelta, y con las **ACLs habilitadas** (*Object Ownership* en «Bucket owner preferred», no en «Bucket owner enforced») y *Block public ACLs* desactivado, porque cada objeto se sube con ACL `public-read`. Es tarea de operaciones.
 
 **Fuera de alcance (para specs futuras):**
 
@@ -104,7 +104,8 @@ final class S3FileStorageService implements FileStorageServiceInterface
     public function store(string $contents, string $directory, string $extension): string
     {
         $key = $directory.'/'.Str::uuid().'.'.$extension;
-        // Storage::put($key, $contents) → false si falla; los discos llevan 'throw' => false
+        // Storage::put($key, $contents, ['ACL' => 'public-read']) → false si falla;
+        // los discos llevan 'throw' => false
         // Cualquier Throwable (región inválida, DNS, credenciales) se captura y
         // se traduce a BadRequestError('No se pudo almacenar la imagen')
     }
@@ -120,6 +121,8 @@ final class S3FileStorageService implements FileStorageServiceInterface
 Trabaja siempre contra el disco por defecto (`Storage::disk()`), nunca contra `'s3'` escrito a mano. El disco lo decide `FILESYSTEM_DISK`, y por eso los tests pueden interceptarlo con `Storage::fake()` sin tocar la clase.
 
 Los discos de `config/filesystems.php` llevan `'throw' => false`, así que un fallo llega como un `false` de retorno, no como excepción. La clase comprueba las dos vías.
+
+Cada subida marca el objeto como de **acceso público** con la ACL `public-read`, en una constante de la clase. No es opcional: sin ella Flysystem cae en su `determineAcl()`, cuyo valor por defecto es `private`, y la URL permanente que promete `url()` devolvería un 403. La ACL pasada en las opciones del `put()` tiene prioridad sobre el `visibility` del disco (`$options['params']['ACL'] ?? $this->determineAcl($config)` en `AwsS3V3Adapter::upload()`), así que es el único sitio donde se decide.
 
 ### 3. El contrato de procesado
 
@@ -325,84 +328,85 @@ Nueve pasos. Cada uno deja la suite en verde y es commiteable por sí solo.
 
 **Contrato y contenedor**
 
-- [ ] `app(FileStorageServiceInterface::class)` resuelve a `S3FileStorageService`.
-- [ ] `app(ImageProcessorServiceInterface::class)` resuelve a `ImageProcessorService`.
-- [ ] Los tres métodos de `S3FileStorageService` y el de `ImageProcessorService` llevan `#[Override]`.
-- [ ] Ningún archivo fuera de `app/Services/Storage/` menciona `Storage::` ni el nombre del disco `'s3'`. Todo el acceso al almacenamiento pasa por el contrato.
-- [ ] Ningún archivo fuera de `app/Services/Storage/ImageProcessorService.php` menciona `Intervention\`. Los services de dominio no saben con qué se recorta.
-- [ ] No hay migraciones nuevas: `php artisan migrate:fresh` produce el mismo esquema que antes de la spec.
+- [x] `app(FileStorageServiceInterface::class)` resuelve a `S3FileStorageService`.
+- [x] `app(ImageProcessorServiceInterface::class)` resuelve a `ImageProcessorService`.
+- [x] Los tres métodos de `S3FileStorageService` y el de `ImageProcessorService` llevan `#[Override]`.
+- [x] Ningún archivo fuera de `app/Services/Storage/` menciona `Storage::` ni el nombre del disco `'s3'`. Todo el acceso al almacenamiento pasa por el contrato.
+- [x] Ningún archivo fuera de `app/Services/Storage/ImageProcessorService.php` menciona `Intervention\`. Los services de dominio no saben con qué se recorta.
+- [x] No hay migraciones nuevas: `php artisan migrate:fresh` produce el mismo esquema que antes de la spec.
 
 **`S3FileStorageService`**
 
-- [ ] `store($contents, 'carriers', 'png')` devuelve una key con el formato `carriers/{uuid}.png` y el archivo aparece en el disco con exactamente esos bytes.
-- [ ] La extensión de la key es la que se le pasó: `'jpg'` produce una key `.jpg` y `'png'` una `.png`.
-- [ ] La key **no** contiene el nombre original del archivo: subir `mi-foto-personal.png` no deja rastro de esa cadena.
-- [ ] Dos subidas del mismo contenido producen dos keys distintas.
-- [ ] `delete()` de una key existente la borra y devuelve `true`.
-- [ ] `delete(null)` devuelve `false` sin lanzar.
-- [ ] `delete('carriers/no-existe.png')` devuelve `false` sin lanzar.
-- [ ] `url(null)` devuelve `null`.
-- [ ] `url('carriers/x.png')` devuelve una URL absoluta que termina en `carriers/x.png`.
+- [x] `store($contents, 'carriers', 'png')` devuelve una key con el formato `carriers/{uuid}.png` y el archivo aparece en el disco con exactamente esos bytes.
+- [x] `store()` llama al disco con la opción `ACL` en `public-read`. Ninguna subida se hace sin ella.
+- [x] La extensión de la key es la que se le pasó: `'jpg'` produce una key `.jpg` y `'png'` una `.png`.
+- [x] La key **no** contiene el nombre original del archivo: subir `mi-foto-personal.png` no deja rastro de esa cadena.
+- [x] Dos subidas del mismo contenido producen dos keys distintas.
+- [x] `delete()` de una key existente la borra y devuelve `true`.
+- [x] `delete(null)` devuelve `false` sin lanzar.
+- [x] `delete('carriers/no-existe.png')` devuelve `false` sin lanzar.
+- [x] `url(null)` devuelve `null`.
+- [x] `url('carriers/x.png')` devuelve una URL absoluta que termina en `carriers/x.png`.
 
 **`ImageProcessorService`**
 
-- [ ] Una imagen apaisada de 1600×900 sale de 800×800.
-- [ ] Una imagen vertical de 600×1200 sale de 800×800.
-- [ ] Una imagen más pequeña que el lado canónico, 200×200, sale igualmente de 800×800.
-- [ ] Una imagen que ya era 800×800 sale de 800×800 y sigue siendo decodificable.
-- [ ] El recorte no deforma: en una imagen apaisada con un patrón conocido, lo que se pierde son los bordes laterales, no la escala.
-- [ ] Un `.jpg` de entrada devuelve `extension` `jpg` y bytes JPEG; un `.png` devuelve `png` y bytes PNG.
-- [ ] El `extension` devuelto coincide con el formato real detectado en `contents` por `getimagesizefromstring()`.
-- [ ] Una foto grande de 4000×3000 sale pesando menos que el original.
-- [ ] Un archivo que no es una imagen decodificable lanza `BadRequestError`, no un `Throwable` crudo.
-- [ ] El archivo original **no** se modifica en disco: el procesado ocurre en memoria.
+- [x] Una imagen apaisada de 1600×900 sale de 800×800.
+- [x] Una imagen vertical de 600×1200 sale de 800×800.
+- [x] Una imagen más pequeña que el lado canónico, 200×200, sale igualmente de 800×800.
+- [x] Una imagen que ya era 800×800 sale de 800×800 y sigue siendo decodificable.
+- [x] El recorte no deforma: en una imagen apaisada con un patrón conocido, lo que se pierde son los bordes laterales, no la escala.
+- [x] Un `.jpg` de entrada devuelve `extension` `jpg` y bytes JPEG; un `.png` devuelve `png` y bytes PNG.
+- [x] El `extension` devuelto coincide con el formato real detectado en `contents` por `getimagesizefromstring()`.
+- [x] Una foto grande de 4000×3000 sale pesando menos que el original.
+- [x] Un archivo que no es una imagen decodificable lanza `BadRequestError`, no un `Throwable` crudo.
+- [x] El archivo original **no** se modifica en disco: el procesado ocurre en memoria.
 
 **Sustituibilidad (el principio de Liskov)**
 
-- [ ] Existe en `tests/` un doble que implementa `FileStorageServiceInterface` sin usar S3.
-- [ ] Existe en `tests/` un doble que implementa `ImageProcessorServiceInterface` sin decodificar nada, y la suite de dominio pasa entera con él bindeado.
-- [ ] Con ese doble bindeado en el contenedor, **toda** la suite de `Carrier` y `Vehicle` pasa sin modificar ni un test de dominio.
-- [ ] Con un doble cuyo `store()` lanza `BadRequestError`, `POST /api/carriers` devuelve 400 y **no** se crea ninguna fila.
-- [ ] Con ese mismo doble, `POST /api/vehicles` devuelve 400 y no se crea ninguna fila.
-- [ ] Con un doble cuyo `normalizeSquare()` lanza `BadRequestError`, `POST /api/carriers` devuelve 400, no se crea fila y **no se escribe nada en el disco**: el procesado va antes que la subida.
+- [x] Existe en `tests/` un doble que implementa `FileStorageServiceInterface` sin usar S3.
+- [x] Existe en `tests/` un doble que implementa `ImageProcessorServiceInterface` sin decodificar nada, y la suite de dominio pasa entera con él bindeado.
+- [x] Con ese doble bindeado en el contenedor, **toda** la suite de `Carrier` y `Vehicle` pasa sin modificar ni un test de dominio.
+- [x] Con un doble cuyo `store()` lanza `BadRequestError`, `POST /api/carriers` devuelve 400 y **no** se crea ninguna fila.
+- [x] Con ese mismo doble, `POST /api/vehicles` devuelve 400 y no se crea ninguna fila.
+- [x] Con un doble cuyo `normalizeSquare()` lanza `BadRequestError`, `POST /api/carriers` devuelve 400, no se crea fila y **no se escribe nada en el disco**: el procesado va antes que la subida.
 
 **`Carrier`**
 
-- [ ] `POST /api/carriers` devuelve 201 y la columna `image` guarda una key que empieza por `carriers/`.
-- [ ] El archivo existe en el disco después del alta.
-- [ ] El archivo del disco mide **800×800**, aunque se haya subido una imagen apaisada.
-- [ ] El campo `image` de la respuesta es una URL absoluta, no la key cruda.
-- [ ] `PATCH` con imagen nueva persiste una key distinta, el archivo nuevo existe y **el anterior ya no está** en el disco.
-- [ ] `PATCH` sin `image` deja la key intacta y el archivo anterior sigue existiendo.
-- [ ] `DELETE /api/carriers/{id}` deja el archivo en el disco.
-- [ ] Enviar un `.pdf` sigue devolviendo 422 y no sube nada al disco.
-- [ ] Un archivo de **4 MB** devuelve 422 con el error colgando de `image` y no sube nada al disco, tanto en `POST` como en `PATCH`.
-- [ ] Un archivo de **3 MB justos** se acepta: `max:3072` es inclusivo.
+- [x] `POST /api/carriers` devuelve 201 y la columna `image` guarda una key que empieza por `carriers/`.
+- [x] El archivo existe en el disco después del alta.
+- [x] El archivo del disco mide **800×800**, aunque se haya subido una imagen apaisada.
+- [x] El campo `image` de la respuesta es una URL absoluta, no la key cruda.
+- [x] `PATCH` con imagen nueva persiste una key distinta, el archivo nuevo existe y **el anterior ya no está** en el disco.
+- [x] `PATCH` sin `image` deja la key intacta y el archivo anterior sigue existiendo.
+- [x] `DELETE /api/carriers/{id}` deja el archivo en el disco.
+- [x] Enviar un `.pdf` sigue devolviendo 422 y no sube nada al disco.
+- [x] Un archivo de **4 MB** devuelve 422 con el error colgando de `image` y no sube nada al disco, tanto en `POST` como en `PATCH`.
+- [x] Un archivo de **3 MB justos** se acepta: `max:3072` es inclusivo.
 
 **`Vehicle`**
 
-- [ ] `POST /api/vehicles` devuelve 201 y la columna `image` guarda una key que empieza por `vehicles/`.
-- [ ] El archivo del disco mide **800×800**.
-- [ ] Un archivo de **4 MB** devuelve 422 con el error colgando de `image` y no sube nada al disco, tanto en `POST` como en `PATCH`.
-- [ ] El campo `image` de la respuesta es una URL absoluta.
-- [ ] Un vehículo con `image` en `null` devuelve `image: null` en la respuesta, no una URL rota.
-- [ ] `PATCH` con imagen nueva borra el archivo anterior del disco.
-- [ ] `DELETE /api/vehicles/{id}` pasa el vehículo a `inactive` y **el archivo sigue en el disco**.
-- [ ] Un `carrier` que sube una imagen a un vehículo ajeno recibe 403 y **no** se sube ningún archivo.
+- [x] `POST /api/vehicles` devuelve 201 y la columna `image` guarda una key que empieza por `vehicles/`.
+- [x] El archivo del disco mide **800×800**.
+- [x] Un archivo de **4 MB** devuelve 422 con el error colgando de `image` y no sube nada al disco, tanto en `POST` como en `PATCH`.
+- [x] El campo `image` de la respuesta es una URL absoluta.
+- [x] Un vehículo con `image` en `null` devuelve `image: null` en la respuesta, no una URL rota.
+- [x] `PATCH` con imagen nueva borra el archivo anterior del disco.
+- [x] `DELETE /api/vehicles/{id}` pasa el vehículo a `inactive` y **el archivo sigue en el disco**.
+- [x] Un `carrier` que sube una imagen a un vehículo ajeno recibe 403 y **no** se sube ningún archivo.
 
 **No regresión**
 
-- [ ] `tests/Pest.php` aplica `Storage::fake()` globalmente.
-- [ ] La suite completa corre sin acceso a la red: desconectado de internet, `php artisan test --compact` pasa igual.
-- [ ] Los tests de SPEC 01 y SPEC 02 pasan sin modificarse.
-- [ ] Los tests de SPEC 03 y 04 que se modificaron son **solo** los relativos a `image`; el resto queda intacto.
+- [x] `tests/Pest.php` aplica `Storage::fake()` globalmente.
+- [x] La suite completa corre sin acceso a la red: desconectado de internet, `php artisan test --compact` pasa igual.
+- [x] Los tests de SPEC 01 y SPEC 02 pasan sin modificarse.
+- [x] Los tests de SPEC 03 y 04 que se modificaron son **solo** los relativos a `image`; el resto queda intacto.
 
 **Calidad**
 
-- [ ] `php artisan test --compact` pasa en verde.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan l5-swagger:generate` regenera sin errores.
-- [ ] `storage/api-docs/api-docs.json` no contiene la cadena "se valida y se descarta" y sí documenta el límite de 3 MB y el recorte cuadrado.
+- [x] `php artisan test --compact` pasa en verde.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan l5-swagger:generate` regenera sin errores.
+- [x] `storage/api-docs/api-docs.json` no contiene la cadena "se valida y se descarta" y sí documenta el límite de 3 MB y el recorte cuadrado.
 
 El bloque de sustituibilidad es el único que prueba de verdad el principio pedido. `Storage::fake()` sustituye el **disco**, que es la abstracción de Laravel; el doble en `tests/` sustituye la **implementación del contrato**, que es la propia. Que la suite de dominio pase entera con el doble, sin tocar un solo test, es la demostración operativa de Liskov. Ese doble vive en `tests/`, así que no contradice el "una segunda implementación queda fuera de alcance": eso hablaba de una implementación de producción.
 
@@ -454,6 +458,9 @@ El bloque de sustituibilidad es el único que prueba de verdad el principio pedi
 - **Sí:** el prefijo lo decide el service de dominio, no el de almacenamiento. `S3FileStorageService` no tiene por qué saber que existen los carriers.
 - **Sí:** se mantiene el `{uuid}.{ext}` que ya usaba `buildImageName()`. Evita colisiones y no filtra el nombre original del archivo del usuario, que puede contener datos personales.
 - **Sí:** bucket público y URL permanente. El front pinta un `src` directo y el navegador cachea.
+- **Sí:** ACL `public-read` **explícita en cada subida**, pasada en las opciones del `put()`. Sin ella el objeto sube como `private` —es el valor por defecto de Flysystem— y la URL permanente devuelve 403.
+- **No:** confiar solo en la política del bucket. La policy es tarea de operaciones y vive fuera del repositorio; si algún día se restringe, el código dejaría de cumplir lo que promete `url()` sin que nada en la aplicación avise.
+- **No:** poner `'visibility' => 'public'` en el disco `s3` de `config/filesystems.php`. La ACL de las opciones del `put()` gana sobre él, así que quedaría como configuración muerta y como una segunda fuente de verdad para el mismo dato.
 - **No:** bucket privado con URLs firmadas temporales. Más seguro, pero para fotos de camiones y logos de empresa el coste —URLs que caducan, imposibles de cachear, un `temporaryUrl` por fila en cada listado— no compra nada.
 
 **Ciclo de vida del archivo**
@@ -501,6 +508,7 @@ El bloque de sustituibilidad es el único que prueba de verdad el principio pedi
 | Riesgo | Mitigación |
 |---|---|
 | **El bucket es público y las URLs son permanentes.** Cualquiera con el enlace ve la imagen para siempre, aunque el registro se desactive o el carrier deje de operar. No hay forma de revocar el acceso salvo borrando el objeto. | Decisión explícita y consciente. El contenido es logos de empresa y fotos de vehículos, no documentos personales. El `{uuid}` hace la key impredecible, así que no se puede enumerar el bucket adivinando nombres. Si algún día entran documentos sensibles —seguros, licencias—, esa spec deberá cambiar a bucket privado con URLs firmadas. |
+| **Las ACLs pueden estar deshabilitadas en el bucket.** Desde abril de 2023 los buckets nuevos de AWS nacen con *Object Ownership* en «Bucket owner enforced», que ignora las ACLs y responde `AccessControlListNotSupported` a cualquier `put` que mande una. Con ese ajuste, ninguna imagen se sube. | El fallo es ruidoso y temprano, no silencioso: sale como 400 con «No se pudo almacenar la imagen» en la primera alta real, no como un objeto subido que luego no se ve. La configuración correcta —ACLs habilitadas y *Block public ACLs* desactivado— está listada como requisito previo del bucket. Ningún test lo cubre, porque `Storage::fake()` usa el disco local y no valida ACLs. |
 | **El recorte es centrado y ciego.** Un logo con el texto pegado a un lado o una foto de camión encuadrada a la izquierda pierden justo lo que importaba, y el usuario no ve el resultado hasta después de subir. | Aceptado: es el coste de no pedir coordenadas de encuadre al front. El caso real —logos cuadrados o casi, fotos de vehículo con el camión centrado— aguanta bien un `cover()`. Si aparecen quejas, el siguiente paso es un recorte elegido por el usuario, y eso es una spec con cambios en el body y en el front. |
 | **El original no se guarda y el recorte es irreversible.** Subida la imagen, los píxeles de los bordes y la calidad perdida en la recompresión no se recuperan: la única salida es volver a subir el archivo. | Consciente. Guardar el original doblaría el coste del bucket por una versión que ningún endpoint expone. El usuario conserva su archivo; lo que se pierde es una copia derivada. |
 | **Subir la calidad o el lado más adelante no re-procesa lo ya subido.** Cambiar `SIDE` a 1200 deja el bucket con una mezcla de imágenes de 800 y de 1200, y el front no puede distinguirlas. | El front maqueta con caja fija y `object-fit`, así que la mezcla se ve bien igualmente. Re-procesar el histórico sería un comando artisan puntual, no un cambio de esta spec. |

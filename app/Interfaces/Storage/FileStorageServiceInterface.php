@@ -12,6 +12,9 @@ interface FileStorageServiceInterface
      * The directory comes without leading nor trailing slash and the extension
      * without a dot; the returned key is the full path, never null.
      *
+     * The stored file must end up publicly readable: url() promises an address
+     * the browser resolves without credentials.
+     *
      * @param  string  $contents  Raw bytes to persist, already processed.
      * @param  string  $directory  Domain prefix, e.g. 'carriers'.
      * @param  string  $extension  Extension without dot, e.g. 'png'.
