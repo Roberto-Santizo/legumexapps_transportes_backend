@@ -1,6 +1,7 @@
 <?php
 
 use App\Errors\BadRequestError;
+use App\Interfaces\Storage\ImageProcessorServiceInterface;
 use App\Services\Storage\ImageProcessorService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
@@ -62,6 +63,10 @@ afterEach(function (): void {
     foreach (glob(sys_get_temp_dir().'/legumex-img-*') ?: [] as $path) {
         @unlink($path);
     }
+});
+
+it('resuelve la implementación registrada en el provider', function () {
+    expect(app(ImageProcessorServiceInterface::class))->toBeInstanceOf(ImageProcessorService::class);
 });
 
 /*

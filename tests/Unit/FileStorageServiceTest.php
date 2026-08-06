@@ -1,6 +1,7 @@
 <?php
 
 use App\Errors\BadRequestError;
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Services\Storage\S3FileStorageService;
 use Illuminate\Support\Facades\Storage;
 
@@ -8,6 +9,10 @@ function fileStorage(): S3FileStorageService
 {
     return new S3FileStorageService;
 }
+
+it('resuelve la implementación registrada en el provider', function () {
+    expect(app(FileStorageServiceInterface::class))->toBeInstanceOf(S3FileStorageService::class);
+});
 
 /*
 |--------------------------------------------------------------------------
