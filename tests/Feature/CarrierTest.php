@@ -1,12 +1,16 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Interfaces\Storage\FileStorageServiceInterface;
+use App\Interfaces\Storage\ImageProcessorServiceInterface;
 use App\Models\Carrier;
 use App\Models\CarrierPilot;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
+use Tests\Doubles\InMemoryFileStorageService;
+use Tests\Doubles\StaticImageProcessorService;
 use Tests\TestCase;
 
 /**
@@ -273,20 +277,63 @@ it('nunca repite el código entre dos empresas creadas seguidas', function () {
     expect($segundo)->not->toBe($primero);
 });
 
-it('guarda un uuid con la extensión del archivo y no escribe nada en storage', function () {
-    Storage::fake('local');
-    Storage::fake('public');
-
+it('sube la imagen y guarda la key con el prefijo del dominio', function () {
     $response = asUser(userWithRole(UserRole::Carrier))
-        ->post('/api/carriers', validCarrierPayload(['image' => UploadedFile::fake()->image('logo.png')]));
+        ->post('/api/carriers', validCarrierPayload(['image' => UploadedFile::fake()->image('logo.png', 1600, 900)]));
 
-    $image = $response->assertCreated()->json('data.image');
+    $response->assertCreated();
 
-    expect($image)->toMatch('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/')
-        ->and(Storage::disk('local')->allFiles())->toBeEmpty()
-        ->and(Storage::disk('public')->allFiles())->toBeEmpty();
+    $key = Carrier::query()->value('image');
 
-    $this->assertDatabaseHas('carriers', ['image' => $image]);
+    expect($key)->toMatch('#^carriers/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$#');
+
+    Storage::assertExists($key);
+});
+
+it('recorta a 800x800 la imagen que sube al disco', function () {
+    asUser(userWithRole(UserRole::Carrier))
+        ->post('/api/carriers', validCarrierPayload(['image' => UploadedFile::fake()->image('logo.png', 1600, 900)]))
+        ->assertCreated();
+
+    $size = getimagesizefromstring(Storage::get(Carrier::query()->value('image')));
+
+    expect($size[0])->toBe(800)
+        ->and($size[1])->toBe(800);
+});
+
+it('devuelve la imagen como URL absoluta, no como la key cruda', function () {
+    $image = asUser(userWithRole(UserRole::Carrier))
+        ->post('/api/carriers', validCarrierPayload())
+        ->assertCreated()
+        ->json('data.image');
+
+    expect($image)->toStartWith('http')
+        ->toEndWith(Carrier::query()->value('image'));
+});
+
+it('devuelve 400 y no crea la fila cuando el almacenamiento falla', function () {
+    app()->instance(FileStorageServiceInterface::class, new InMemoryFileStorageService(failing: true));
+
+    asUser(userWithRole(UserRole::Carrier))
+        ->post('/api/carriers', validCarrierPayload())
+        ->assertBadRequest()
+        ->assertJson(['message' => 'No se pudo almacenar la imagen']);
+
+    $this->assertDatabaseCount('carriers', 0);
+});
+
+it('devuelve 400 sin escribir en el disco cuando el procesado falla', function () {
+    app()->instance(ImageProcessorServiceInterface::class, new StaticImageProcessorService(failing: true));
+
+    asUser(userWithRole(UserRole::Carrier))
+        ->post('/api/carriers', validCarrierPayload())
+        ->assertBadRequest()
+        ->assertJson(['message' => 'No se pudo procesar la imagen']);
+
+    $this->assertDatabaseCount('carriers', 0);
+
+    /** El procesado va antes que la subida: nada llegó al bucket. */
+    expect(Storage::allFiles())->toBeEmpty();
 });
 
 it('rechaza con 422 una imagen que no es jpg, jpeg ni png', function () {
@@ -298,6 +345,8 @@ it('rechaza con 422 una imagen que no es jpg, jpeg ni png', function () {
         ->assertJsonValidationErrors(['image']);
 
     $this->assertDatabaseCount('carriers', 0);
+
+    expect(Storage::allFiles())->toBeEmpty();
 });
 
 it('rechaza con 422 una imagen de más de 3 MB al crear la empresa', function () {
@@ -711,6 +760,43 @@ it('actualiza nombre, imagen y estado de la empresa propia', function () {
     ]);
 });
 
+it('al reemplazar la imagen sube la nueva y borra la anterior del disco', function () {
+    $user = userWithRole(UserRole::Carrier);
+
+    asUser($user)->post('/api/carriers', validCarrierPayload())->assertCreated();
+
+    $carrier = Carrier::query()->first();
+    $anterior = $carrier->image;
+
+    asUser($user)->patch("/api/carriers/{$carrier->id}", ['image' => UploadedFile::fake()->image('nuevo.jpg')])
+        ->assertOk();
+
+    $nueva = $carrier->fresh()->image;
+
+    expect($nueva)->not->toBe($anterior)
+        ->toStartWith('carriers/')
+        ->toEndWith('.jpg');
+
+    Storage::assertExists($nueva);
+    Storage::assertMissing($anterior);
+});
+
+it('al actualizar sin imagen deja la key y el archivo intactos', function () {
+    $user = userWithRole(UserRole::Carrier);
+
+    asUser($user)->post('/api/carriers', validCarrierPayload())->assertCreated();
+
+    $carrier = Carrier::query()->first();
+    $key = $carrier->image;
+
+    asUser($user)->patchJson("/api/carriers/{$carrier->id}", ['name' => 'Transportes del Sur'])
+        ->assertOk();
+
+    expect($carrier->fresh()->image)->toBe($key);
+
+    Storage::assertExists($key);
+});
+
 it('rechaza con 403 a un carrier que actualiza una empresa ajena', function () {
     $propia = Carrier::factory()->create();
     $ajena = Carrier::factory()->create(['name' => 'Intacta']);
@@ -776,6 +862,21 @@ it('responde 200 al eliminar una empresa y no borra la fila', function () {
 
     $this->assertDatabaseHas('carriers', ['id' => $carrier->id]);
     $this->assertDatabaseCount('carriers', 1);
+});
+
+it('deja el archivo en el disco al eliminar la empresa', function () {
+    $user = userWithRole(UserRole::Carrier);
+
+    asUser($user)->post('/api/carriers', validCarrierPayload())->assertCreated();
+
+    $key = Carrier::query()->value('image');
+
+    asUser(userWithRole(UserRole::Administrator))
+        ->deleteJson('/api/carriers/'.Carrier::query()->value('id'))
+        ->assertOk();
+
+    /** La fila sigue viva y sigue apareciendo en los listados, así que su imagen tiene que seguir resolviendo. */
+    Storage::assertExists($key);
 });
 
 it('devuelve 404 al eliminar una empresa que no existe', function () {

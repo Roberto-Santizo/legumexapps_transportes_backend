@@ -7,6 +7,8 @@ use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
 use App\Interfaces\Carrier\CarrierServiceInterface;
+use App\Interfaces\Storage\FileStorageServiceInterface;
+use App\Interfaces\Storage\ImageProcessorServiceInterface;
 use App\Models\Carrier;
 use App\Models\CarrierPilot;
 use App\Models\User;
@@ -37,6 +39,16 @@ class CarrierService implements CarrierServiceInterface
      * Length of the company code.
      */
     private const CODE_LENGTH = 6;
+
+    /**
+     * Directory every company image is stored under.
+     */
+    private const IMAGE_DIRECTORY = 'carriers';
+
+    public function __construct(
+        private readonly ImageProcessorServiceInterface $imageProcessor,
+        private readonly FileStorageServiceInterface $fileStorage,
+    ) {}
 
     #[Override]
     public function getCarriers(?string $limit): LengthAwarePaginator|Collection
@@ -94,7 +106,7 @@ class CarrierService implements CarrierServiceInterface
         return Carrier::create([
             'user_id' => $user->id,
             'name' => $data['name'],
-            'image' => $this->buildImageName($data['image']),
+            'image' => $this->storeImage($data['image']),
             'code' => $this->generateUniqueCode(),
             'active' => true,
         ]);
@@ -113,8 +125,12 @@ class CarrierService implements CarrierServiceInterface
             $carrier->name = $data['name'];
         }
 
+        $previousImage = null;
+
         if (array_key_exists('image', $data)) {
-            $carrier->image = $this->buildImageName($data['image']);
+            $previousImage = $carrier->image;
+
+            $carrier->image = $this->storeImage($data['image']);
         }
 
         if (array_key_exists('active', $data)) {
@@ -122,6 +138,11 @@ class CarrierService implements CarrierServiceInterface
         }
 
         $carrier->save();
+
+        /** El anterior se borra después de persistir: al revés, un fallo de escritura dejaría la fila apuntando a un objeto ya borrado. */
+        if ($previousImage !== null) {
+            $this->fileStorage->delete($previousImage);
+        }
 
         return $carrier;
     }
@@ -173,14 +194,16 @@ class CarrierService implements CarrierServiceInterface
     }
 
     /**
-     * Build the stored name of an uploaded image.
+     * Normalize an uploaded image and store it, returning its key.
      *
-     * The file itself is validated and discarded: uploading it is out of the
-     * scope of this spec, only its identifier is persisted.
+     * Processing runs before uploading, so a file that cannot be decoded is
+     * rejected without having written anything to the bucket.
      */
-    private function buildImageName(UploadedFile $file): string
+    private function storeImage(UploadedFile $file): string
     {
-        return Str::uuid().'.'.$file->getClientOriginalExtension();
+        $image = $this->imageProcessor->normalizeSquare($file);
+
+        return $this->fileStorage->store($image['contents'], self::IMAGE_DIRECTORY, $image['extension']);
     }
 
     /**

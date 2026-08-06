@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Carrier;
 
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
@@ -69,7 +70,8 @@ class CarrierResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'image' => $this->image,
+            /** Un JsonResource se instancia con new, así que el contrato se resuelve del contenedor. */
+            'image' => app(FileStorageServiceInterface::class)->url($this->image),
             'code' => $this->code,
             'active' => $this->active,
         ];

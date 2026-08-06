@@ -249,7 +249,7 @@ it('no devuelve los pilotos de otra empresa', function () {
 |--------------------------------------------------------------------------
 */
 
-it('persiste la empresa con un código único, activa y con la imagen renombrada', function () {
+it('persiste la empresa con un código único, activa y con la key de la imagen', function () {
     $user = User::factory()->create(['role' => UserRole::Carrier]);
 
     $carrier = carrierService()->createCarrier([
@@ -260,7 +260,7 @@ it('persiste la empresa con un código único, activa y con la imagen renombrada
     expect($carrier)->toBeInstanceOf(Carrier::class)
         ->and($carrier->active)->toBeTrue()
         ->and($carrier->code)->toMatch('/^[A-Z0-9]{6}$/')
-        ->and($carrier->image)->toEndWith('.png');
+        ->and($carrier->image)->toStartWith('carriers/')->toEndWith('.png');
 
     $this->assertDatabaseHas('carriers', [
         'user_id' => $user->id,
@@ -306,7 +306,7 @@ it('actualiza nombre, imagen y estado del dueño', function () {
     ], $carrier->id, $carrier->owner);
 
     expect($updated->name)->toBe('Transportes del Sur')
-        ->and($updated->image)->toEndWith('.jpg')
+        ->and($updated->image)->toStartWith('carriers/')->toEndWith('.jpg')
         ->and($updated->active)->toBeFalse();
 
     $this->assertDatabaseHas('carriers', ['id' => $carrier->id, 'name' => 'Transportes del Sur', 'active' => false]);
