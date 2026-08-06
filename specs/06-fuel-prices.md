@@ -218,7 +218,9 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 11. **FormRequests.** `StoreFuelPriceRequest`, `UpdateFuelPriceRequest` y `CurrentFuelPriceRequest` en `app/Http/Requests/FuelPrice/`, con `messages()` en español.
 
-12. **Controller.** `app/Http/Controllers/FuelPriceController.php` con las siete acciones, el service inyectado **por parámetro de cada método**, `try/catch` a `ResponseHandler` y ninguna regla de negocio. `store`, `update`, `deactivate` y `destroy` resuelven el usuario con `auth('api')->user()`.
+12. **Controller.** `app/Http/Controllers/FuelPriceController.php` con las siete acciones, el service inyectado **por parámetro de cada método**, `try/catch` a `ResponseHandler` y ninguna regla de negocio. Solo `store` resuelve el usuario con `auth('api')->user()`.
+
+    **Corrección durante la implementación.** Este paso decía originalmente que `store`, `update`, `deactivate` y `destroy` resolvían el usuario con `auth('api')->user()`, y contradecía a las firmas del contrato que fijan los pasos 5, 7 y 9: solo `create(User $user, array $data)` recibe un `User`. Se implementó lo segundo, que es lo que sostiene el resto de la spec: en las otras tres acciones el usuario no tendría uso, porque la autorización la resuelve el middleware `role:administrator` y la sección 6 exige que el `update` **no** reescriba `registered_by`. Pasarlo habría sido un parámetro muerto que invita a usarlo.
 
 13. **Rutas.** `routes/fuel_prices.php` con el prefijo `fuel-prices`, `jwt.auth` en el grupo, `/current` y `/{fuelPrice}/deactivate` **antes** del `apiResource`, y `role:administrator` en las cuatro acciones de escritura. `require` en `routes/api.php`. *Verificación:* `php artisan route:list --path=fuel-prices` lista las siete rutas en ese orden.
 
