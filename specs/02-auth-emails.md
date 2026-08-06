@@ -1,6 +1,6 @@
 # SPEC 02 — Envío de correos de autenticación
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-08-03
 > **Objetivo:** Enviar por correo los códigos de confirmación y reseteo que SPEC 01 ya persiste, a través de un `AuthEmails` singleton que delega en los mailers nativos de Laravel (log, SMTP/Mailtrap o Resend según `.env`).
@@ -140,40 +140,40 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 **Configuración**
 
-- [ ] `php artisan config:show mail.mailers.resend` devuelve el mailer con `transport => resend`.
-- [ ] `.env.example` contiene `RESEND_API_KEY`, `MAIL_FROM_ADDRESS="onboarding@resend.dev"`, `MAIL_FROM_NAME="Legumex Transportes"` y `MAIL_MAILER=log`.
-- [ ] Cambiar `MAIL_MAILER` entre `log`, `smtp` y `resend` no requiere tocar ningún archivo de `app/`.
+- [x] `php artisan config:show mail.mailers.resend` devuelve el mailer con `transport => resend`.
+- [x] `.env.example` contiene `RESEND_API_KEY`, `MAIL_FROM_ADDRESS="onboarding@resend.dev"`, `MAIL_FROM_NAME="Legumex Transportes"` y `MAIL_MAILER=log`.
+- [x] Cambiar `MAIL_MAILER` entre `log`, `smtp` y `resend` no requiere tocar ningún archivo de `app/`.
 
 **Singleton**
 
-- [ ] `app(AuthEmailsInterface::class)` resuelve a una instancia de `App\Mail\Services\AuthEmails`.
-- [ ] Dos resoluciones consecutivas de `AuthEmailsInterface` devuelven **la misma instancia**.
-- [ ] `AuthService` recibe el contrato por constructor; ningún método de `AuthService` usa la facade `Mail` directamente.
+- [x] `app(AuthEmailsInterface::class)` resuelve a una instancia de `App\Mail\Services\AuthEmails`.
+- [x] Dos resoluciones consecutivas de `AuthEmailsInterface` devuelven **la misma instancia**.
+- [x] `AuthService` recibe el contrato por constructor; ningún método de `AuthService` usa la facade `Mail` directamente.
 
 **Correos enviados**
 
-- [ ] `POST /api/auth/register` con datos válidos envía exactamente un `AccountConfirmationMail` al email registrado.
-- [ ] El cuerpo renderizado de ese correo contiene el código de 6 dígitos que valida el `confirm-account` siguiente.
-- [ ] `POST /api/auth/confirm-account` con código correcto envía exactamente un `WelcomeMail`; con código incorrecto no envía ninguno.
-- [ ] `POST /api/auth/forgot-password` con un email registrado envía exactamente un `PasswordResetMail` a ese email.
-- [ ] `POST /api/auth/forgot-password` con un email **no** registrado sigue devolviendo 200 y no envía ningún correo.
-- [ ] `POST /api/auth/login` no envía ningún correo.
+- [x] `POST /api/auth/register` con datos válidos envía exactamente un `AccountConfirmationMail` al email registrado.
+- [x] El cuerpo renderizado de ese correo contiene el código de 6 dígitos que valida el `confirm-account` siguiente.
+- [x] `POST /api/auth/confirm-account` con código correcto envía exactamente un `WelcomeMail`; con código incorrecto no envía ninguno.
+- [x] `POST /api/auth/forgot-password` con un email registrado envía exactamente un `PasswordResetMail` a ese email.
+- [x] `POST /api/auth/forgot-password` con un email **no** registrado sigue devolviendo 200 y no envía ningún correo.
+- [x] `POST /api/auth/login` no envía ningún correo.
 
 **Tolerancia a fallos**
 
-- [ ] Con un `AuthEmailsInterface` que lanza en `sendAccountConfirmation`, `register` sigue devolviendo 201 y el usuario y su código quedan persistidos.
-- [ ] Ese fallo deja un `Log::error` cuyo contexto incluye el email y **no** incluye el código en claro.
-- [ ] Ningún endpoint de auth devuelve 500 por un fallo del proveedor de correo.
+- [x] Con un `AuthEmailsInterface` que lanza en `sendAccountConfirmation`, `register` sigue devolviendo 201 y el usuario y su código quedan persistidos.
+- [x] Ese fallo deja un `Log::error` cuyo contexto incluye el email y **no** incluye el código en claro.
+- [x] Ningún endpoint de auth devuelve 500 por un fallo del proveedor de correo.
 
 **Orden respecto a la transacción**
 
-- [ ] Si el `save()` del usuario falla en `register`, no se envía ningún correo.
+- [x] Si el `save()` del usuario falla en `register`, no se envía ningún correo.
 
 **Calidad**
 
-- [ ] `php artisan test --compact` pasa en verde, incluidos todos los tests de SPEC 01 sin modificarlos.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] Las tres plantillas renderizan sin error con `->render()`.
+- [x] `php artisan test --compact` pasa en verde, incluidos todos los tests de SPEC 01 sin modificarlos.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] Las tres plantillas renderizan sin error con `->render()`.
 
 ---
 
