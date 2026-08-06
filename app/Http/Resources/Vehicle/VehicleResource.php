@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Vehicle;
 
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
@@ -96,7 +97,8 @@ class VehicleResource extends JsonResource
             'year' => $this->year,
             'capacity' => $this->capacity,
             'type' => $this->type->value,
-            'image' => $this->image,
+            /** Un JsonResource se instancia con new, así que el contrato se resuelve del contenedor. */
+            'image' => app(FileStorageServiceInterface::class)->url($this->image),
             'status' => $this->status->value,
             'carrierName' => $this->carrier?->name,
         ];

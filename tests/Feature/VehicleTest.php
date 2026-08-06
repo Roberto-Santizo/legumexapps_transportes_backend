@@ -3,6 +3,8 @@
 use App\Enums\UserRole;
 use App\Enums\VehicleStatus;
 use App\Enums\VehicleType;
+use App\Interfaces\Storage\FileStorageServiceInterface;
+use App\Interfaces\Storage\ImageProcessorServiceInterface;
 use App\Models\Carrier;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -10,6 +12,8 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
+use Tests\Doubles\InMemoryFileStorageService;
+use Tests\Doubles\StaticImageProcessorService;
 use Tests\TestCase;
 
 /**
@@ -295,22 +299,81 @@ it('acepta una imagen de 3 MB justos al crear el vehículo, porque el límite es
     $this->assertDatabaseCount('vehicles', 1);
 });
 
-it('guarda un uuid con la extensión del archivo y no escribe nada en storage', function () {
-    Storage::fake('local');
-    Storage::fake('public');
+it('sube la imagen y guarda la key con el prefijo del dominio', function () {
+    $carrier = Carrier::factory()->create();
 
+    asUser($carrier->owner)
+        ->post('/api/vehicles', validVehiclePayload(['image' => UploadedFile::fake()->image('camion.jpg', 1600, 900)]))
+        ->assertCreated();
+
+    $key = Vehicle::query()->value('image');
+
+    expect($key)->toMatch('#^vehicles/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$#');
+
+    Storage::assertExists($key);
+});
+
+it('recorta a 800x800 la imagen que sube al disco', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)
+        ->post('/api/vehicles', validVehiclePayload(['image' => UploadedFile::fake()->image('camion.jpg', 1600, 900)]))
+        ->assertCreated();
+
+    $size = getimagesizefromstring(Storage::get(Vehicle::query()->value('image')));
+
+    expect($size[0])->toBe(800)
+        ->and($size[1])->toBe(800);
+});
+
+it('devuelve la imagen como URL absoluta, no como la key cruda', function () {
     $carrier = Carrier::factory()->create();
 
     $image = asUser($carrier->owner)
-        ->post('/api/vehicles', validVehiclePayload(['image' => UploadedFile::fake()->image('camion.jpg')]))
+        ->post('/api/vehicles', validVehiclePayload())
         ->assertCreated()
         ->json('data.image');
 
-    expect($image)->toMatch('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/')
-        ->and(Storage::disk('local')->allFiles())->toBeEmpty()
-        ->and(Storage::disk('public')->allFiles())->toBeEmpty();
+    expect($image)->toStartWith('http')
+        ->toEndWith(Vehicle::query()->value('image'));
+});
 
-    $this->assertDatabaseHas('vehicles', ['image' => $image]);
+it('devuelve image en null cuando el vehículo no tiene imagen', function () {
+    $vehicle = Vehicle::factory()->create(['image' => null]);
+
+    asUser($vehicle->carrier->owner)
+        ->getJson("/api/vehicles/{$vehicle->id}")
+        ->assertOk()
+        ->assertJsonPath('data.image', null);
+});
+
+it('devuelve 400 y no crea la fila cuando el almacenamiento falla', function () {
+    app()->instance(FileStorageServiceInterface::class, new InMemoryFileStorageService(failing: true));
+
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)
+        ->post('/api/vehicles', validVehiclePayload())
+        ->assertBadRequest()
+        ->assertJson(['message' => 'No se pudo almacenar la imagen']);
+
+    $this->assertDatabaseCount('vehicles', 0);
+});
+
+it('devuelve 400 sin escribir en el disco cuando el procesado falla', function () {
+    app()->instance(ImageProcessorServiceInterface::class, new StaticImageProcessorService(failing: true));
+
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)
+        ->post('/api/vehicles', validVehiclePayload())
+        ->assertBadRequest()
+        ->assertJson(['message' => 'No se pudo procesar la imagen']);
+
+    $this->assertDatabaseCount('vehicles', 0);
+
+    /** El procesado va antes que la subida: nada llegó al bucket. */
+    expect(Storage::allFiles())->toBeEmpty();
 });
 
 it('rechaza con 400 una placa que ya usa un vehículo no desactivado', function (VehicleStatus $status, bool $mismaEmpresa) {
@@ -836,6 +899,53 @@ it('rechaza con 403 a un carrier que actualiza un vehículo de otra empresa', fu
     $this->assertDatabaseHas('vehicles', ['id' => $ajeno->id, 'brand' => 'Intacta']);
 });
 
+it('no sube ningún archivo cuando el carrier manda una imagen a un vehículo ajeno', function () {
+    $carrier = Carrier::factory()->create();
+    $ajeno = Vehicle::factory()->create();
+
+    asUser($carrier->owner)->patch("/api/vehicles/{$ajeno->id}", ['image' => UploadedFile::fake()->image('camion.jpg')])
+        ->assertForbidden();
+
+    /** El ámbito se comprueba antes de subir: si no, cualquier usuario autenticado podría llenar el bucket a base de 403. */
+    expect(Storage::allFiles())->toBeEmpty();
+});
+
+it('al reemplazar la imagen sube la nueva y borra la anterior del disco', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload())->assertCreated();
+
+    $vehicle = Vehicle::query()->first();
+    $anterior = $vehicle->image;
+
+    asUser($carrier->owner)->patch("/api/vehicles/{$vehicle->id}", ['image' => UploadedFile::fake()->image('nuevo.jpg')])
+        ->assertOk();
+
+    $nueva = $vehicle->fresh()->image;
+
+    expect($nueva)->not->toBe($anterior)
+        ->toStartWith('vehicles/')
+        ->toEndWith('.jpg');
+
+    Storage::assertExists($nueva);
+    Storage::assertMissing($anterior);
+});
+
+it('al actualizar sin imagen deja la key y el archivo intactos', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload())->assertCreated();
+
+    $vehicle = Vehicle::query()->first();
+    $key = $vehicle->image;
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['brand' => 'Hino'])->assertOk();
+
+    expect($vehicle->fresh()->image)->toBe($key);
+
+    Storage::assertExists($key);
+});
+
 it('permite a un administrador actualizar el vehículo de cualquier empresa', function () {
     $vehicle = Vehicle::factory()->create(['brand' => 'Hino']);
 
@@ -893,6 +1003,21 @@ it('desactiva el vehículo sin borrar la fila', function () {
 
     $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'status' => 'inactive']);
     $this->assertDatabaseCount('vehicles', 1);
+});
+
+it('deja el archivo en el disco al desactivar el vehículo', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload())->assertCreated();
+
+    $vehicle = Vehicle::query()->first();
+
+    asUser($carrier->owner)->deleteJson("/api/vehicles/{$vehicle->id}")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'inactive');
+
+    /** La fila sigue viva y sigue apareciendo en los listados, así que su imagen tiene que seguir resolviendo. */
+    Storage::assertExists($vehicle->image);
 });
 
 it('sigue mostrando en el listado el vehículo desactivado', function () {

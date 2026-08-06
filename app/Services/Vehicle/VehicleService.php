@@ -7,6 +7,8 @@ use App\Enums\VehicleStatus;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
+use App\Interfaces\Storage\FileStorageServiceInterface;
+use App\Interfaces\Storage\ImageProcessorServiceInterface;
 use App\Interfaces\Vehicle\VehicleServiceInterface;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -27,6 +29,16 @@ class VehicleService implements VehicleServiceInterface
      * Largest page size accepted, so nobody asks for the whole table at once.
      */
     private const MAX_PER_PAGE = 100;
+
+    /**
+     * Directory every vehicle image is stored under.
+     */
+    private const IMAGE_DIRECTORY = 'vehicles';
+
+    public function __construct(
+        private readonly ImageProcessorServiceInterface $imageProcessor,
+        private readonly FileStorageServiceInterface $fileStorage,
+    ) {}
 
     #[Override]
     public function getVehicles(User $user, array $filters): LengthAwarePaginator|Collection
@@ -81,6 +93,7 @@ class VehicleService implements VehicleServiceInterface
 
         $plate = Str::upper($data['plate']);
 
+        /** El ámbito y la unicidad de la placa se validan antes de subir: si no, un alta condenada dejaría un archivo en el bucket. */
         $this->ensurePlateIsAvailable($plate);
 
         return Vehicle::create([
@@ -91,7 +104,7 @@ class VehicleService implements VehicleServiceInterface
             'year' => $data['year'],
             'capacity' => $data['capacity'],
             'type' => $data['type'],
-            'image' => $this->buildImageName($data['image']),
+            'image' => $this->storeImage($data['image']),
             'status' => VehicleStatus::Active,
         ]);
     }
@@ -128,11 +141,20 @@ class VehicleService implements VehicleServiceInterface
             }
         }
 
+        $previousImage = null;
+
         if (array_key_exists('image', $data)) {
-            $vehicle->image = $this->buildImageName($data['image']);
+            $previousImage = $vehicle->image;
+
+            $vehicle->image = $this->storeImage($data['image']);
         }
 
         $vehicle->save();
+
+        /** El anterior se borra después de persistir: al revés, un fallo de escritura dejaría la fila apuntando a un objeto ya borrado. */
+        if ($previousImage !== null) {
+            $this->fileStorage->delete($previousImage);
+        }
 
         return $vehicle;
     }
@@ -197,14 +219,16 @@ class VehicleService implements VehicleServiceInterface
     }
 
     /**
-     * Build the stored name of an uploaded image.
+     * Normalize an uploaded image and store it, returning its key.
      *
-     * The file itself is validated and discarded: uploading it is out of the
-     * scope of this spec, only its identifier is persisted.
+     * Processing runs before uploading, so a file that cannot be decoded is
+     * rejected without having written anything to the bucket.
      */
-    private function buildImageName(UploadedFile $file): string
+    private function storeImage(UploadedFile $file): string
     {
-        return Str::uuid().'.'.$file->getClientOriginalExtension();
+        $image = $this->imageProcessor->normalizeSquare($file);
+
+        return $this->fileStorage->store($image['contents'], self::IMAGE_DIRECTORY, $image['extension']);
     }
 
     /**
