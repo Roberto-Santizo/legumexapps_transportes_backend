@@ -10,6 +10,7 @@ use App\Models\FuelPrice;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Override;
 
 class FuelPriceService implements FuelPriceServiceInterface
@@ -80,7 +81,32 @@ class FuelPriceService implements FuelPriceServiceInterface
     #[Override]
     public function create(User $user, array $data): FuelPrice
     {
-        //
+        /** Desactivar y crear van juntos: a medias, el tipo quedaría con cero o con dos vigentes. */
+        return DB::transaction(function () use ($user, $data): FuelPrice {
+            $fuelType = FuelType::from($data['fuelType']);
+
+            $current = FuelPrice::query()
+                ->where('fuel_type', '=', $fuelType->value)
+                ->where('status', '=', FuelPriceStatus::Active->value)
+                /** El bloqueo evita que dos altas simultáneas del mismo tipo dejen dos filas vigentes. */
+                ->lockForUpdate()
+                ->first();
+
+            if ($current !== null) {
+                $current->status = FuelPriceStatus::Inactive;
+
+                $current->save();
+            }
+
+            $fuelPrice = FuelPrice::create([
+                'fuel_type' => $fuelType,
+                'price' => $data['price'],
+                'status' => FuelPriceStatus::Active,
+                'registered_by' => $user->id,
+            ]);
+
+            return $fuelPrice->load('registeredBy');
+        });
     }
 
     #[Override]
