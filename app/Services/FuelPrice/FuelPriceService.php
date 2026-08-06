@@ -1,0 +1,118 @@
+<?php
+
+namespace App\Services\FuelPrice;
+
+use App\Enums\FuelPriceStatus;
+use App\Enums\FuelType;
+use App\Errors\NotFoundError;
+use App\Interfaces\FuelPrice\FuelPriceServiceInterface;
+use App\Models\FuelPrice;
+use App\Models\User;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
+use Override;
+
+class FuelPriceService implements FuelPriceServiceInterface
+{
+    /**
+     * Smallest page size accepted, so nobody sweeps the table row by row.
+     */
+    private const MIN_PER_PAGE = 10;
+
+    /**
+     * Largest page size accepted, so nobody asks for the whole table at once.
+     */
+    private const MAX_PER_PAGE = 100;
+
+    #[Override]
+    public function getFuelPrices(array $filters): LengthAwarePaginator|Collection
+    {
+        $query = FuelPrice::query()->with('registeredBy');
+
+        $fuelType = isset($filters['fuelType']) ? FuelType::tryFrom($filters['fuelType']) : null;
+
+        if ($fuelType !== null) {
+            $query->where('fuel_type', '=', $fuelType->value);
+        }
+
+        $status = isset($filters['status']) ? FuelPriceStatus::tryFrom($filters['status']) : null;
+
+        if ($status !== null) {
+            $query->where('status', '=', $status->value);
+        }
+
+        /** El id desempata las altas del mismo instante, que en SQLite son habituales. */
+        $query->orderByDesc('created_at')->orderByDesc('id');
+
+        $perPage = $this->resolvePerPage($filters['limit'] ?? null);
+
+        return $perPage === null ? $query->get() : $query->paginate($perPage);
+    }
+
+    #[Override]
+    public function getFuelPriceById(int $id): FuelPrice
+    {
+        $fuelPrice = FuelPrice::query()->with('registeredBy')->find($id);
+
+        if ($fuelPrice === null) {
+            throw new NotFoundError('El precio de combustible no existe');
+        }
+
+        return $fuelPrice;
+    }
+
+    #[Override]
+    public function getCurrentByType(string $fuelType): FuelPrice
+    {
+        $fuelPrice = FuelPrice::query()
+            ->with('registeredBy')
+            ->where('fuel_type', '=', $fuelType)
+            ->where('status', '=', FuelPriceStatus::Active->value)
+            ->first();
+
+        if ($fuelPrice === null) {
+            throw new NotFoundError('No existe un precio vigente para el combustible indicado');
+        }
+
+        return $fuelPrice;
+    }
+
+    #[Override]
+    public function create(User $user, array $data): FuelPrice
+    {
+        //
+    }
+
+    #[Override]
+    public function update(int $id, array $data): FuelPrice
+    {
+        //
+    }
+
+    #[Override]
+    public function deactivate(int $id): FuelPrice
+    {
+        //
+    }
+
+    #[Override]
+    public function destroy(int $id): FuelPrice
+    {
+        //
+    }
+
+    /**
+     * Resolve the page size requested by the client.
+     *
+     * A missing or non numeric limit means "do not paginate"; a numeric one is
+     * clamped to [10, 100].
+     */
+    private function resolvePerPage(?string $limit): ?int
+    {
+        if ($limit === null || ! is_numeric($limit)) {
+            return null;
+        }
+
+        return max(self::MIN_PER_PAGE, min(self::MAX_PER_PAGE, (int) $limit));
+    }
+}
