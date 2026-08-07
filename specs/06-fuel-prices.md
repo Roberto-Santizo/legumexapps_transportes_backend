@@ -236,62 +236,62 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 **Alta y vigencia**
 
-- [ ] `POST /api/fuel-prices` con `fuelType: diesel` y `price: 34.50` responde 201 y la fila nace con `status: active`.
-- [ ] Registrar un segundo precio de `diesel` deja el primero en `inactive` y el segundo en `active`.
-- [ ] Registrar un precio de `diesel` no cambia el `status` de ningún precio de `regular`, `premium` ni `diesel_premium`.
-- [ ] Tras cualquier secuencia de altas, hay como máximo una fila `active` por cada valor de `FuelType`.
-- [ ] `registeredBy` apunta al usuario autenticado aunque el body traiga un `registeredBy` distinto.
-- [ ] El body no puede fijar `status`: enviar `status: inactive` en el alta produce igualmente una fila `active`.
+- [x] `POST /api/fuel-prices` con `fuelType: diesel` y `price: 34.50` responde 201 y la fila nace con `status: active`.
+- [x] Registrar un segundo precio de `diesel` deja el primero en `inactive` y el segundo en `active`.
+- [x] Registrar un precio de `diesel` no cambia el `status` de ningún precio de `regular`, `premium` ni `diesel_premium`.
+- [x] Tras cualquier secuencia de altas, hay como máximo una fila `active` por cada valor de `FuelType`.
+- [x] `registeredBy` apunta al usuario autenticado aunque el body traiga un `registeredBy` distinto.
+- [x] El body no puede fijar `status`: enviar `status: inactive` en el alta produce igualmente una fila `active`.
 
 **Consulta**
 
-- [ ] `GET /api/fuel-prices/current?fuelType=diesel` devuelve la única fila `active` de ese tipo.
-- [ ] `GET /api/fuel-prices/current` sin `fuelType` responde 422.
-- [ ] `GET /api/fuel-prices/current?fuelType=gasolina` responde 422.
-- [ ] `GET /api/fuel-prices/current?fuelType=premium` responde 404 cuando `premium` no tiene ninguna fila `active`.
-- [ ] `GET /api/fuel-prices` devuelve el histórico ordenado con lo más reciente primero.
-- [ ] `GET /api/fuel-prices?limit=10` devuelve `total`, `currentPage` y `lastPage` en la raíz del sobre, no bajo `meta`.
-- [ ] `GET /api/fuel-prices?limit=abc` devuelve la colección completa sin paginar.
-- [ ] `GET /api/fuel-prices?fuelType=diesel&status=inactive` devuelve solo filas que cumplen ambos filtros.
-- [ ] `GET /api/fuel-prices?status=vencido` ignora el filtro y responde 200.
+- [x] `GET /api/fuel-prices/current?fuelType=diesel` devuelve la única fila `active` de ese tipo.
+- [x] `GET /api/fuel-prices/current` sin `fuelType` responde 422.
+- [x] `GET /api/fuel-prices/current?fuelType=gasolina` responde 422.
+- [x] `GET /api/fuel-prices/current?fuelType=premium` responde 404 cuando `premium` no tiene ninguna fila `active`.
+- [x] `GET /api/fuel-prices` devuelve el histórico ordenado con lo más reciente primero.
+- [x] `GET /api/fuel-prices?limit=10` devuelve `total`, `currentPage` y `lastPage` en la raíz del sobre, no bajo `meta`.
+- [x] `GET /api/fuel-prices?limit=abc` devuelve la colección completa sin paginar.
+- [x] `GET /api/fuel-prices?fuelType=diesel&status=inactive` devuelve solo filas que cumplen ambos filtros.
+- [x] `GET /api/fuel-prices?status=vencido` ignora el filtro y responde 200.
 
 **Modificación y baja**
 
-- [ ] `PATCH /api/fuel-prices/{id}` con `price: 35.00` sobre la fila activa responde 200 y el precio cambia.
-- [ ] `PATCH` sobre una fila `inactive` responde 400 y la fila no cambia.
-- [ ] `PATCH` con `fuelType` o `status` en el body los ignora: solo cambia `price`.
-- [ ] `PATCH` con el body vacío responde 422.
-- [ ] `PATCH /api/fuel-prices/{id}/deactivate` sobre la fila activa la deja en `inactive`.
-- [ ] Tras desactivar el activo de `diesel`, `GET /api/fuel-prices/current?fuelType=diesel` responde 404.
-- [ ] Tras desactivar el activo de `diesel`, ninguna fila `inactive` de `diesel` pasó a `active`.
-- [ ] `PATCH /{id}/deactivate` sobre una fila `inactive` responde 400.
-- [ ] `DELETE /api/fuel-prices/{id}` sobre la fila activa responde 200 y la fila ya no existe en la base.
-- [ ] Tras el `DELETE` del activo de `diesel`, ninguna fila `inactive` de `diesel` pasó a `active`.
-- [ ] `DELETE` sobre una fila `inactive` responde 400 y la fila sigue existiendo.
-- [ ] Cualquier operación sobre un id inexistente responde 404.
+- [x] `PATCH /api/fuel-prices/{id}` con `price: 35.00` sobre la fila activa responde 200 y el precio cambia.
+- [x] `PATCH` sobre una fila `inactive` responde 400 y la fila no cambia.
+- [x] `PATCH` con `fuelType` o `status` en el body los ignora: solo cambia `price`.
+- [x] `PATCH` con el body vacío responde 422.
+- [x] `PATCH /api/fuel-prices/{id}/deactivate` sobre la fila activa la deja en `inactive`.
+- [x] Tras desactivar el activo de `diesel`, `GET /api/fuel-prices/current?fuelType=diesel` responde 404.
+- [x] Tras desactivar el activo de `diesel`, ninguna fila `inactive` de `diesel` pasó a `active`.
+- [x] `PATCH /{id}/deactivate` sobre una fila `inactive` responde 400.
+- [x] `DELETE /api/fuel-prices/{id}` sobre la fila activa responde 200 y la fila ya no existe en la base.
+- [x] Tras el `DELETE` del activo de `diesel`, ninguna fila `inactive` de `diesel` pasó a `active`.
+- [x] `DELETE` sobre una fila `inactive` responde 400 y la fila sigue existiendo.
+- [x] Cualquier operación sobre un id inexistente responde 404.
 
 **Autorización**
 
-- [ ] Las siete rutas sin token responden 401 con el sobre estándar.
-- [ ] `GET /api/fuel-prices`, `/current` y `/{id}` responden 200 con un token de `pilot`, de `carrier` y de `manager`.
-- [ ] Ninguna ruta de lectura exige tener empresa: un `carrier` sin empresa las alcanza.
-- [ ] `POST`, `PATCH`, `PATCH /deactivate` y `DELETE` responden 403 con un token de `carrier`, de `pilot` y de `manager`.
+- [x] Las siete rutas sin token responden 401 con el sobre estándar.
+- [x] `GET /api/fuel-prices`, `/current` y `/{id}` responden 200 con un token de `pilot`, de `carrier` y de `manager`.
+- [x] Ninguna ruta de lectura exige tener empresa: un `carrier` sin empresa las alcanza.
+- [x] `POST`, `PATCH`, `PATCH /deactivate` y `DELETE` responden 403 con un token de `carrier`, de `pilot` y de `manager`.
 
 **Validación y forma de la respuesta**
 
-- [ ] `POST` sin `price`, con `price: 0` o con `price: -1` responde 422.
-- [ ] `POST` con `fuelType: super` responde 422.
-- [ ] Los mensajes de validación están en español.
-- [ ] Toda respuesta viaja en el sobre `{ statusCode, message, data }`.
-- [ ] `FuelPriceResource` expone exactamente `id`, `fuelType`, `price`, `status`, `registeredByName` y `createdAt`, en camelCase.
-- [ ] `price` sale con dos decimales.
+- [x] `POST` sin `price`, con `price: 0` o con `price: -1` responde 422.
+- [x] `POST` con `fuelType: super` responde 422.
+- [x] Los mensajes de validación están en español.
+- [x] Toda respuesta viaja en el sobre `{ statusCode, message, data }`.
+- [x] `FuelPriceResource` expone exactamente `id`, `fuelType`, `price`, `status`, `registeredByName` y `createdAt`, en camelCase.
+- [x] `price` sale con dos decimales.
 
 **Integración**
 
-- [ ] `php artisan route:list --path=fuel-prices` lista siete rutas y `current` aparece antes que `{fuelPrice}`.
-- [ ] `php artisan test --compact` pasa toda la suite, incluidas las specs anteriores.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan l5-swagger:generate` regenera `storage/api-docs/api-docs.json` con los siete endpoints documentados.
+- [x] `php artisan route:list --path=fuel-prices` lista siete rutas y `current` aparece antes que `{fuelPrice}`.
+- [x] `php artisan test --compact` pasa toda la suite, incluidas las specs anteriores.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan l5-swagger:generate` regenera `storage/api-docs/api-docs.json` con los siete endpoints documentados.
 
 ---
 
