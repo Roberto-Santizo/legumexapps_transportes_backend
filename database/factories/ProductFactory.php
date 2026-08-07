@@ -20,9 +20,32 @@ class ProductFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => mb_strtoupper(fake()->unique()->words(2, true)),
+            'name' => Product::normalizeName(fake()->randomElement([
+                'brocoli', 'ejote frances', 'arveja china', 'zanahoria', 'apio',
+                'coliflor', 'lechuga romana', 'tomate', 'chile pimiento', 'cebolla',
+            ]).' '.fake()->unique()->bothify('??##')),
             'status' => true,
             'registered_by' => User::factory()->state(['role' => UserRole::Administrator]),
         ];
+    }
+
+    /**
+     * Indicate that the product is available in the catalog.
+     */
+    public function active(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => true,
+        ]);
+    }
+
+    /**
+     * Indicate that the product has been logically removed from the catalog.
+     */
+    public function inactive(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => false,
+        ]);
     }
 }
