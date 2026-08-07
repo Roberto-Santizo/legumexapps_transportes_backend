@@ -125,14 +125,16 @@ Al no ser ISO, ambos campos se documentan en Swagger como `type: 'string'` **sin
 // registeredBy NO se acepta: sale del usuario autenticado
 
 // UpdateProductRequest
-'name' => ['sometimes', 'string', 'max:255', Rule::unique('products', 'name')->ignore($this->route('product'))],
-'status' => ['sometimes', 'boolean'],
-// al menos uno de los dos debe venir
+'name' => ['required_without:status', 'string', 'max:255', Rule::unique('products', 'name')->ignore($this->route('product'))],
+'status' => ['required_without:name', 'boolean'],
+// el required_without cruzado es lo que impide el cuerpo vacío
 ```
 
 Los dos requests implementan `prepareForValidation()` con `Product::normalizeName()` sobre el `name` recibido. Sin ese paso, mandar `brocoli` existiendo `BROCOLI` pasaría la validación `unique` y reventaría contra el índice de la base con un 500.
 
-En el `UpdateProductRequest` los dos campos son `sometimes`, así que un body vacío pasaría la validación y produciría un `PATCH` sin efecto. Para evitarlo, el request añade `Rule::atLeastOneOf(['name', 'status'])`, que devuelve 422 con mensaje en español.
+En el `UpdateProductRequest` los dos campos son opcionales por separado, así que con reglas `sometimes` un body vacío pasaría la validación y produciría un `PATCH` sin efecto. Para evitarlo, cada campo lleva `required_without` apuntando al otro: si no viene ninguno, los dos fallan y la respuesta es un 422 con el mensaje «Debe enviar al menos el nombre o el estado» en ambos.
+
+Se propuso primero `Rule::atLeastOneOf(['name', 'status'])`, que habría dado un único mensaje, pero **ese método no existe en Laravel 13.23**, la versión del proyecto: `Rule` solo expone `anyOf()`, que valida que *un valor* cumpla uno de varios conjuntos de reglas, no que *uno de varios campos* esté presente. El `required_without` cruzado es nativo, no necesita validador propio y el efecto observable es el mismo, a cambio de repetir el mensaje en los dos campos.
 
 `Rule::unique(...)->ignore($this->route('product'))` es lo que permite reenviar el mismo nombre en un `PATCH` sin chocar consigo mismo.
 
@@ -189,7 +191,7 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 8. **Provider.** `app/Providers/Product/ProductProvider.php` con el `bind(ProductServiceInterface::class, ProductService::class)`, registrado en `bootstrap/providers.php`. *Verificación:* `app(ProductServiceInterface::class)` resuelve a `ProductService`.
 
-9. **FormRequests.** `StoreProductRequest` y `UpdateProductRequest` en `app/Http/Requests/Product/`, ambos con `prepareForValidation()` llamando a `Product::normalizeName()`, las reglas `unique` —con `ignore()` en el update—, `Rule::atLeastOneOf(['name', 'status'])` en el update y `messages()` en español.
+9. **FormRequests.** `StoreProductRequest` y `UpdateProductRequest` en `app/Http/Requests/Product/`, ambos con `prepareForValidation()` llamando a `Product::normalizeName()`, las reglas `unique` —con `ignore()` en el update—, `required_without` cruzado entre `name` y `status` en el update y `messages()` en español.
 
 10. **Controller.** `app/Http/Controllers/ProductController.php` con las seis acciones, el service inyectado **por parámetro de cada método**, `try/catch` a `ResponseHandler` y ninguna regla de negocio. Solo `store` resuelve el usuario con `auth('api')->user()`, porque es la única acción cuya firma en el service recibe un `User`.
 
