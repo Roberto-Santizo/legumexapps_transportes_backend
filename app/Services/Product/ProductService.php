@@ -82,6 +82,55 @@ class ProductService implements ProductServiceInterface
         return $product->load('registeredBy');
     }
 
+    #[Override]
+    public function update(int $id, array $data): Product
+    {
+        $product = $this->getProductById($id);
+
+        if (isset($data['name'])) {
+            $name = Product::normalizeName($data['name']);
+
+            /** Se ignora la propia fila: reenviar su mismo nombre no puede chocar consigo misma. */
+            $this->ensureNameIsAvailable($name, $product->id);
+
+            $product->name = $name;
+        }
+
+        if (isset($data['status'])) {
+            $product->status = $data['status'];
+        }
+
+        /** registered_by no se reescribe: sigue apuntando a quien dio de alta el producto. */
+        $product->save();
+
+        return $product;
+    }
+
+    #[Override]
+    public function toggleStatus(int $id): Product
+    {
+        $product = $this->getProductById($id);
+
+        $product->status = ! $product->status;
+
+        $product->save();
+
+        return $product;
+    }
+
+    #[Override]
+    public function destroy(int $id): Product
+    {
+        $product = $this->getProductById($id);
+
+        /** Baja lógica e idempotente: sobre un producto ya inactivo no falla y lo deja igual. */
+        $product->status = false;
+
+        $product->save();
+
+        return $product;
+    }
+
     /**
      * Refuse a name that another product already holds.
      *
