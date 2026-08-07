@@ -1,6 +1,6 @@
 # SPEC 06 — Catálogo de precios de combustible
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 03
 > **Fecha:** 2026-08-06
 > **Objetivo:** Mantener un catálogo nacional de precios de combustible en GTQ por galón, con un único precio vigente por tipo que el `administrator` registra manualmente y que cualquier usuario autenticado puede consultar, quedando el resto del histórico congelado como inactivo.
