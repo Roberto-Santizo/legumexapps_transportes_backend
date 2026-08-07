@@ -1,6 +1,6 @@
 # SPEC 05 — Almacenamiento de archivos
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 03, SPEC 04
 > **Fecha:** 2026-08-05
 > **Objetivo:** Introducir un contrato `FileStorageServiceInterface` sustituible por cualquier proveedor, implementarlo sobre un bucket público de AWS S3, y saldar con él la deuda de las imágenes de `Carrier` y `Vehicle`, que hoy se validan y se descartan. Toda imagen que entre se normaliza antes de subirse —recorte cuadrado centrado, mismo lado en píxeles y recompresión— y el body queda acotado a 3 MB.

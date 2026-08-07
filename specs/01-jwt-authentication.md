@@ -192,40 +192,40 @@ Los pasos 17 y 18 corren en paralelo al final, como marca la convención del pro
 
 **Infraestructura**
 
-- [ ] `php artisan route:list --path=api/auth` lista exactamente 6 rutas.
-- [ ] `php artisan config:show jwt.ttl` devuelve `60`.
-- [ ] `php artisan migrate:fresh` corre sin errores y crea la tabla `account_confirmation_tokens` y la columna `password_reset_tokens.expiration_date`.
-- [ ] `app(App\Interfaces\Auth\AuthServiceInterface::class)` resuelve a `App\Services\Auth\AuthService`.
+- [x] `php artisan route:list --path=api/auth` lista exactamente 6 rutas.
+- [x] `php artisan config:show jwt.ttl` devuelve `60`.
+- [x] `php artisan migrate:fresh` corre sin errores y crea la tabla `account_confirmation_tokens` y la columna `password_reset_tokens.expiration_date`.
+- [x] `app(App\Interfaces\Auth\AuthServiceInterface::class)` resuelve a `App\Services\Auth\AuthService`.
 
 **Registro**
 
-- [ ] `POST /api/auth/register` con datos válidos devuelve 201 y un `data` con `id`, `name`, `email`, `role` y `emailVerifiedAt` en `null`.
-- [ ] La respuesta de `register` no contiene `password` ni `token`.
-- [ ] Tras un registro existe exactamente una fila en `account_confirmation_tokens` para ese email, con `token` distinto del código en claro y `expiration_date` a 1 hora del `created_at`.
-- [ ] `POST /api/auth/register` con `role = administrator` o `role = manager` devuelve 422.
-- [ ] `POST /api/auth/register` con un email ya registrado devuelve 422.
+- [x] `POST /api/auth/register` con datos válidos devuelve 201 y un `data` con `id`, `name`, `email`, `role` y `emailVerifiedAt` en `null`.
+- [x] La respuesta de `register` no contiene `password` ni `token`.
+- [x] Tras un registro existe exactamente una fila en `account_confirmation_tokens` para ese email, con `token` distinto del código en claro y `expiration_date` a 1 hora del `created_at`.
+- [x] `POST /api/auth/register` con `role = administrator` o `role = manager` devuelve 422.
+- [x] `POST /api/auth/register` con un email ya registrado devuelve 422.
 
 **Confirmación de cuenta**
 
-- [ ] `POST /api/auth/confirm-account` con email y código correctos devuelve 200, deja `users.email_verified_at` no nulo y borra la fila de `account_confirmation_tokens`.
-- [ ] Con código incorrecto devuelve 400 y `email_verified_at` sigue en `null`.
-- [ ] Con un código cuya `expiration_date` ya pasó devuelve 400.
-- [ ] Un segundo `confirm-account` con el mismo código devuelve 400.
+- [x] `POST /api/auth/confirm-account` con email y código correctos devuelve 200, deja `users.email_verified_at` no nulo y borra la fila de `account_confirmation_tokens`.
+- [x] Con código incorrecto devuelve 400 y `email_verified_at` sigue en `null`.
+- [x] Con un código cuya `expiration_date` ya pasó devuelve 400.
+- [x] Un segundo `confirm-account` con el mismo código devuelve 400.
 
 **Login**
 
-- [ ] `POST /api/auth/login` con credenciales válidas de cuenta confirmada devuelve 200 con `data.token` y `data.user`.
-- [ ] El token devuelto contiene los claims `id`, `name`, `email` y `role`, y un `exp` a 60 minutos.
-- [ ] Con contraseña incorrecta devuelve 401.
-- [ ] Con un email inexistente devuelve 401.
-- [ ] Con credenciales correctas pero cuenta sin confirmar devuelve 403.
+- [x] `POST /api/auth/login` con credenciales válidas de cuenta confirmada devuelve 200 con `data.token` y `data.user`.
+- [x] El token devuelto contiene los claims `id`, `name`, `email` y `role`, y un `exp` a 60 minutos.
+- [x] Con contraseña incorrecta devuelve 401.
+- [x] Con un email inexistente devuelve 401.
+- [x] Con credenciales correctas pero cuenta sin confirmar devuelve 403.
 
 **Check-status**
 
-- [ ] `GET /api/auth/check-status` sin header `Authorization` devuelve 401 en JSON (no HTML ni redirección).
-- [ ] Con token válido devuelve 200, el usuario autenticado y un token distinto al enviado.
-- [ ] El token devuelto por `check-status` sirve para una llamada posterior a `check-status`.
-- [ ] Con un token manipulado o caducado devuelve 401.
+- [x] `GET /api/auth/check-status` sin header `Authorization` devuelve 401 en JSON (no HTML ni redirección).
+- [x] Con token válido devuelve 200, el usuario autenticado y un token distinto al enviado.
+- [x] El token devuelto por `check-status` sirve para una llamada posterior a `check-status`.
+- [x] Con un token manipulado o caducado devuelve 401.
 
 **Recuperación de contraseña**
 
@@ -237,10 +237,10 @@ Los pasos 17 y 18 corren en paralelo al final, como marca la convención del pro
 
 **Calidad**
 
-- [ ] `php artisan test --compact` pasa en verde con los tests Feature y Unit de la feature.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] Los 6 endpoints aparecen en `storage/api-docs/api-docs.json` tras `l5-swagger:generate`.
-- [ ] Ninguna respuesta de la feature expone el campo `password` ni el código en claro.
+- [x] `php artisan test --compact` pasa en verde con los tests Feature y Unit de la feature.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] Los 6 endpoints aparecen en `storage/api-docs/api-docs.json` tras `l5-swagger:generate`.
+- [x] Ninguna respuesta de la feature expone el campo `password` ni el código en claro.
 
 ---
 

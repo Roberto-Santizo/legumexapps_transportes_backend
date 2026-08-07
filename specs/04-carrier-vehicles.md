@@ -1,6 +1,6 @@
 # SPEC 04 — Vehículos del transportista
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 03
 > **Fecha:** 2026-08-05
 > **Objetivo:** Permitir que un usuario con rol `carrier` gestione el inventario de vehículos de su propia empresa y que un `administrator` gestione el de todas, con estado operativo por enum y placa única entre los vehículos no desactivados.
@@ -220,90 +220,90 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 **Base de datos y modelos**
 
-- [ ] `php artisan migrate:fresh` crea `vehicles` sin errores.
-- [ ] Insertar dos vehículos con la misma `plate` **no** falla en base: la unicidad no está en el índice.
-- [ ] `Vehicle::factory()->create()->carrier` devuelve un `Carrier`, y `$carrier->vehicles` una colección de `Vehicle`.
-- [ ] Un vehículo creado sin `status` explícito nace en `active`.
-- [ ] `$vehicle->type` y `$vehicle->status` devuelven instancias de `VehicleType` y `VehicleStatus`, no strings.
-- [ ] Borrar un `Carrier` arrastra sus vehículos por la cascada.
+- [x] `php artisan migrate:fresh` crea `vehicles` sin errores.
+- [x] Insertar dos vehículos con la misma `plate` **no** falla en base: la unicidad no está en el índice.
+- [x] `Vehicle::factory()->create()->carrier` devuelve un `Carrier`, y `$carrier->vehicles` una colección de `Vehicle`.
+- [x] Un vehículo creado sin `status` explícito nace en `active`.
+- [x] `$vehicle->type` y `$vehicle->status` devuelven instancias de `VehicleType` y `VehicleStatus`, no strings.
+- [x] Borrar un `Carrier` arrastra sus vehículos por la cascada.
 
 **Middlewares y roles**
 
-- [ ] Una petición sin token a cualquier endpoint de vehículos recibe 401.
-- [ ] Un `pilot` recibe 403 en los cinco endpoints.
-- [ ] Un `manager` recibe 403 en los cinco endpoints.
-- [ ] Un `carrier` sin empresa recibe 403 por `carrier.required`, incluido en `POST /api/vehicles`.
-- [ ] Un `administrator` sin empresa atraviesa `carrier.required` y recibe 200 en `GET /api/vehicles`.
+- [x] Una petición sin token a cualquier endpoint de vehículos recibe 401.
+- [x] Un `pilot` recibe 403 en los cinco endpoints.
+- [x] Un `manager` recibe 403 en los cinco endpoints.
+- [x] Un `carrier` sin empresa recibe 403 por `carrier.required`, incluido en `POST /api/vehicles`.
+- [x] Un `administrator` sin empresa atraviesa `carrier.required` y recibe 200 en `GET /api/vehicles`.
 
 **`POST /api/vehicles`**
 
-- [ ] Un `carrier` con empresa recibe 201 y el vehículo queda persistido con `carrier_id` igual al de su empresa y `status = active`.
-- [ ] La placa se persiste en mayúsculas aunque se envíe en minúsculas (`p123abc` → `P123ABC`).
-- [ ] Enviar `status` en el body no cambia nada: el vehículo nace en `active`.
-- [ ] Omitir cualquiera de los siete campos requeridos devuelve 422.
-- [ ] Un `type` fuera del enum devuelve 422.
-- [ ] Un `year` de 1800 devuelve 422.
-- [ ] Enviar un `.pdf` como `image` devuelve 422.
-- [ ] La columna `image` guarda un UUID con la extensión del archivo enviado, y **no** aparece ningún archivo nuevo en `storage/`.
-- [ ] Registrar una placa que ya usa un vehículo `active` de **la misma** empresa devuelve 400.
-- [ ] Registrar una placa que ya usa un vehículo `active` de **otra** empresa devuelve 400.
-- [ ] Registrar una placa que ya usa un vehículo `under_repair` devuelve 400.
-- [ ] Registrar una placa cuyos únicos portadores están en `inactive` devuelve 201, y quedan dos filas con la misma placa.
-- [ ] Un `administrator` recibe 403 en `store`: solo el `carrier` registra vehículos.
+- [x] Un `carrier` con empresa recibe 201 y el vehículo queda persistido con `carrier_id` igual al de su empresa y `status = active`.
+- [x] La placa se persiste en mayúsculas aunque se envíe en minúsculas (`p123abc` → `P123ABC`).
+- [x] Enviar `status` en el body no cambia nada: el vehículo nace en `active`.
+- [x] Omitir cualquiera de los siete campos requeridos devuelve 422.
+- [x] Un `type` fuera del enum devuelve 422.
+- [x] Un `year` de 1800 devuelve 422.
+- [x] Enviar un `.pdf` como `image` devuelve 422.
+- [x] La columna `image` guarda un UUID con la extensión del archivo enviado, y **no** aparece ningún archivo nuevo en `storage/`.
+- [x] Registrar una placa que ya usa un vehículo `active` de **la misma** empresa devuelve 400.
+- [x] Registrar una placa que ya usa un vehículo `active` de **otra** empresa devuelve 400.
+- [x] Registrar una placa que ya usa un vehículo `under_repair` devuelve 400.
+- [x] Registrar una placa cuyos únicos portadores están en `inactive` devuelve 201, y quedan dos filas con la misma placa.
+- [x] Un `administrator` recibe 403 en `store`: solo el `carrier` registra vehículos.
 
 **`GET /api/vehicles`**
 
-- [ ] Un `carrier` recibe únicamente los vehículos de su empresa; los de otra empresa no aparecen.
-- [ ] Un `administrator` recibe los vehículos de todas las empresas.
-- [ ] El listado incluye los vehículos en `inactive` y en `under_repair` cuando no se manda `status`.
-- [ ] `?status=under_repair` devuelve solo los vehículos en ese estado.
-- [ ] `?status=cualquiercosa` se ignora y devuelve todos los registros del ámbito, sin error.
-- [ ] `?carrierId=N` como `administrator` devuelve solo los vehículos de esa empresa.
-- [ ] `?carrierId=N` como `carrier` se ignora: sigue recibiendo solo los suyos, aunque `N` sea otra empresa.
-- [ ] Cada elemento trae `carrierName` con el nombre de su empresa.
-- [ ] Listar 20 vehículos de 20 empresas distintas no dispara N+1 (una consulta para vehículos y una para carriers).
+- [x] Un `carrier` recibe únicamente los vehículos de su empresa; los de otra empresa no aparecen.
+- [x] Un `administrator` recibe los vehículos de todas las empresas.
+- [x] El listado incluye los vehículos en `inactive` y en `under_repair` cuando no se manda `status`.
+- [x] `?status=under_repair` devuelve solo los vehículos en ese estado.
+- [x] `?status=cualquiercosa` se ignora y devuelve todos los registros del ámbito, sin error.
+- [x] `?carrierId=N` como `administrator` devuelve solo los vehículos de esa empresa.
+- [x] `?carrierId=N` como `carrier` se ignora: sigue recibiendo solo los suyos, aunque `N` sea otra empresa.
+- [x] Cada elemento trae `carrierName` con el nombre de su empresa.
+- [x] Listar 20 vehículos de 20 empresas distintas no dispara N+1 (una consulta para vehículos y una para carriers).
 
 **Paginación**
 
-- [ ] `GET /api/vehicles` sin `limit` devuelve todos los registros y la respuesta **no** trae `total`, `currentPage` ni `lastPage`.
-- [ ] `GET /api/vehicles?limit=10` devuelve como máximo 10 y la respuesta trae `data`, `total`, `currentPage` y `lastPage` al nivel raíz del sobre.
-- [ ] `GET /api/vehicles?limit=abc` devuelve todos los registros sin error.
-- [ ] `GET /api/vehicles?limit=3` pagina de 10 en 10.
-- [ ] `GET /api/vehicles?limit=500` pagina de 100 en 100.
-- [ ] `limit` y `status` combinados se aplican los dos a la vez.
+- [x] `GET /api/vehicles` sin `limit` devuelve todos los registros y la respuesta **no** trae `total`, `currentPage` ni `lastPage`.
+- [x] `GET /api/vehicles?limit=10` devuelve como máximo 10 y la respuesta trae `data`, `total`, `currentPage` y `lastPage` al nivel raíz del sobre.
+- [x] `GET /api/vehicles?limit=abc` devuelve todos los registros sin error.
+- [x] `GET /api/vehicles?limit=3` pagina de 10 en 10.
+- [x] `GET /api/vehicles?limit=500` pagina de 100 en 100.
+- [x] `limit` y `status` combinados se aplican los dos a la vez.
 
 **`GET /api/vehicles/{id}`**
 
-- [ ] Un `carrier` recibe 200 con un vehículo de su empresa, `carrierName` incluido.
-- [ ] Un `carrier` que pide un vehículo de otra empresa recibe 403.
-- [ ] Un `administrator` recibe 200 con el vehículo de cualquier empresa.
-- [ ] Un id inexistente devuelve 404.
+- [x] Un `carrier` recibe 200 con un vehículo de su empresa, `carrierName` incluido.
+- [x] Un `carrier` que pide un vehículo de otra empresa recibe 403.
+- [x] Un `administrator` recibe 200 con el vehículo de cualquier empresa.
+- [x] Un id inexistente devuelve 404.
 
 **`PATCH /api/vehicles/{id}`**
 
-- [ ] El dueño actualiza `brand`, `model`, `year`, `capacity`, `type` e `image`.
-- [ ] El dueño cambia `status` a `under_repair` y el cambio se persiste.
-- [ ] Cambiar la placa a una libre devuelve 200 y la persiste en mayúsculas.
-- [ ] Cambiar la placa a una que usa un vehículo `active` de otra empresa devuelve 400.
-- [ ] Reenviar la **misma** placa que ya tiene el vehículo devuelve 200: no colisiona consigo mismo.
-- [ ] Un `carrier` que actualiza un vehículo de otra empresa recibe 403.
-- [ ] Un `administrator` puede actualizar el vehículo de cualquier empresa.
-- [ ] Un `status` fuera del enum devuelve 422.
+- [x] El dueño actualiza `brand`, `model`, `year`, `capacity`, `type` e `image`.
+- [x] El dueño cambia `status` a `under_repair` y el cambio se persiste.
+- [x] Cambiar la placa a una libre devuelve 200 y la persiste en mayúsculas.
+- [x] Cambiar la placa a una que usa un vehículo `active` de otra empresa devuelve 400.
+- [x] Reenviar la **misma** placa que ya tiene el vehículo devuelve 200: no colisiona consigo mismo.
+- [x] Un `carrier` que actualiza un vehículo de otra empresa recibe 403.
+- [x] Un `administrator` puede actualizar el vehículo de cualquier empresa.
+- [x] Un `status` fuera del enum devuelve 422.
 
 **`DELETE /api/vehicles/{id}`**
 
-- [ ] Devuelve 200 y la fila **sigue existiendo** en base con `status = inactive`.
-- [ ] El vehículo desactivado sigue apareciendo en `GET /api/vehicles`.
-- [ ] Tras desactivarlo, otra empresa puede registrar su placa y recibe 201.
-- [ ] Un `carrier` que desactiva un vehículo de otra empresa recibe 403.
-- [ ] Desactivar un vehículo ya `inactive` devuelve 200 sin efectos adicionales.
+- [x] Devuelve 200 y la fila **sigue existiendo** en base con `status = inactive`.
+- [x] El vehículo desactivado sigue apareciendo en `GET /api/vehicles`.
+- [x] Tras desactivarlo, otra empresa puede registrar su placa y recibe 201.
+- [x] Un `carrier` que desactiva un vehículo de otra empresa recibe 403.
+- [x] Desactivar un vehículo ya `inactive` devuelve 200 sin efectos adicionales.
 
 **Calidad**
 
-- [ ] `php artisan test --compact` pasa en verde, incluidos todos los tests de SPEC 01, 02 y 03 sin modificarlos.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan route:list --path=vehicles` muestra las cinco rutas con sus middlewares.
-- [ ] `php artisan l5-swagger:generate` regenera sin errores y los cinco endpoints aparecen en `/api/documentation`.
+- [x] `php artisan test --compact` pasa en verde, incluidos todos los tests de SPEC 01, 02 y 03 sin modificarlos.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan route:list --path=vehicles` muestra las cinco rutas con sus middlewares.
+- [x] `php artisan l5-swagger:generate` regenera sin errores y los cinco endpoints aparecen en `/api/documentation`.
 
 ---
 

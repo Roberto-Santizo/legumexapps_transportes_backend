@@ -46,7 +46,25 @@ En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`) se declaran 
 
 - `Carrier` pertenece a un `User` con rol `carrier` (`owner`); los `pilot` se vinculan por la pivote `carrier_pilots` (`Carrier::pilots()` / `User::pilotCarrier()`). `User::currentCarrier()` es la única fuente de verdad de "¿tiene empresa?" (dueño o piloto).
 - Un `carrier` solo puede registrar **una** empresa; el service genera un `code` único de 6 caracteres `[A-Z0-9]` y el piloto se une con `POST /api/carriers/join` mandando ese código (se normaliza a mayúsculas).
-- El `image` del body se valida pero **no se almacena**: solo se persiste el nombre generado (`uuid.ext`). Subir el archivo queda fuera de la spec 03, igual que el borrado real en `destroy` (solo resuelve 404).
+- `destroy` **no borra nada**: solo resuelve la empresa para responder 404 si no existe.
+
+## Dominio Vehicles
+
+- `Vehicle` pertenece a un `Carrier`. Enums `App\Enums\VehicleType` (truck, van, trailer, pickup) y `VehicleStatus` (active, inactive, under_repair).
+- Ámbito: el `administrator` ve todos y puede filtrar por `carrierId`; cualquier otro rol queda acotado a su propia empresa (`resolveScopedCarrierId()`), y tocar un vehículo ajeno es 403. Filtro opcional `status`.
+- La placa se normaliza a mayúsculas y es única **solo entre vehículos no desactivados** — un `inactive` la libera —, así que la unicidad no vive en un índice sino en `ensurePlateIsAvailable()`. Reactivar un vehículo revalida su placa.
+- `DELETE` es una baja lógica: pasa el `status` a `inactive`; la fila sigue viva y sigue apareciendo en los listados.
+
+## Almacenamiento de archivos
+
+- Dos contratos en `app/Interfaces/Storage/`, con sus reglas de sustitución escritas en el PHPDoc (qué lanza, qué acepta `null`, qué garantiza la salida), implementados en `app/Services/Storage/` y bindeados por `StorageProvider`:
+  - `FileStorageServiceInterface` → `S3FileStorageService`: `store(bytes, directory, extension)` / `delete(?key)` / `url(?key)`. Trabaja contra `Storage::disk()` **por defecto**, nunca contra `'s3'` escrito a mano (por eso el `Storage::fake()` de los tests lo intercepta). Sube con ACL `public-read` explícita; sin ella el objeto queda privado y la URL permanente da 403. Traduce tanto el `false` de retorno como cualquier `Throwable` a `BadRequestError`; `delete()` nunca lanza.
+  - `ImageProcessorServiceInterface` → `ImageProcessorService`: `normalizeSquare(UploadedFile)` devuelve `array{contents, extension}`. Recorte cuadrado centrado con `cover()` a **800×800** (Intervention Image, driver GD), recomprimido conservando el formato de entrada (jpg calidad 80 o png). `SIDE` y `JPEG_QUALITY` son constantes de clase, no configuración.
+- Ningún archivo fuera de `app/Services/Storage/` menciona `Storage::`, el nombre del disco ni `Intervention\`.
+- Los dos contratos se inyectan **por constructor** en los services de dominio (la regla de inyectar por parámetro es solo del controller), que aportan su propio prefijo con la constante `IMAGE_DIRECTORY` (`carriers`, `vehicles`).
+- La columna `image` guarda la **key completa** (`carriers/{uuid}.png`), no la URL: cambiar de proveedor no obliga a migrar datos. El Resource la resuelve a URL pública con `app(FileStorageServiceInterface::class)->url($this->image)` — localización de servicio consciente, porque un `JsonResource` se instancia con `new`.
+- Ciclo de vida: procesar → subir → persistir. En `update` con imagen nueva, el archivo anterior se borra **después** de guardar la fila. El `DELETE` no toca el archivo en ningún dominio.
+- Validación: `image` es `mimes:jpg,jpeg,png` + `max:3072` (3 MB, en kilobytes) en los cuatro FormRequests. Requiere `upload_max_filesize`/`post_max_size` ≥ 4M en cada entorno; si PHP corta antes, el error que ve el usuario es un `required` confuso.
 
 ## Documentación OpenAPI
 
@@ -55,8 +73,9 @@ En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`) se declaran 
 
 ## Tests
 
-- Pest 5, SQLite en memoria, `RefreshDatabase` y `Mail::fake()` aplicados globalmente desde `tests/Pest.php`.
-- Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash) y `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test).
+- Pest 5, SQLite en memoria, `RefreshDatabase`, `Mail::fake()` y `fakeDefaultDisk()` aplicados globalmente desde `tests/Pest.php`: ningún test manda correo ni sale a la red.
+- Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash), `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test) y `fakeDefaultDisk()` (sustituye el disco por defecto por un fake **con `url`**, porque uno pelado devolvería rutas relativas y la API promete URLs absolutas).
+- Dobles de los contratos de almacenamiento en `tests/Doubles/` (`InMemoryFileStorageService`, `StaticImageProcessorService`): se bindean en el contenedor para probar sustituibilidad y los caminos de error sin decodificar imágenes de verdad.
 - Helpers locales por archivo de test (ver `tests/Feature/CarrierTest.php`): `userWithRole()`, `asUser()` (llama a `resetAuthState()` y adjunta el token) y un `<recurso>Endpoints()` que alimenta los datasets de middleware.
 - Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service.
 - Ejecutar: `php artisan test --compact` (o `--filter=`).
