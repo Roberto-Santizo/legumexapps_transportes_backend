@@ -1,6 +1,6 @@
 # SPEC 07 — Catálogo de productos
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 03
 > **Fecha:** 2026-08-07
 > **Objetivo:** Mantener un catálogo nacional de productos —la mercancía que se transporta— con el nombre único y siempre en mayúsculas, y un estado booleano que el `administrator` gestiona y cualquier usuario autenticado consulta.
@@ -207,71 +207,71 @@ Cada paso deja el sistema arrancable y es commiteable por sí solo.
 
 **Alta y normalización**
 
-- [ ] `POST /api/products` con `name: "brocoli"` responde 201 y la fila se guarda como `BROCOLI`.
-- [ ] `POST` con `name: "  mini   zanahoria  "` guarda `MINI ZANAHORIA`: sin espacios en los extremos y con los internos colapsados a uno.
-- [ ] El producto nace con `status: true`.
-- [ ] El body no puede fijar el estado: enviar `status: false` en el alta produce igualmente un producto con `status: true`.
-- [ ] `registeredBy` apunta al usuario autenticado aunque el body traiga un `registeredBy` distinto.
-- [ ] `POST` con un `name` que ya existe responde 422.
-- [ ] `POST` con `name: "brocoli"` existiendo `BROCOLI` responde 422, no 500.
+- [x] `POST /api/products` con `name: "brocoli"` responde 201 y la fila se guarda como `BROCOLI`.
+- [x] `POST` con `name: "  mini   zanahoria  "` guarda `MINI ZANAHORIA`: sin espacios en los extremos y con los internos colapsados a uno.
+- [x] El producto nace con `status: true`.
+- [x] El body no puede fijar el estado: enviar `status: false` en el alta produce igualmente un producto con `status: true`.
+- [x] `registeredBy` apunta al usuario autenticado aunque el body traiga un `registeredBy` distinto.
+- [x] `POST` con un `name` que ya existe responde 422.
+- [x] `POST` con `name: "brocoli"` existiendo `BROCOLI` responde 422, no 500.
 
 **Consulta y filtros**
 
-- [ ] `GET /api/products` devuelve el catálogo ordenado por `id` ascendente.
-- [ ] El listado sin filtros incluye tanto los activos como los inactivos.
-- [ ] `GET /api/products?status=false` devuelve solo los inactivos.
-- [ ] `GET /api/products?status=1` devuelve solo los activos.
-- [ ] `GET /api/products?status=quizas` ignora el filtro y responde 200 con todo el catálogo.
-- [ ] `GET /api/products?search=broc` devuelve `BROCOLI` aunque el término vaya en minúsculas.
-- [ ] `GET /api/products?search=` ignora el filtro y responde 200.
-- [ ] `GET /api/products?search=zzz` responde 200 con una lista vacía, no 404.
-- [ ] `GET /api/products?limit=10` devuelve `total`, `currentPage` y `lastPage` en la raíz del sobre, no bajo `meta`.
-- [ ] `GET /api/products?limit=abc` devuelve la colección completa sin paginar.
-- [ ] `GET /api/products/{id}` devuelve el producto aunque esté inactivo.
+- [x] `GET /api/products` devuelve el catálogo ordenado por `id` ascendente.
+- [x] El listado sin filtros incluye tanto los activos como los inactivos.
+- [x] `GET /api/products?status=false` devuelve solo los inactivos.
+- [x] `GET /api/products?status=1` devuelve solo los activos.
+- [x] `GET /api/products?status=quizas` ignora el filtro y responde 200 con todo el catálogo.
+- [x] `GET /api/products?search=broc` devuelve `BROCOLI` aunque el término vaya en minúsculas.
+- [x] `GET /api/products?search=` ignora el filtro y responde 200.
+- [x] `GET /api/products?search=zzz` responde 200 con una lista vacía, no 404.
+- [x] `GET /api/products?limit=10` devuelve `total`, `currentPage` y `lastPage` en la raíz del sobre, no bajo `meta`.
+- [x] `GET /api/products?limit=abc` devuelve la colección completa sin paginar.
+- [x] `GET /api/products/{id}` devuelve el producto aunque esté inactivo.
 
 **Modificación, toggle y baja**
 
-- [ ] `PATCH /api/products/{id}` con `name: "fresa"` responde 200 y el nombre queda como `FRESA`.
-- [ ] `PATCH` con solo `status: false` cambia el estado y no toca el nombre.
-- [ ] `PATCH` con el body vacío responde 422.
-- [ ] `PATCH` reenviando el mismo `name` del propio producto responde 200, no 422.
-- [ ] `PATCH` con un `name` que ya usa otro producto responde 422.
-- [ ] `PATCH` no reescribe `registeredBy`: sigue apuntando a quien dio de alta el producto.
-- [ ] `PATCH /api/products/{id}/toggle-status` sobre un activo lo deja en `false`.
-- [ ] `PATCH /api/products/{id}/toggle-status` sobre un inactivo lo deja en `true`.
-- [ ] Dos `toggle-status` seguidos devuelven el producto al estado inicial.
-- [ ] `toggle-status` responde 200 sin necesidad de enviar body.
-- [ ] `DELETE /api/products/{id}` responde 200, deja `status: false` y la fila sigue existiendo en la base.
-- [ ] El producto dado de baja sigue apareciendo en `GET /api/products` sin filtros.
-- [ ] `DELETE` sobre un producto ya inactivo responde 200 y lo deja igual.
-- [ ] Un producto inactivo puede reactivarse con `toggle-status` o con `PATCH` y `status: true`.
-- [ ] Cualquier operación sobre un id inexistente responde 404.
+- [x] `PATCH /api/products/{id}` con `name: "fresa"` responde 200 y el nombre queda como `FRESA`.
+- [x] `PATCH` con solo `status: false` cambia el estado y no toca el nombre.
+- [x] `PATCH` con el body vacío responde 422.
+- [x] `PATCH` reenviando el mismo `name` del propio producto responde 200, no 422.
+- [x] `PATCH` con un `name` que ya usa otro producto responde 422.
+- [x] `PATCH` no reescribe `registeredBy`: sigue apuntando a quien dio de alta el producto.
+- [x] `PATCH /api/products/{id}/toggle-status` sobre un activo lo deja en `false`.
+- [x] `PATCH /api/products/{id}/toggle-status` sobre un inactivo lo deja en `true`.
+- [x] Dos `toggle-status` seguidos devuelven el producto al estado inicial.
+- [x] `toggle-status` responde 200 sin necesidad de enviar body.
+- [x] `DELETE /api/products/{id}` responde 200, deja `status: false` y la fila sigue existiendo en la base.
+- [x] El producto dado de baja sigue apareciendo en `GET /api/products` sin filtros.
+- [x] `DELETE` sobre un producto ya inactivo responde 200 y lo deja igual.
+- [x] Un producto inactivo puede reactivarse con `toggle-status` o con `PATCH` y `status: true`.
+- [x] Cualquier operación sobre un id inexistente responde 404.
 
 **Autorización**
 
-- [ ] Las seis rutas sin token responden 401 con el sobre estándar.
-- [ ] `GET /api/products` y `GET /api/products/{id}` responden 200 con un token de `pilot`, de `carrier` y de `manager`.
-- [ ] Ninguna ruta de lectura exige tener empresa: un `carrier` sin empresa las alcanza.
-- [ ] `POST`, `PATCH`, `PATCH /toggle-status` y `DELETE` responden 403 con un token de `carrier`, de `pilot` y de `manager`.
+- [x] Las seis rutas sin token responden 401 con el sobre estándar.
+- [x] `GET /api/products` y `GET /api/products/{id}` responden 200 con un token de `pilot`, de `carrier` y de `manager`.
+- [x] Ninguna ruta de lectura exige tener empresa: un `carrier` sin empresa las alcanza.
+- [x] `POST`, `PATCH`, `PATCH /toggle-status` y `DELETE` responden 403 con un token de `carrier`, de `pilot` y de `manager`.
 
 **Validación y forma de la respuesta**
 
-- [ ] `POST` sin `name` o con `name` vacío responde 422.
-- [ ] `POST` con un `name` de más de 255 caracteres responde 422.
-- [ ] `PATCH` con `status: "quizas"` responde 422.
-- [ ] Los mensajes de validación están en español.
-- [ ] Toda respuesta viaja en el sobre `{ statusCode, message, data }`.
-- [ ] `ProductResource` expone exactamente `id`, `name`, `status`, `registeredByName`, `createdAt` y `updatedAt`, en camelCase.
-- [ ] `status` sale como booleano JSON (`true`/`false`), no como `1`/`0` ni como cadena.
-- [ ] `createdAt` y `updatedAt` salen con el formato `d-m-Y h:i:s A` (ej. `07-08-2026 06:03:22 PM`).
-- [ ] Tras un `PATCH`, el `updatedAt` devuelto es posterior al `createdAt`.
+- [x] `POST` sin `name` o con `name` vacío responde 422.
+- [x] `POST` con un `name` de más de 255 caracteres responde 422.
+- [x] `PATCH` con `status: "quizas"` responde 422.
+- [x] Los mensajes de validación están en español.
+- [x] Toda respuesta viaja en el sobre `{ statusCode, message, data }`.
+- [x] `ProductResource` expone exactamente `id`, `name`, `status`, `registeredByName`, `createdAt` y `updatedAt`, en camelCase.
+- [x] `status` sale como booleano JSON (`true`/`false`), no como `1`/`0` ni como cadena.
+- [x] `createdAt` y `updatedAt` salen con el formato `d-m-Y h:i:s A` (ej. `07-08-2026 06:03:22 PM`).
+- [x] Tras un `PATCH`, el `updatedAt` devuelto es posterior al `createdAt`.
 
 **Integración**
 
-- [ ] `php artisan route:list --path=products` lista seis rutas y `toggle-status` aparece antes que el comodín `{product}`.
-- [ ] `php artisan test --compact` pasa toda la suite, incluidas las specs anteriores.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan l5-swagger:generate` regenera `storage/api-docs/api-docs.json` con los seis endpoints documentados.
+- [x] `php artisan route:list --path=products` lista seis rutas y `toggle-status` aparece antes que el comodín `{product}`.
+- [x] `php artisan test --compact` pasa toda la suite, incluidas las specs anteriores.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan l5-swagger:generate` regenera `storage/api-docs/api-docs.json` con los seis endpoints documentados.
 
 ---
 
