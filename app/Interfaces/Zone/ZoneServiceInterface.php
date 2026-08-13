@@ -44,8 +44,8 @@ interface ZoneServiceInterface
      * born active: the body cannot set its status.
      *
      * @param  array{name: string, description?: string|null, color?: string|null, area: array<int, array{0: float, 1: float}>}  $data
-     *                                                                                                                                 area: `[lat, lng]` pairs with an open ring, at least three of them;
-     *                                                                                                                                 registered_by comes from the given user, never from the body.
+     *                                                                                                                                  area: `[lat, lng]` pairs with an open ring, at least three of them;
+     *                                                                                                                                  registered_by comes from the given user, never from the body.
      */
     public function create(User $user, array $data): Zone;
 
