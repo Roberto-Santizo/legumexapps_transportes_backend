@@ -3001,6 +3001,539 @@
                     }
                 ]
             }
+        },
+        "/api/zones": {
+            "get": {
+                "tags": [
+                    "Zones"
+                ],
+                "summary": "Listar zonas",
+                "description": "Devuelve las zonas geográficas con su polígono completo. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque la zona es un dato nacional y no está acotada por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.\n\nATENCIÓN — el listado devuelve por defecto ACTIVAS E INACTIVAS mezcladas. La baja de una zona es lógica, así que lo dado de baja sigue apareciendo aquí con status false; para quedarse solo con lo publicado hay que enviar status=true. Es intencionado: una pantalla de administración necesita ver lo que dio de baja para poder reactivarlo.\n\nEl orden es fijo y no configurable: id ASC, es decir, el orden en que se dieron de alta. No hay sortBy ni sortDir.\n\nLos cuatro filtros —status, search, lat+lng y limit— se combinan entre sí y son TOLERANTES: un status que no resuelve a booleano, un search en blanco, unas coordenadas incompletas o fuera de rango y un limit no numérico se ignoran en silencio y la lectura devuelve 200, nunca 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. No hay filtro por rango de fechas ni por autor del alta.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos aplanados en la raíz, no bajo meta. Ten en cuenta que cada elemento incluye TODOS los vértices de su polígono: con muchas zonas detalladas la respuesta crece rápido, y limit es la única mitigación disponible.",
+                "operationId": "indexZones",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filtra por publicación. El valor se interpreta con filter_var, así que los valores admitidos son true, false, 1 y 0 —status=1 devuelve solo las publicadas y status=false solo las dadas de baja—. Cualquier valor que filter_var no resuelva a booleano (por ejemplo status=quizas) se ignora sin error y se devuelven ambos estados, igual que si se omitiera: este filtro nunca provoca un 422.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "true",
+                            "enum": [
+                                "true",
+                                "false",
+                                "1",
+                                "0"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Búsqueda parcial sobre el nombre (LIKE %TERM%). El término se normaliza a mayúsculas antes de comparar y el name está siempre en mayúsculas, así que la búsqueda es insensible a mayúsculas: search=nor y search=NOR devuelven ambas ZONA NORTE. En blanco se ignora y se devuelven todas las zonas. Solo busca por nombre: no cubre la descripción ni el autor del alta.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "nor"
+                        }
+                    },
+                    {
+                        "name": "lat",
+                        "in": "query",
+                        "description": "Latitud del punto a consultar, en [-90, 90]. Junto con lng acota el listado a las zonas que CONTIENEN ese punto. Solo se aplica si llegan LAS DOS coordenadas, ambas numéricas y en rango: enviar solo lat, o lat=200, hace que el filtro se ignore ENTERO y el listado salga completo, sin error ni 422. Ojo con el orden respecto al area: en el query string las coordenadas van en parámetros separados, así que aquí no hay ambigüedad, pero el valor de lat sigue siendo la latitud.",
+                        "required": false,
+                        "schema": {
+                            "type": "number",
+                            "format": "float",
+                            "example": 14.6349,
+                            "maximum": 90,
+                            "minimum": -90
+                        }
+                    },
+                    {
+                        "name": "lng",
+                        "in": "query",
+                        "description": "Longitud del punto a consultar, en [-180, 180]. Se usa siempre junto a lat. El resultado puede traer VARIAS zonas: el solape entre zonas está permitido y no se valida, por eso la consulta devuelve una lista y no una zona suelta. Si ninguna zona contiene el punto, la respuesta es 200 con data vacío, NUNCA 404. El filtro no aplica status implícitamente: sin status=true también salen zonas inactivas que contengan el punto.",
+                        "required": false,
+                        "schema": {
+                            "type": "number",
+                            "format": "float",
+                            "example": -90.5069,
+                            "maximum": 180,
+                            "minimum": -180
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación —que es lo que quiere un mapa que pinta todas las zonas—. Si es numérico se acota al rango [10, 100]: limit=5 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status, search y lat+lng.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Zonas obtenidas correctamente. Sin limit se devuelve ZoneListResponse; con limit numérico, PaginatedZoneListResponse. Una tabla vacía, un filtro sin coincidencias o un punto que no cae en ninguna zona devuelven 200 con data vacío, nunca 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ZoneListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedZoneListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Zones"
+                ],
+                "summary": "Registrar una zona",
+                "description": "Da de alta una zona geográfica nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer las zonas. No lleva carrier.required, porque la zona no pertenece a ninguna empresa.\n\nEl cuerpo acepta name, description, color y area; obligatorios solo name y area. El status no se envía —la zona nace siempre en true— y el registeredBy tampoco: se toma del usuario autenticado y se devuelve resuelto en registeredByName. Mandar cualquiera de los dos en el cuerpo no tiene efecto.\n\nATENCIÓN — el area se manda como pares [LATITUD, LONGITUD] con el ANILLO ABIERTO: mínimo 3 vértices distintos y SIN repetir el primero al final, que es lo que el GET devolverá tal cual. La latitud va primero, al revés que GeoJSON, Mapbox y la forma [lng, lat] de Leaflet; el par invertido normalmente cae en 422 por rango de latitud, pero un par ambiguo se guardaría en el sitio equivocado sin error alguno.\n\nEl name se NORMALIZA: se recorta, se colapsan los espacios internos y se pasa a mayúsculas. Enviar \"zona norte\" devuelve una zona llamada \"ZONA NORTE\"; el cliente debe pintar el name de la respuesta, no el que tecleó el usuario. La unicidad del nombre es GLOBAL e insensible a mayúsculas, porque se compara ya normalizado: enviar \"zona norte\" existiendo \"ZONA NORTE\" devuelve 422, no 201 ni 500.\n\nEl color es OPCIONAL: omitirlo crea la zona con #3388FF, el azul por defecto de Leaflet, de modo que una zona recién creada ya se ve bien en un mapa sin decisión de nadie.",
+                "operationId": "storeZone",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreZoneRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Zona registrada correctamente, con status true, el name ya normalizado en mayúsculas, el color en mayúsculas —#3388FF si no se envió—, el area devuelta como los mismos pares [lat, lng] que se enviaron, con el anillo abierto, y registeredByName el del administrador autenticado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Zona registrada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Zone"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer las zonas—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos. Casos típicos: falta el name o ya existe una zona con ese nombre una vez normalizado —incluido mandar \"zona norte\" existiendo \"ZONA NORTE\"— (Ya existe una zona con ese nombre); falta el area, tiene menos de 3 puntos, algún punto no es un par de exactamente 2 números, o una coordenada está fuera de rango, incluido el caso del par invertido (La latitud del punto 1 debe estar entre -90 y 90 / La longitud del punto 1 debe estar entre -180 y 180); el color no es un hexadecimal #RRGGBB (El color debe ser hexadecimal con el formato #RRGGBB); o la descripción supera los 1000 caracteres.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/zones/{zone}": {
+            "get": {
+                "tags": [
+                    "Zones"
+                ],
+                "summary": "Obtener una zona por id",
+                "description": "Devuelve una zona concreta, publicada o dada de baja, con su polígono completo y el nombre del administrador que la capturó.\n\nSolo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.\n\nEl area sale como los mismos pares [latitud, longitud] con el anillo abierto que se enviaron al crearla o en la última actualización: mismo número de puntos, mismo orden y sin punto de cierre repetido.\n\nUna zona con status false se obtiene con toda normalidad: la baja es lógica y no oculta la fila en ninguna lectura. El campo status es lo que distingue si está publicada.",
+                "operationId": "showZone",
+                "parameters": [
+                    {
+                        "name": "zone",
+                        "in": "path",
+                        "description": "Identificador numérico de la zona (zones.id). No es el nombre: no existe consulta por name, para eso está el filtro search del listado, ni consulta por punto, para eso están lat y lng.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Zona obtenida correctamente. Puede estar publicada o dada de baja: el campo status lo distingue.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Zona obtenida correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Zone"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Una zona dada de baja NO cae aquí: sigue existiendo y se devuelve con 200. El mensaje devuelto es: La zona no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Zones"
+                ],
+                "summary": "Dar de baja una zona",
+                "description": "ATENCIÓN — este DELETE NO BORRA NADA: es una BAJA LÓGICA que se limita a poner status en false. La fila sigue existiendo en la base con su polígono intacto, GET /api/zones/{zone} la sigue devolviendo con 200 y sigue apareciendo en GET /api/zones sin filtros —para excluirla hay que pedir status=true—, incluido el filtro lat+lng. Es lo contrario del DELETE de FuelPrices, que borra de verdad y hace desaparecer el id. El motivo es que una zona que aparezca en un histórico de viajes futuro no debe poder desaparecer.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nEs IDEMPOTENTE: repetir la llamada sobre una zona ya dada de baja responde 200 y la deja igual, no 400 ni 404. Dar de baja algo que ya lo está no es un error del cliente, porque el resultado que pidió ya se cumple.\n\nEs REVERSIBLE: la zona se reactiva con PATCH /api/zones/{zone}/toggle-status o con PATCH /api/zones/{zone} y status: true. No existe borrado real por ninguna vía, ni de la fila ni de la geometría.",
+                "operationId": "destroyZone",
+                "parameters": [
+                    {
+                        "name": "zone",
+                        "in": "path",
+                        "description": "Identificador numérico de la zona (zones.id). Sigue siendo válido después de la baja: el id nunca desaparece.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Zona dada de baja correctamente. data devuelve la fila ya con status false; la fila sigue existiendo, sigue siendo consultable por id y sigue apareciendo en el listado sin filtros, con su polígono sin tocar.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Zona dada de baja correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Zone"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Una zona ya dada de baja NO cae aquí: al ser baja lógica la fila sigue existiendo y repetir el DELETE devuelve 200. El mensaje devuelto es: La zona no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Zones"
+                ],
+                "summary": "Actualizar una zona",
+                "description": "Modifica el nombre, la descripción, el color, el estado, el polígono o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nTodos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda name no altera area, color ni description. ATENCIÓN — a diferencia de Products, aquí NO hay required_without cruzado: un CUERPO VACÍO responde 200 como no-op, devolviendo la zona sin cambios, en vez de 422.\n\nEl name se NORMALIZA igual que en el alta —recorte, colapso de espacios y mayúsculas—. La unicidad global se revalida ignorando la propia fila, así que reenviar su mismo nombre responde 200, y usar el de otra zona responde 422.\n\nEl area, si viene, SUSTITUYE al polígono entero, con las mismas reglas del alta —mínimo 3 pares [latitud, longitud], anillo abierto, latitud primero— y sin conservar rastro del trazado anterior. No hay edición de vértices sueltos.\n\nLa description acepta null para borrarla; el color NO acepta null (devuelve 422): para dejarlo igual se omite la clave.\n\nCon status: true este endpoint REACTIVA una zona dada de baja; con status: false la da de baja, exactamente igual que el DELETE. El solapamiento con PATCH /api/zones/{zone}/toggle-status es deliberado: el toggle sirve al interruptor de una tabla y este cuerpo al formulario de edición que manda estado y datos juntos.\n\nEl registeredBy no se reescribe: sigue apuntando a quien dio de alta la zona, aunque la edite otro administrador. El createdAt tampoco cambia; el updatedAt sí.",
+                "operationId": "updateZone",
+                "parameters": [
+                    {
+                        "name": "zone",
+                        "in": "path",
+                        "description": "Identificador numérico de la zona (zones.id). Es también la fila que se ignora al revalidar la unicidad del nombre.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateZoneRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Zona actualizada correctamente. data trae la fila ya modificada, con el name normalizado en mayúsculas, el color en mayúsculas, el area releída de la base como pares [lat, lng] con el anillo abierto, el mismo registeredByName, el mismo createdAt y el updatedAt refrescado. Un cuerpo vacío también responde 200, con la zona intacta.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Zona actualizada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Zone"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Una zona dada de baja NO cae aquí: se puede editar y reactivar con normalidad. El mensaje devuelto es: La zona no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "El name ya lo usa otra zona (Ya existe una zona con ese nombre) o supera los 255 caracteres; el area tiene menos de 3 puntos, algún punto no es un par de 2 números o una coordenada está fuera de rango (La latitud del punto N debe estar entre -90 y 90); el color no es #RRGGBB o llega como null (El color debe ser hexadecimal con el formato #RRGGBB / El color debe ser texto); el status no es booleano (El estado debe ser verdadero o falso); o la descripción supera los 1000 caracteres. Un cuerpo vacío NO produce 422.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/zones/{zone}/toggle-status": {
+            "patch": {
+                "tags": [
+                    "Zones"
+                ],
+                "summary": "Invertir el estado de una zona",
+                "description": "Invierte el status actual de la zona: true pasa a false y false pasa a true. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nNO LLEVA CUERPO. Enviarlo no cambia nada: la operación no recibe datos porque el nuevo estado se deduce del actual. Es lo que necesita el interruptor de una tabla de administración, que no tiene por qué saber el estado en el que está la fila. El polígono, el color y la descripción no se tocan.\n\nNO es idempotente por diseño: dos llamadas seguidas devuelven la zona a su estado inicial. Si lo que se quiere es fijar un estado concreto sin depender del actual, usa PATCH /api/zones/{zone} con status, o DELETE para dar de baja.\n\nEs la vía de REACTIVACIÓN de una zona dada de baja, junto con PATCH y status: true. La baja aquí nunca es definitiva.",
+                "operationId": "toggleStatusZone",
+                "parameters": [
+                    {
+                        "name": "zone",
+                        "in": "path",
+                        "description": "Identificador numérico de la zona (zones.id), publicada o dada de baja: los dos casos son válidos y el resultado es el estado contrario.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Estado de la zona actualizado correctamente. data trae la fila con el status ya invertido y el resto de campos intactos, para que el cliente pinte el interruptor sin releer el listado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Estado de la zona actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Zone"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. El mensaje devuelto es: La zona no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
         }
     },
     "components": {
@@ -3447,6 +3980,125 @@
                             "inactive",
                             "under_repair"
                         ]
+                    }
+                },
+                "type": "object"
+            },
+            "StoreZoneRequest": {
+                "title": "Alta de zona",
+                "description": "Cuerpo JSON para dar de alta una zona geográfica nacional. Los campos aceptados son name, description, color y area; solo name y area son obligatorios.\n\nEl status NO se acepta: la zona nace siempre publicada (true) y enviarlo se descarta sin error, así que no hay forma de crear una zona ya dada de baja. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador; mandarlo en el cuerpo no cambia nada.\n\nATENCIÓN — el name se NORMALIZA antes de validarse y antes de guardarse: se recorta, se colapsan los espacios internos y se pasa a mayúsculas. Enviar \"zona norte\" crea la zona \"ZONA NORTE\". Como la normalización ocurre ANTES de la regla de unicidad, enviar \"zona norte\" existiendo ya \"ZONA NORTE\" devuelve 422, no 500 ni una fila duplicada. El color se pasa también a mayúsculas antes de validarse.\n\nATENCIÓN — el area se manda como pares [latitud, longitud] con el ANILLO ABIERTO: se envían los 3 o más vértices distintos y NO se repite el primero al final; el cierre lo pone el servidor. El orden es latitud primero, al revés que GeoJSON y Leaflet.",
+                "required": [
+                    "name",
+                    "area"
+                ],
+                "properties": {
+                    "name": {
+                        "description": "Nombre de la zona. Se guarda normalizado y en mayúsculas, así que se puede enviar en minúsculas. Debe ser único en todo el país, comparado ya normalizado: la unicidad es global e insensible a mayúsculas. Vacío, ausente o de más de 255 caracteres devuelve 422 (mensajes: El nombre de la zona es obligatorio / El nombre de la zona debe ser texto / El nombre de la zona no puede superar los 255 caracteres / Ya existe una zona con ese nombre). El límite de 255 es el de la columna, no una regla de negocio.",
+                        "type": "string",
+                        "example": "zona norte",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "description": "Descripción libre de la zona. Opcional y nullable: omitirla o enviar null guarda null. Más de 1000 caracteres devuelve 422 (mensajes: La descripción debe ser texto / La descripción no puede superar los 1000 caracteres).",
+                        "type": "string",
+                        "example": "Cobertura del norte del área metropolitana",
+                        "nullable": true,
+                        "maxLength": 1000
+                    },
+                    "color": {
+                        "description": "Color de la zona en el mapa, en hexadecimal #RRGGBB. OPCIONAL: si se omite o llega null, la zona nace con #3388FF, el azul por defecto de Leaflet, y el recurso nunca devuelve el color en null. Se normaliza a mayúsculas antes de validarse, así que \"#ff0000\" se guarda y se devuelve como \"#FF0000\". Solo se admite el formato de 6 dígitos con almohadilla: \"rojo\", \"#FFF\" o \"FF0000\" devuelven 422 con el mensaje: El color debe ser hexadecimal con el formato #RRGGBB.",
+                        "type": "string",
+                        "pattern": "^#[0-9A-Fa-f]{6}$",
+                        "example": "#ff0000"
+                    },
+                    "area": {
+                        "description": "Polígono de la zona como lista de pares [latitud, longitud] con el ANILLO ABIERTO. Obligatorio, con un MÍNIMO DE 3 pares distintos y cada par de exactamente 2 números. NO se envía el primer punto repetido al final: el cierre del anillo lo añade el servidor. No hay tope máximo de vértices.\n\nATENCIÓN — el orden dentro del par es LATITUD PRIMERO y longitud después, al revés que GeoJSON, Mapbox, turf y la forma [lng, lat] de Leaflet. La latitud debe estar en [-90, 90] y la longitud en [-180, 180], y son esas dos reglas las que atrapan el par invertido: mandar [-90.5069, 14.6349] devuelve 422 con \"La latitud del punto 1 debe estar entre -90 y 90\". Pero un par ambiguo, con ambos valores dentro de [-90, 90], pasa la validación y guarda la zona en el lugar equivocado sin ningún error.\n\nOtros 422 posibles: El área de la zona es obligatoria / El área debe ser una lista de puntos / El área debe tener al menos 3 puntos / El punto N debe tener exactamente 2 coordenadas: latitud y longitud / La latitud del punto N debe ser numérica / La longitud del punto N debe estar entre -180 y 180.\n\nNo se valida el solape con otras zonas, ni que el polígono no se auto-intersecte: una figura en \"8\" se acepta. Tampoco se admiten agujeros ni multipolígonos: un solo anillo exterior.",
+                        "type": "array",
+                        "items": {
+                            "description": "Par [latitud, longitud]: exactamente dos números, la latitud primero.",
+                            "type": "array",
+                            "items": {
+                                "type": "number",
+                                "format": "float"
+                            },
+                            "maxItems": 2,
+                            "minItems": 2
+                        },
+                        "example": [
+                            [
+                                14.6349,
+                                -90.5069
+                            ],
+                            [
+                                14.6402,
+                                -90.4998
+                            ],
+                            [
+                                14.6281,
+                                -90.4931
+                            ]
+                        ],
+                        "minItems": 3
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateZoneRequest": {
+                "title": "Actualización de zona",
+                "description": "Cuerpo JSON para actualizar una zona. Acepta name, description, color, status y area, TODOS opcionales por separado, y solo se toca lo que venga: enviar únicamente el name no altera el área, ni el color, ni la descripción.\n\nATENCIÓN — a diferencia de Products, aquí NO hay regla required_without cruzada: un PATCH con el CUERPO VACÍO responde 200 como no-op, sin cambiar nada y sin 422. Con cinco campos editables, encadenar required_without produciría cinco mensajes idénticos en un 422 confuso.\n\nEl name se normaliza —recorte, colapso de espacios internos y mayúsculas— antes de validarse y antes de guardarse, igual que en el alta. La comprobación de unicidad ignora la propia fila, así que reenviar su mismo nombre responde 200 y no 422; reenviar el de otra zona sí devuelve 422. El color se pasa también a mayúsculas antes de validarse.\n\nEl area, si viene, SUSTITUYE al polígono anterior ENTERO y sin dejar rastro del previo: no hay edición de vértices sueltos, para mover un punto se manda el array completo con las mismas reglas del alta.\n\nEl registeredBy no se puede cambiar y el PATCH no lo reescribe: sigue apuntando a quien dio de alta la zona.",
+                "properties": {
+                    "name": {
+                        "description": "Nuevo nombre de la zona. Se guarda normalizado y en mayúsculas, debe seguir siendo único a nivel nacional —ignorando esta misma zona— y no puede superar los 255 caracteres (mensajes: El nombre de la zona debe ser texto / El nombre de la zona no puede superar los 255 caracteres / Ya existe una zona con ese nombre).",
+                        "type": "string",
+                        "example": "zona norte",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "description": "Nueva descripción, hasta 1000 caracteres. Es el único campo que acepta null explícito: enviar null BORRA la descripción, mientras que omitir la clave la deja como estaba.",
+                        "type": "string",
+                        "example": "Cobertura ampliada hasta el kilómetro 25",
+                        "nullable": true,
+                        "maxLength": 1000
+                    },
+                    "color": {
+                        "description": "Nuevo color en hexadecimal #RRGGBB, normalizado a mayúsculas. ATENCIÓN — al contrario que description, aquí null NO es válido: enviar color: null devuelve 422 con \"El color debe ser texto\". Para dejar el color como está, se omite la clave; no hay forma de volver al azul por defecto salvo enviando #3388FF explícitamente. Un valor que no case con el formato —\"rojo\", \"#FFF\"— devuelve 422 con: El color debe ser hexadecimal con el formato #RRGGBB.",
+                        "type": "string",
+                        "pattern": "^#[0-9A-Fa-f]{6}$",
+                        "example": "#123456"
+                    },
+                    "status": {
+                        "description": "Nueva publicación de la zona, como BOOLEANO. Con false se da de baja y con true se reactiva, lo mismo que consiguen DELETE /api/zones/{zone} y PATCH /api/zones/{zone}/toggle-status; el solapamiento es deliberado: el toggle sirve al interruptor de una tabla y este campo al formulario de edición que manda estado y datos juntos. Un valor no booleano devuelve 422 con el mensaje: El estado debe ser verdadero o falso.",
+                        "type": "boolean",
+                        "example": false
+                    },
+                    "area": {
+                        "description": "Nuevo polígono como lista de pares [latitud, longitud] con el ANILLO ABIERTO, mínimo 3 pares y cada par de exactamente 2 números. Si se envía, REEMPLAZA el polígono completo; si se omite, el área anterior no se toca. No se guarda el trazado previo.\n\nATENCIÓN — mismas reglas y mismo riesgo que en el alta: la LATITUD VA PRIMERO, en [-90, 90], y la longitud después, en [-180, 180], al revés que GeoJSON y Leaflet. Un par invertido cuya longitud caiga fuera de [-90, 90] devuelve 422 con \"La latitud del punto N debe estar entre -90 y 90\"; un par ambiguo con ambos valores en rango se guarda mal sin ningún error.",
+                        "type": "array",
+                        "items": {
+                            "description": "Par [latitud, longitud]: exactamente dos números, la latitud primero.",
+                            "type": "array",
+                            "items": {
+                                "type": "number",
+                                "format": "float"
+                            },
+                            "maxItems": 2,
+                            "minItems": 2
+                        },
+                        "example": [
+                            [
+                                14.6349,
+                                -90.5069
+                            ],
+                            [
+                                14.6402,
+                                -90.4998
+                            ],
+                            [
+                                14.6281,
+                                -90.4931
+                            ]
+                        ],
+                        "minItems": 3
                     }
                 },
                 "type": "object"
@@ -3899,6 +4551,118 @@
                         "$ref": "#/components/schemas/PaginationMeta"
                     }
                 ]
+            },
+            "Zone": {
+                "title": "Zona geográfica",
+                "description": "Zona geográfica nacional dibujada como un polígono. NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos los transportistas—, por eso el recurso no expone carrierId ni carrierName y su lectura está abierta a los cuatro roles: administrator, carrier, pilot y manager, incluido un carrier que todavía no ha registrado su empresa.\n\nATENCIÓN — el área viaja como un ARRAY DE PARES [latitud, longitud] CON EL ANILLO ABIERTO. Se envían 3 o más puntos y se devuelven exactamente esos mismos puntos, en el mismo orden y SIN repetir el primero al final. El orden interno de PostGIS (longitud primero) y el punto de cierre repetido son detalles del motor que no salen nunca de la capa de servicio: el cliente solo ve [lat, lng] abierto.\n\nEl name se devuelve SIEMPRE normalizado y EN MAYÚSCULAS, y el color SIEMPRE llega con valor —nunca null—, porque una zona sin color explícito nace con el azul por defecto de Leaflet (#3388FF).\n\nEl status es un BOOLEANO cuya baja es LÓGICA: DELETE pone status en false, la fila nunca desaparece y sigue apareciendo en el listado sin filtros.\n\nRequisito de entorno: este dominio se apoya en PostgreSQL con la extensión PostGIS; sin ella la tabla no existe y ninguno de los seis endpoints funciona.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la fila (zones.id). Es el valor que va en el parámetro {zone} de las rutas de detalle, actualización, toggle y baja.",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "description": "Nombre de la zona, SIEMPRE EN MAYÚSCULAS. Se normaliza al crear y al actualizar: se recortan los extremos, se colapsan los espacios internos a uno y se pasa a mayúsculas, así que enviar \"  zona   norte  \" guarda y devuelve \"ZONA NORTE\". Es único a nivel global, y al estar siempre en mayúsculas la unicidad resulta insensible a mayúsculas sin depender del collation del motor.",
+                        "type": "string",
+                        "example": "ZONA NORTE"
+                    },
+                    "description": {
+                        "description": "Descripción libre de la zona, hasta 1000 caracteres. Es el único campo del recurso que puede ser null: se omite en el alta o se limpia enviando null en el PATCH.",
+                        "type": "string",
+                        "example": "Cobertura del norte del área metropolitana",
+                        "nullable": true
+                    },
+                    "color": {
+                        "description": "Color con el que se pinta la zona en un mapa, en hexadecimal #RRGGBB y SIEMPRE EN MAYÚSCULAS. NUNCA es null: si el alta no lo envía, la zona nace con #3388FF —el azul por defecto de Leaflet—. Es dato de presentación, sin ninguna semántica de negocio.",
+                        "type": "string",
+                        "example": "#3388FF"
+                    },
+                    "area": {
+                        "description": "Polígono de la zona como lista de pares [latitud, longitud] CON EL ANILLO ABIERTO: si se enviaron 3 puntos se devuelven esos 3, en el mismo orden, sin un cuarto punto repetido para cerrar la figura. Siempre hay al menos 3 pares y cada par tiene exactamente 2 números.\n\nATENCIÓN — el orden es LATITUD PRIMERO, al revés que GeoJSON, Leaflet en su forma [lng, lat], Mapbox y turf. Invertir el par suele fallar con 422 y el mensaje \"La latitud del punto N debe estar entre -90 y 90\", porque casi cualquier longitud de Guatemala (-90) cae fuera del rango de latitud; pero un punto genuinamente ambiguo, con los dos valores dentro de [-90, 90], se guarda sin error y coloca la zona en el sitio equivocado del mapa. Es el error más caro de este dominio: no hay excepción, no hay log, solo un polígono mal ubicado.\n\nRangos: la latitud va en [-90, 90] y la longitud en [-180, 180]. Un modelo cargado sin la columna calculada del polígono degrada a lista vacía en vez de provocar un 500; ver un area vacía en una respuesta indica un fallo de carga, no una zona sin geometría.",
+                        "type": "array",
+                        "items": {
+                            "description": "Par [latitud, longitud]: exactamente dos números, la latitud primero.",
+                            "type": "array",
+                            "items": {
+                                "type": "number",
+                                "format": "float"
+                            },
+                            "maxItems": 2,
+                            "minItems": 2
+                        },
+                        "example": [
+                            [
+                                14.6349,
+                                -90.5069
+                            ],
+                            [
+                                14.6402,
+                                -90.4998
+                            ],
+                            [
+                                14.6281,
+                                -90.4931
+                            ]
+                        ]
+                    },
+                    "status": {
+                        "description": "Publicación de la zona, como BOOLEANO JSON (true o false), nunca como 1/0 ni como cadena. Nace en true y el cuerpo del alta no puede fijarlo. Pasa a false con DELETE /api/zones/{zone} —que es baja lógica, no borrado— o con PATCH y status: false, y vuelve a true con PATCH /api/zones/{zone}/toggle-status o con PATCH y status: true. Una zona inactiva sigue existiendo, sigue apareciendo en GET /api/zones sin filtros, sigue siendo consultable por id y sigue saliendo en el filtro lat+lng.",
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del administrador que dio de alta la zona, obtenido de la relación registeredBy. No se envía en el cuerpo: sale del usuario autenticado. El PATCH no lo reescribe, así que sigue apuntando a quien creó la fila aunque la haya editado otro administrador.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha de alta de la zona. ATENCIÓN — igual que en Products: NO viaja en ISO 8601 como en el resto del proyecto, sino con el formato d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM). Por eso se documenta como string sin format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. Está pensado para mostrarse tal cual.",
+                        "type": "string",
+                        "example": "07-08-2026 06:03:22 PM",
+                        "nullable": true
+                    },
+                    "updatedAt": {
+                        "description": "Fecha del último cambio de cualquiera de los campos editables, incluido el polígono; es lo más cercano a una auditoría que ofrece el dominio, porque no se guarda el área anterior ni ningún valor previo. Mismo formato propio d-m-Y h:i:s A que createdAt, tampoco ISO 8601.",
+                        "type": "string",
+                        "example": "07-08-2026 06:11:40 PM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "ZoneListResponse": {
+                "title": "Listado de zonas sin paginar",
+                "description": "Respuesta de GET /api/zones cuando no se envía limit o cuando el limit no es numérico: se devuelven todas las zonas que pasen los filtros y el sobre NO incluye total, currentPage ni lastPage. Es la forma que quiere un mapa que necesita pintar todas las zonas de una vez. Sin el filtro status, la lista mezcla activas e inactivas, y cada elemento trae su polígono completo.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Zonas obtenidas correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Zone"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedZoneListResponse": {
+                "title": "Listado de zonas paginado",
+                "description": "Respuesta de GET /api/zones cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/ZoneListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
             }
         },
         "parameters": {
@@ -3948,6 +4712,10 @@
         {
             "name": "Vehicles",
             "description": "Inventario de vehículos de las empresas transportistas. Todos los endpoints requieren token JWT (Authorization: Bearer {token}), llevan el middleware carrier.required y están filtrados por rol: solo carrier y administrator entran, y el alta es exclusiva del carrier. Los roles pilot y manager reciben 403 en los cinco endpoints. El ámbito se resuelve en el servicio: un carrier solo alcanza los vehículos de su propia empresa y un administrator los de todas; el administrator está exento de carrier.required, así que opera aunque no esté vinculado a ninguna empresa. La capacidad va siempre EN LIBRAS y la imagen se valida pero no se almacena."
+        },
+        {
+            "name": "Zones",
+            "description": "Zonas geográficas nacionales: polígonos que delimitan áreas de cobertura sobre el mapa. La zona NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos los transportistas—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los seis endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización, toggle de estado y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. Tres reglas atraviesan todo el dominio: el polígono entra y sale como pares [LATITUD, LONGITUD] con el ANILLO ABIERTO —latitud primero, al revés que GeoJSON y Leaflet, y sin repetir el primer punto al final—; el name se guarda SIEMPRE normalizado y en MAYÚSCULAS, con unicidad global insensible a mayúsculas; y el status es un BOOLEANO cuya baja es LÓGICA e idempotente —DELETE pone status en false, la fila nunca desaparece—, igual que en Products y al contrario que el DELETE de FuelPrices, que borra de verdad. REQUISITO DE ENTORNO: este dominio es el primero del proyecto que exige PostgreSQL con la extensión PostGIS habilitada (CREATE EXTENSION postgis, por base de datos y con un rol privilegiado); sin ella la tabla zones no se crea y ninguno de los seis endpoints responde."
         }
     ]
 }

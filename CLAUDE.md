@@ -73,7 +73,8 @@ En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`) se declaran 
 
 ## Tests
 
-- Pest 5, SQLite en memoria, `RefreshDatabase`, `Mail::fake()` y `fakeDefaultDisk()` aplicados globalmente desde `tests/Pest.php`: ningún test manda correo ni sale a la red.
+- Pest 5, **PostgreSQL con PostGIS** (base `legumexapps_transportes_testing`, fijada en `phpunit.xml`), `RefreshDatabase`, `Mail::fake()` y `fakeDefaultDisk()` aplicados globalmente desde `tests/Pest.php`: ningún test manda correo ni sale a la red.
+- **La suite no corre sin Postgres levantado.** Desde SPEC 08 las zonas usan `geography(Polygon,4326)` y `ST_Contains`, que SQLite no tiene. La extensión se habilita **por base de datos** (`CREATE EXTENSION IF NOT EXISTS postgis;` dentro de la base de tests), no por servidor; ver README.
 - Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash), `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test) y `fakeDefaultDisk()` (sustituye el disco por defecto por un fake **con `url`**, porque uno pelado devolvería rutas relativas y la API promete URLs absolutas).
 - Dobles de los contratos de almacenamiento en `tests/Doubles/` (`InMemoryFileStorageService`, `StaticImageProcessorService`): se bindean en el contenedor para probar sustituibilidad y los caminos de error sin decodificar imágenes de verdad.
 - Helpers locales por archivo de test (ver `tests/Feature/CarrierTest.php`): `userWithRole()`, `asUser()` (llama a `resetAuthState()` y adjunta el token) y un `<recurso>Endpoints()` que alimenta los datasets de middleware.
