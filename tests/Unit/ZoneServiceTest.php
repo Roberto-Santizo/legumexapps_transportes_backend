@@ -117,6 +117,27 @@ it('no altera el resto de campos cuando solo cambia el nombre', function () {
         ->and(Zone::geoJsonToPairs($updated->area_geojson))->toBe($area);
 });
 
+it('rechaza en la edición el nombre de otra zona y acepta el propio', function () {
+    $zone = Zone::factory()->create(['name' => 'ZONA NORTE']);
+
+    expect(zoneService()->update($zone->id, ['name' => 'zona norte'])->name)->toBe('ZONA NORTE');
+
+    Zone::factory()->create(['name' => 'ZONA SUR']);
+
+    expect(fn () => zoneService()->update($zone->id, ['name' => 'zona sur']))
+        ->toThrow(BadRequestError::class, 'Ya existe una zona con ese nombre');
+});
+
+it('no reescribe al responsable del alta al editar', function () {
+    $zone = Zone::factory()->create();
+
+    expect(zoneService()->update($zone->id, ['name' => 'otro nombre'])->registered_by)->toBe($zone->registered_by);
+});
+
+it('lanza NotFoundError al editar un id inexistente', function () {
+    zoneService()->update(9999, ['name' => 'zona norte']);
+})->throws(NotFoundError::class, 'La zona no existe');
+
 it('acepta un body vacío como no-op', function () {
     $zone = Zone::factory()->create();
 
@@ -226,6 +247,23 @@ it('acota el tamaño de página a [10, 100]', function (string $limit, int $expe
     'dentro' => ['25', 25],
     'por encima' => ['500', 100],
 ]);
+
+it('filtra por estado e ignora cualquier valor que no sea booleano', function () {
+    Zone::factory()->active()->create();
+    Zone::factory()->inactive()->create();
+
+    expect(zoneService()->getZones(['status' => 'true']))->toHaveCount(1)
+        ->and(zoneService()->getZones(['status' => 'false']))->toHaveCount(1)
+        ->and(zoneService()->getZones(['status' => 'quiza']))->toHaveCount(2);
+});
+
+it('devuelve las zonas ordenadas por id ascendente', function () {
+    $zones = Zone::factory()->count(5)->create();
+
+    $ids = $zones->pluck('id')->sort()->values()->all();
+
+    expect(zoneService()->getZones([])->pluck('id')->all())->toBe($ids);
+});
 
 it('carga el responsable del alta con el listado, sin N+1', function () {
     Zone::factory()->count(3)->create();

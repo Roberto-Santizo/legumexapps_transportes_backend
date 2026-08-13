@@ -3,6 +3,7 @@
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Models\Zone;
+use Illuminate\Support\Facades\DB;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use Tests\TestCase;
 
@@ -95,6 +96,29 @@ function zoneResourceKeys(): array
 function zoneTrianglePairs(): array
 {
     return [[14.6349, -90.5069], [14.6402, -90.4998], [14.6281, -90.4931]];
+}
+
+/**
+ * Un cuadrado de un grado con esquina inferior izquierda en el punto dado.
+ *
+ * @return array<int, array{0: float, 1: float}>
+ */
+function zoneSquarePairs(float $latitude, float $longitude): array
+{
+    return [
+        [$latitude, $longitude],
+        [$latitude + 1.0, $longitude],
+        [$latitude + 1.0, $longitude + 1.0],
+        [$latitude, $longitude + 1.0],
+    ];
+}
+
+/**
+ * La expresión del formato de fecha `d-m-Y h:i:s A` que promete el ZoneResource.
+ */
+function zoneDatePattern(): string
+{
+    return '/^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2} (AM|PM)$/';
 }
 
 /*
@@ -248,3 +272,238 @@ it('devuelve los metadatos de paginación en la raíz del sobre', function () {
     expect($response->json())->toHaveKeys(['statusCode', 'message', 'data', 'total', 'currentPage', 'lastPage'])
         ->and($response->json('total'))->toBe(3);
 });
+
+it('devuelve la colección completa y ninguna clave de paginación sin limit', function () {
+    Zone::factory()->count(12)->create();
+
+    $response = asUser(userWithRole(UserRole::Administrator))->getJson('/api/zones')->assertOk();
+
+    expect(array_keys($response->json()))->toBe(['statusCode', 'message', 'data'])
+        ->and($response->json('data'))->toHaveCount(12)
+        ->and($response->json('message'))->toBe('Zonas obtenidas correctamente');
+});
+
+it('acota el tamaño de página a [10, 100] también por HTTP', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    /** Las 101 zonas comparten registrador: lo que se mide aquí es el tamaño de página. */
+    Zone::factory()->count(101)->create(['registered_by' => $admin->id]);
+
+    $porDebajo = asUser($admin)->getJson('/api/zones?limit=5')->assertOk();
+    $porEncima = asUser($admin)->getJson('/api/zones?limit=500')->assertOk();
+
+    expect($porDebajo->json('data'))->toHaveCount(10)
+        ->and($porDebajo->json('lastPage'))->toBe(11)
+        ->and($porEncima->json('data'))->toHaveCount(100)
+        ->and($porEncima->json('lastPage'))->toBe(2)
+        ->and($porEncima->json('total'))->toBe(101);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Filtros del listado
+|--------------------------------------------------------------------------
+*/
+
+it('busca por nombre sin distinguir mayúsculas', function (string $search) {
+    Zone::factory()->create(['name' => 'ZONA NORTE']);
+    Zone::factory()->create(['name' => 'ZONA SUR']);
+
+    $data = asUser(userWithRole(UserRole::Pilot))->getJson("/api/zones?search={$search}")->assertOk()->json('data');
+
+    expect($data)->toHaveCount(1)
+        ->and($data[0]['name'])->toBe('ZONA NORTE');
+})->with([
+    'en mayúsculas' => 'NOR',
+    'en minúsculas' => 'nor',
+    'la palabra entera' => 'Norte',
+]);
+
+it('devuelve el listado completo cuando el término de búsqueda viene en blanco', function () {
+    Zone::factory()->count(2)->create();
+
+    expect(asUser(userWithRole(UserRole::Pilot))->getJson('/api/zones?search=%20%20')->assertOk()->json('data'))
+        ->toHaveCount(2);
+});
+
+it('filtra por estado e ignora un valor que no es booleano', function () {
+    Zone::factory()->active()->create();
+    Zone::factory()->inactive()->create();
+
+    $user = userWithRole(UserRole::Carrier);
+
+    expect(asUser($user)->getJson('/api/zones?status=true')->assertOk()->json('data'))->toHaveCount(1)
+        ->and(asUser($user)->getJson('/api/zones?status=false')->assertOk()->json('data'))->toHaveCount(1)
+        ->and(asUser($user)->getJson('/api/zones?status=quiza')->assertOk()->json('data'))->toHaveCount(2);
+});
+
+it('devuelve las dos zonas cuando el punto cae en un solape', function () {
+    Zone::factory()->withArea(zoneSquarePairs(14.0, -91.0))->create();
+    Zone::factory()->withArea(zoneSquarePairs(14.2, -90.8))->create();
+
+    expect(asUser(userWithRole(UserRole::Manager))->getJson('/api/zones?lat=14.5&lng=-90.5')->assertOk()->json('data'))
+        ->toHaveCount(2);
+});
+
+it('combina el filtro de punto con el de estado', function () {
+    $activa = Zone::factory()->withArea(zoneSquarePairs(14.0, -91.0))->active()->create();
+    Zone::factory()->withArea(zoneSquarePairs(14.0, -91.0))->inactive()->create();
+
+    $user = userWithRole(UserRole::Manager);
+
+    /** Sin status, el punto devuelve también la zona dada de baja. */
+    expect(asUser($user)->getJson('/api/zones?lat=14.5&lng=-90.5')->assertOk()->json('data'))->toHaveCount(2);
+
+    $filtrado = asUser($user)->getJson('/api/zones?lat=14.5&lng=-90.5&status=true')->assertOk()->json('data');
+
+    expect($filtrado)->toHaveCount(1)
+        ->and($filtrado[0]['id'])->toBe($activa->id);
+});
+
+it('no dispara N+1 al listar zonas de muchos registradores', function () {
+    Zone::factory()->count(20)->create();
+
+    /** El token se emite antes de escuchar: sus claims consultan la empresa del usuario. */
+    $token = JWTAuth::fromUser(userWithRole(UserRole::Administrator));
+
+    resetAuthState();
+
+    $queries = [];
+
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = $query->sql;
+    });
+
+    $this->withToken($token)->getJson('/api/zones')->assertOk()->assertJsonCount(20, 'data');
+
+    $sobreZonas = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "zones"'));
+    $sobreUsuarios = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "users"'));
+
+    /** Una consulta por el listado y otra por la relación: la del usuario autenticado es aparte. */
+    expect($sobreZonas)->toHaveCount(1)
+        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(2);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Forma de la respuesta
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve las nueve claves en camelCase y las fechas con el formato de la spec', function () {
+    $zone = Zone::factory()->create();
+    $admin = userWithRole(UserRole::Administrator);
+
+    $detalle = asUser($admin)->getJson("/api/zones/{$zone->id}")->assertOk()->json('data');
+    $delListado = asUser($admin)->getJson('/api/zones')->assertOk()->json('data.0');
+
+    expect(array_keys($detalle))->toBe(zoneResourceKeys())
+        ->and(array_keys($delListado))->toBe(zoneResourceKeys())
+        ->and($detalle['createdAt'])->toMatch(zoneDatePattern())
+        ->and($detalle['updatedAt'])->toMatch(zoneDatePattern())
+        ->and($detalle['registeredByName'])->toBe($zone->registeredBy->name);
+});
+
+it('trae el area poblada en todos los endpoints que responden con una zona', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $triangulo = zoneTrianglePairs();
+
+    $created = asUser($admin)->postJson('/api/zones', ['name' => 'zona norte', 'area' => $triangulo])->assertCreated();
+    $id = $created->json('data.id');
+
+    expect($created->json('data.area'))->toBe($triangulo)
+        ->and(asUser($admin)->getJson('/api/zones')->assertOk()->json('data.0.area'))->toBe($triangulo)
+        ->and(asUser($admin)->getJson("/api/zones/{$id}")->assertOk()->json('data.area'))->toBe($triangulo)
+        ->and(asUser($admin)->patchJson("/api/zones/{$id}", ['description' => 'otra'])->assertOk()->json('data.area'))->toBe($triangulo)
+        ->and(asUser($admin)->patchJson("/api/zones/{$id}/toggle-status")->assertOk()->json('data.area'))->toBe($triangulo)
+        ->and(asUser($admin)->deleteJson("/api/zones/{$id}")->assertOk()->json('data.area'))->toBe($triangulo);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Color
+|--------------------------------------------------------------------------
+*/
+
+it('aplica el azul por defecto y normaliza el color a mayúsculas', function (?string $color, string $expected) {
+    $payload = ['name' => 'zona norte', 'area' => zoneTrianglePairs()];
+
+    if ($color !== null) {
+        $payload['color'] = $color;
+    }
+
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/zones', $payload)
+        ->assertCreated()
+        ->assertJsonPath('data.color', $expected)
+        ->assertJsonPath('message', 'Zona registrada correctamente');
+})->with([
+    'sin color' => [null, '#3388FF'],
+    'en minúsculas' => ['#ff0000', '#FF0000'],
+    'ya en mayúsculas' => ['#FF0000', '#FF0000'],
+]);
+
+/*
+|--------------------------------------------------------------------------
+| Edición parcial
+|--------------------------------------------------------------------------
+*/
+
+it('no altera area, color ni descripción cuando el PATCH solo manda el nombre', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $zone = Zone::factory()->withArea(zoneTrianglePairs())->create([
+        'color' => '#123456',
+        'description' => 'la de siempre',
+        'registered_by' => $admin->id,
+    ]);
+
+    asUser($admin)->patchJson("/api/zones/{$zone->id}", ['name' => 'zona nueva'])
+        ->assertOk()
+        ->assertJsonPath('data.name', 'ZONA NUEVA')
+        ->assertJsonPath('data.color', '#123456')
+        ->assertJsonPath('data.description', 'la de siempre')
+        ->assertJsonPath('data.area', zoneTrianglePairs());
+});
+
+it('acepta que una zona reenvíe su propio nombre y rechaza el de otra', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $zone = Zone::factory()->create(['name' => 'ZONA NORTE']);
+    Zone::factory()->create(['name' => 'ZONA SUR']);
+
+    asUser($admin)->patchJson("/api/zones/{$zone->id}", ['name' => 'zona norte'])
+        ->assertOk()
+        ->assertJsonPath('data.name', 'ZONA NORTE');
+
+    asUser($admin)->patchJson("/api/zones/{$zone->id}", ['name' => 'zona sur'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['name']);
+});
+
+it('rechaza con 422 un polígono mal formado en el PATCH', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $zone = Zone::factory()->create();
+
+    asUser($admin)->patchJson("/api/zones/{$zone->id}", ['area' => [[14.6349, -90.5069], [14.6402, -90.4998]]])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['area']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| 404 sobre un id inexistente
+|--------------------------------------------------------------------------
+*/
+
+it('responde 404 en las cuatro acciones que resuelven la zona por id', function (string $method, string $uri) {
+    asUser(userWithRole(UserRole::Administrator))->json($method, $uri)
+        ->assertNotFound()
+        ->assertExactJson([
+            'statusCode' => 404,
+            'message' => 'La zona no existe',
+            'data' => null,
+        ]);
+})->with([
+    'show' => ['GET', '/api/zones/9999'],
+    'update' => ['PATCH', '/api/zones/9999'],
+    'toggle-status' => ['PATCH', '/api/zones/9999/toggle-status'],
+    'destroy' => ['DELETE', '/api/zones/9999'],
+]);
