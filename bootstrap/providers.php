@@ -7,6 +7,7 @@ use App\Providers\FuelPrice\FuelPriceProvider;
 use App\Providers\Product\ProductProvider;
 use App\Providers\Storage\StorageProvider;
 use App\Providers\Vehicle\VehicleProvider;
+use App\Providers\Zone\ZoneProvider;
 
 return [
     AppServiceProvider::class,
@@ -16,4 +17,5 @@ return [
     ProductProvider::class,
     StorageProvider::class,
     VehicleProvider::class,
+    ZoneProvider::class,
 ];
