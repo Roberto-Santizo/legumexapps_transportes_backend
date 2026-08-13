@@ -7,6 +7,27 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## Requisitos de entorno — Legumex Transportes
+
+Este proyecto **exige PostgreSQL con la extensión PostGIS**, tanto en desarrollo como para correr los tests. Desde SPEC 08 (zonas geográficas) la suite dejó de correr sobre SQLite en memoria: las zonas se guardan como `geography(Polygon,4326)` y se consultan con `ST_Contains`.
+
+Antes de `php artisan test`:
+
+1. Levantar PostgreSQL con PostGIS (la imagen `postgis/postgis` ya lo trae).
+2. Crear la base de tests y habilitar la extensión en ella — PostGIS se instala **por base de datos**, no por servidor:
+
+   ```sql
+   CREATE DATABASE legumexapps_transportes_testing;
+   \c legumexapps_transportes_testing
+   CREATE EXTENSION IF NOT EXISTS postgis;
+   ```
+
+3. La conexión de tests está fijada en `phpunit.xml` (`DB_CONNECTION=pgsql`, base `legumexapps_transportes_testing`); ajusta host, puerto y credenciales si tu servidor local difiere.
+
+`CREATE EXTENSION` requiere un rol privilegiado. En entornos gestionados (RDS, Cloud SQL, Laravel Cloud) el usuario de la aplicación normalmente no puede crearla: hay que habilitarla una vez a mano antes del primer `php artisan migrate`.
+
+Otro requisito de entorno, de SPEC 05: `upload_max_filesize` y `post_max_size` ≥ 4M para la subida de imágenes.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

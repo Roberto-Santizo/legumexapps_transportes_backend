@@ -100,6 +100,10 @@ class AuthService implements AuthServiceInterface
             throw new UnauthorizedError('El token no es válido');
         }
 
+        if(!$user->email_verified_at){
+            throw new ForbiddenError('La cuenta aún no ha sido confirmada');
+        }
+
         /** Se reemite desde el usuario, no con refresh(): refresh arrastra los claims del token anterior y dejaría los de transportista desactualizados hasta que expirase la sesión. */
         return ['user' => $user, 'token' => auth('api')->login($user)];
     }
