@@ -1,6 +1,6 @@
 # SPEC 08 — Zonas geográficas
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 03
 > **Fecha:** 2026-08-07
 > **Objetivo:** Registrar zonas geográficas nacionales como polígonos PostGIS `geography(Polygon,4326)`, con nombre único, color, estado y consulta de qué zona contiene un punto dado.
@@ -208,7 +208,7 @@ En el `UpdateZoneRequest` **todos los campos son `sometimes`** y no hay `require
 ### 7. Reglas de negocio del service
 
 - **Normalización.** `create` y `update` pasan `name` por `Zone::normalizeName()` y `color` por `mb_strtoupper()` antes de persistir, aunque el FormRequest ya lo haya hecho: el service es llamable directamente y no puede confiar en su llamador.
-- **Nombre disponible.** `ensureNameIsAvailable(string $name, ?int $ignoreId = null)` lanza `BadRequestError` si otro registro ya tiene ese nombre. Duplica la regla `unique` del request a propósito, como en SPEC 07.
+- **Nombre disponible.** `ensureNameIsAvailable(string $name, ?int $ignoreId = null)` lanza `BadRequestError` si otro registro ya tiene ese nombre. Duplica la regla `unique` del request a propósito, como en SPEC 07. Por HTTP nunca se ve ese 400: la regla `unique` del FormRequest corta antes con un 422; el `BadRequestError` cubre la llamada directa al service.
 - **`registered_by`** sale del `User` autenticado que el service recibe por parámetro, nunca del body. El `update` no lo reescribe.
 - **`create`** fuerza `status = true` y aplica `#3388FF` si no llega color.
 - **`toggleStatus`** invierte el booleano. No recibe body.
@@ -297,60 +297,60 @@ Disparar el agente `endpoint-docs` con el modelo `Zone` y regenerar `storage/api
 
 **Infraestructura**
 
-- [ ] `php artisan test --compact` corre sobre PostgreSQL y la suite completa —incluidos todos los tests anteriores a esta spec— pasa en verde.
-- [ ] Ningún test previo fue borrado ni marcado como omitido para conseguirlo.
-- [ ] `php artisan migrate:fresh` sobre una base virgen con PostGIS instalada crea la tabla `zones` sin intervención manual.
-- [ ] El índice `zones_area_gist_index` existe tras la migración (`\d zones` lo lista como `gist`).
+- [x] `php artisan test --compact` corre sobre PostgreSQL y la suite completa —incluidos todos los tests anteriores a esta spec— pasa en verde.
+- [x] Ningún test previo fue borrado ni marcado como omitido para conseguirlo.
+- [x] `php artisan migrate:fresh` sobre una base virgen con PostGIS instalada crea la tabla `zones` sin intervención manual.
+- [x] El índice `zones_area_gist_index` existe tras la migración (`\d zones` lo lista como `gist`).
 
 **Geometría**
 
-- [ ] Un `POST` con `area: [[14.6349,-90.5069],[14.6402,-90.4998],[14.6281,-90.4931]]` responde 201 y el `GET` posterior devuelve **esos mismos tres pares, en ese mismo orden, sin un cuarto punto**.
-- [ ] En base, `SELECT ST_AsText(area) FROM zones` muestra `POLYGON((-90.5069 14.6349, ...))` — longitud primero y con el punto de cierre repetido.
-- [ ] `SELECT ST_SRID(area) FROM zones` devuelve `4326`.
-- [ ] Un `POST` con `area` de 2 pares responde 422.
-- [ ] Un `POST` con el par `[98,-14]` responde 422 con el mensaje de latitud fuera de rango, no un 500.
-- [ ] Un `POST` con un par de 3 elementos responde 422.
+- [x] Un `POST` con `area: [[14.6349,-90.5069],[14.6402,-90.4998],[14.6281,-90.4931]]` responde 201 y el `GET` posterior devuelve **esos mismos tres pares, en ese mismo orden, sin un cuarto punto**.
+- [x] En base, `SELECT ST_AsText(area) FROM zones` muestra `POLYGON((-90.5069 14.6349, ...))` — longitud primero y con el punto de cierre repetido.
+- [x] `SELECT ST_SRID(area) FROM zones` devuelve `4326`.
+- [x] Un `POST` con `area` de 2 pares responde 422.
+- [x] Un `POST` con el par `[98,-14]` responde 422 con el mensaje de latitud fuera de rango, no un 500.
+- [x] Un `POST` con un par de 3 elementos responde 422.
 
 **Punto en zona**
 
-- [ ] `GET /api/zones?lat=&lng=` con un punto **dentro** de una zona la devuelve en la lista.
-- [ ] Con un punto **fuera** de toda zona, devuelve una lista vacía y status 200 — no 404.
-- [ ] Con un punto dentro de dos zonas solapadas, devuelve las dos.
-- [ ] Enviando solo `lat` (o solo `lng`), el filtro se ignora y el listado sale completo, sin error.
-- [ ] `lat=200` se ignora igual que un `status` no booleano: listado completo, sin error.
-- [ ] `?lat=&lng=&status=true` combina ambos filtros.
+- [x] `GET /api/zones?lat=&lng=` con un punto **dentro** de una zona la devuelve en la lista.
+- [x] Con un punto **fuera** de toda zona, devuelve una lista vacía y status 200 — no 404.
+- [x] Con un punto dentro de dos zonas solapadas, devuelve las dos.
+- [x] Enviando solo `lat` (o solo `lng`), el filtro se ignora y el listado sale completo, sin error.
+- [x] `lat=200` se ignora igual que un `status` no booleano: listado completo, sin error.
+- [x] `?lat=&lng=&status=true` combina ambos filtros.
 
 **CRUD y permisos**
 
-- [ ] Un `administrator` crea, edita, alterna estado y da de baja; cualquier otro rol recibe 403 en esas cuatro acciones.
-- [ ] `carrier`, `pilot` y `manager` **sin empresa** pueden listar y ver el detalle: no hay `carrier.required`.
-- [ ] Sin token, cualquier ruta de zonas responde 401 en el sobre JSON del proyecto.
-- [ ] `POST` con `name: 'zona norte'` guarda y devuelve `ZONA NORTE`.
-- [ ] `POST` con `name: 'zona norte'` existiendo `ZONA NORTE` responde 400 con error de negocio, nunca 500 del índice único.
-- [ ] `POST` sin `color` devuelve `#3388FF`.
-- [ ] `POST` con `color: '#ff0000'` devuelve `#FF0000`.
-- [ ] `POST` con `color: 'rojo'` responde 422.
-- [ ] `DELETE` responde 200, deja `status: false` y **la fila sigue apareciendo** en `GET /api/zones` sin filtros.
-- [ ] Un segundo `DELETE` sobre la misma zona responde 200 otra vez, sin error.
-- [ ] `PATCH /{zone}/toggle-status` sobre una zona inactiva la deja activa, y viceversa.
-- [ ] `PATCH` que solo manda `name` no altera `area`, `color` ni `description`.
-- [ ] `PATCH` con body vacío responde 200 sin cambios.
-- [ ] `show`, `update`, `toggle-status` y `destroy` sobre un id inexistente responden 404.
+- [x] Un `administrator` crea, edita, alterna estado y da de baja; cualquier otro rol recibe 403 en esas cuatro acciones.
+- [x] `carrier`, `pilot` y `manager` **sin empresa** pueden listar y ver el detalle: no hay `carrier.required`.
+- [x] Sin token, cualquier ruta de zonas responde 401 en el sobre JSON del proyecto.
+- [x] `POST` con `name: 'zona norte'` guarda y devuelve `ZONA NORTE`.
+- [x] `POST` con `name: 'zona norte'` existiendo `ZONA NORTE` responde 422, nunca 500 del índice único. El corte lo da la regla `unique` del `StoreZoneRequest`; el `BadRequestError` (400) del service es la red de seguridad para quien lo llame directamente.
+- [x] `POST` sin `color` devuelve `#3388FF`.
+- [x] `POST` con `color: '#ff0000'` devuelve `#FF0000`.
+- [x] `POST` con `color: 'rojo'` responde 422.
+- [x] `DELETE` responde 200, deja `status: false` y **la fila sigue apareciendo** en `GET /api/zones` sin filtros.
+- [x] Un segundo `DELETE` sobre la misma zona responde 200 otra vez, sin error.
+- [x] `PATCH /{zone}/toggle-status` sobre una zona inactiva la deja activa, y viceversa.
+- [x] `PATCH` que solo manda `name` no altera `area`, `color` ni `description`.
+- [x] `PATCH` con body vacío responde 200 sin cambios.
+- [x] `show`, `update`, `toggle-status` y `destroy` sobre un id inexistente responden 404.
 
 **Listado y forma de la respuesta**
 
-- [ ] Sin `limit`, `GET /api/zones` devuelve la colección completa; con `limit=10`, el sobre trae `total`, `currentPage` y `lastPage` **en la raíz**, no bajo `meta`.
-- [ ] `limit=5` se acota a 10 y `limit=500` a 100.
-- [ ] `search=NOR` encuentra `ZONA NORTE`; `search=nor` también.
-- [ ] Todas las claves del `ZoneResource` están en camelCase y `createdAt` tiene la forma `07-08-2026 06:03:22 PM`.
-- [ ] Listar 20 zonas ejecuta un número de queries independiente del número de filas (sin N+1 sobre `registeredBy`).
+- [x] Sin `limit`, `GET /api/zones` devuelve la colección completa; con `limit=10`, el sobre trae `total`, `currentPage` y `lastPage` **en la raíz**, no bajo `meta`.
+- [x] `limit=5` se acota a 10 y `limit=500` a 100.
+- [x] `search=NOR` encuentra `ZONA NORTE`; `search=nor` también.
+- [x] Todas las claves del `ZoneResource` están en camelCase y `createdAt` tiene la forma `07-08-2026 06:03:22 PM`.
+- [x] Listar 20 zonas ejecuta un número de queries independiente del número de filas (sin N+1 sobre `registeredBy`).
 
 **Cierre**
 
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan route:list --path=zones` muestra `toggle-status` **antes** de la ruta `{zone}`.
-- [ ] `/api/documentation` muestra los seis endpoints con el schema de `area` y ejemplos reales.
-- [ ] Ningún archivo fuera de `ZoneService` y del modelo `Zone` menciona `ST_`, `WKT`, `GeogFromText` ni el orden `lng lat`.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan route:list --path=zones` muestra `toggle-status` **antes** de la ruta `{zone}`.
+- [x] `/api/documentation` muestra los seis endpoints con el schema de `area` y ejemplos reales.
+- [x] Ningún archivo fuera de `ZoneService` y del modelo `Zone` menciona `ST_`, `WKT`, `GeogFromText` ni el orden `lng lat`.
 
 ---
 
