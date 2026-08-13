@@ -15,3 +15,4 @@ require __DIR__.'/carriers.php';
 require __DIR__.'/fuel_prices.php';
 require __DIR__.'/products.php';
 require __DIR__.'/vehicles.php';
+require __DIR__.'/zones.php';
