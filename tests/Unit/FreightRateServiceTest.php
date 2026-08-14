@@ -6,7 +6,6 @@ use App\Enums\UserRole;
 use App\Errors\BadRequestError;
 use App\Errors\NotFoundError;
 use App\Interfaces\FreightRate\FreightRateServiceInterface;
-use App\Interfaces\Zone\ZoneServiceInterface;
 use App\Models\FreightRate;
 use App\Models\FuelPrice;
 use App\Models\Product;
@@ -17,8 +16,13 @@ use Illuminate\Database\Eloquent\Collection;
 
 function freightRateService(): FreightRateServiceInterface
 {
-    return new FreightRateService(app(ZoneServiceInterface::class));
+    return app(FreightRateServiceInterface::class);
 }
+
+/** Resolverlo del contenedor prueba de paso que el servicio de zonas del constructor también se inyecta solo. */
+it('resuelve la implementación de tarifas registrada en el provider', function () {
+    expect(freightRateService())->toBeInstanceOf(FreightRateService::class);
+});
 
 function freightRateAdmin(): User
 {
