@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\FuelPriceStatus;
 use App\Enums\FuelType;
 use App\Enums\UserRole;
 use App\Errors\BadRequestError;
@@ -7,6 +8,7 @@ use App\Errors\NotFoundError;
 use App\Interfaces\FreightRate\FreightRateServiceInterface;
 use App\Interfaces\Zone\ZoneServiceInterface;
 use App\Models\FreightRate;
+use App\Models\FuelPrice;
 use App\Models\Product;
 use App\Models\User;
 use App\Models\Zone;
@@ -277,3 +279,198 @@ it('carga zona, producto y responsable con el listado, sin N+1', function () {
         && $rate->relationLoaded('product')
         && $rate->relationLoaded('registeredBy')))->toBeTrue();
 });
+
+/*
+|--------------------------------------------------------------------------
+| Cotización — selección de banda
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * Un cuadrado de un grado con esquina inferior izquierda en el punto dado.
+ *
+ * @return array<int, array{0: float, 1: float}>
+ */
+function freightRateSquare(float $latitude, float $longitude): array
+{
+    return [
+        [$latitude, $longitude],
+        [$latitude + 1.0, $longitude],
+        [$latitude + 1.0, $longitude + 1.0],
+        [$latitude, $longitude + 1.0],
+    ];
+}
+
+/**
+ * El escenario completo de una cotización: zona con polígono, producto y diésel vigente.
+ *
+ * @param  array<int, array{0: float, 1: float}>  $bands  pares [fuelMin, pricePerPound].
+ * @return array{zone: Zone, product: Product}
+ */
+function freightRateScenario(float $currentFuelPrice, array $bands): array
+{
+    $zone = Zone::factory()->active()->withArea(freightRateSquare(14.0, -91.0))->create();
+    $product = Product::factory()->active()->create();
+
+    FuelPrice::factory()->active()->create([
+        'fuel_type' => FuelType::Diesel,
+        'price' => $currentFuelPrice,
+    ]);
+
+    foreach ($bands as [$fuelMin, $pricePerPound]) {
+        FreightRate::factory()->create([
+            'zone_id' => $zone->id,
+            'product_id' => $product->id,
+            'fuel_type' => FuelType::Diesel,
+            'fuel_min' => $fuelMin,
+            'price_per_pound' => $pricePerPound,
+        ]);
+    }
+
+    return ['zone' => $zone, 'product' => $product];
+}
+
+/**
+ * La cotización del escenario, con el punto dentro de la zona.
+ *
+ * @return array{rate: FreightRate, currentFuelPrice: string, pounds: float|null, total: float|null}
+ */
+function freightRateQuote(Product $product, ?float $pounds = null): array
+{
+    return freightRateService()->quote([
+        'lat' => 14.5,
+        'lng' => -90.5,
+        'productId' => $product->id,
+        'fuelType' => FuelType::Diesel->value,
+        'pounds' => $pounds,
+    ]);
+}
+
+it('elige la banda que rige con el combustible vigente', function (float $currentFuelPrice, string $expected) {
+    ['product' => $product] = freightRateScenario($currentFuelPrice, [
+        [28.00, 0.400000],
+        [35.00, 0.454120],
+    ]);
+
+    $quote = freightRateQuote($product);
+
+    expect($quote['rate']->price_per_pound)->toBe($expected);
+})->with([
+    'por encima de todas' => [40.00, '0.454120'],
+    'exactamente en el límite' => [35.00, '0.454120'],
+    'entre las dos bandas' => [30.00, '0.400000'],
+    'por debajo de todas' => [25.00, '0.400000'],
+]);
+
+it('aplica la única banda cotizada sea cual sea el precio del combustible', function (float $currentFuelPrice) {
+    ['product' => $product] = freightRateScenario($currentFuelPrice, [[30.00, 0.454120]]);
+
+    $quote = freightRateQuote($product);
+
+    expect($quote['rate']->fuel_min)->toBe('30.00')
+        ->and($quote['currentFuelPrice'])->toBe(number_format($currentFuelPrice, 2, '.', ''));
+})->with(['muy por debajo' => [10.00], 'justo debajo' => [29.99], 'muy por encima' => [90.00]]);
+
+it('devuelve la banda aplicada con su zona y su producto resueltos', function () {
+    ['zone' => $zone, 'product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    $quote = freightRateQuote($product);
+
+    expect($quote['rate']->zone->name)->toBe($zone->name)
+        ->and($quote['rate']->product->name)->toBe($product->name)
+        ->and($quote['currentFuelPrice'])->toBe('40.00');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Cotización — total y fallos
+|--------------------------------------------------------------------------
+*/
+
+it('multiplica sobre la tarifa completa y redondea solo el total', function () {
+    ['product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    $quote = freightRateQuote($product, 45000.0);
+
+    expect($quote['total'])->toBe(20435.40)
+        ->and($quote['pounds'])->toBe(45000.0);
+});
+
+it('deja libras y total en null cuando no llegan libras', function () {
+    ['product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    $quote = freightRateQuote($product);
+
+    expect($quote['pounds'])->toBeNull()
+        ->and($quote['total'])->toBeNull();
+});
+
+it('no persiste nada al cotizar', function () {
+    ['product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    $before = FreightRate::withTrashed()->count();
+
+    freightRateQuote($product, 45000.0);
+
+    expect(FreightRate::withTrashed()->count())->toBe($before);
+});
+
+it('lanza NotFoundError cuando el punto no cae en ninguna zona', function () {
+    ['product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    freightRateService()->quote([
+        'lat' => -33.0,
+        'lng' => 18.0,
+        'productId' => $product->id,
+        'fuelType' => FuelType::Diesel->value,
+    ]);
+})->throws(NotFoundError::class, 'El punto indicado no pertenece a ninguna zona registrada');
+
+it('lanza BadRequestError cuando el producto está inactivo', function () {
+    ['product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    $product->update(['status' => false]);
+
+    freightRateQuote($product);
+})->throws(BadRequestError::class, 'El producto seleccionado no está activo');
+
+it('lanza BadRequestError cuando el combustible no tiene precio vigente', function () {
+    ['product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    FuelPrice::query()->update(['status' => FuelPriceStatus::Inactive]);
+
+    freightRateQuote($product);
+})->throws(BadRequestError::class, 'No existe un precio vigente para el combustible indicado');
+
+it('lanza BadRequestError cuando el par no tiene ninguna tarifa cotizada', function () {
+    ['product' => $product] = freightRateScenario(40.00, []);
+
+    freightRateQuote($product);
+})->throws(BadRequestError::class, 'No existe tarifa cotizada para ese producto en esa zona');
+
+it('nunca aplica una tarifa borrada', function () {
+    ['product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    freightRateService()->destroy(FreightRate::query()->firstOrFail()->id);
+
+    freightRateQuote($product);
+})->throws(BadRequestError::class, 'No existe tarifa cotizada para ese producto en esa zona');
+
+it('ignora la banda borrada y aplica la siguiente que rija', function () {
+    ['product' => $product] = freightRateScenario(40.00, [
+        [28.00, 0.400000],
+        [35.00, 0.454120],
+    ]);
+
+    freightRateService()->destroy(FreightRate::query()->where('fuel_min', '=', '35.00')->firstOrFail()->id);
+
+    expect(freightRateQuote($product)['rate']->fuel_min)->toBe('28.00');
+});
+
+it('no cotiza con una zona que contiene el punto pero está inactiva', function () {
+    ['zone' => $zone, 'product' => $product] = freightRateScenario(40.00, [[35.00, 0.454120]]);
+
+    $zone->update(['status' => false]);
+
+    freightRateQuote($product);
+})->throws(NotFoundError::class, 'El punto indicado no pertenece a ninguna zona registrada');

@@ -2,16 +2,17 @@
 
 namespace App\Services\FreightRate;
 
+use App\Enums\FuelPriceStatus;
 use App\Errors\BadRequestError;
 use App\Errors\NotFoundError;
 use App\Interfaces\FreightRate\FreightRateServiceInterface;
 use App\Interfaces\Zone\ZoneServiceInterface;
 use App\Models\FreightRate;
+use App\Models\FuelPrice;
 use App\Models\Product;
 use App\Models\User;
 use App\Models\Zone;
 use Illuminate\Database\Eloquent\Collection;
-use LogicException;
 use Override;
 
 class FreightRateService implements FreightRateServiceInterface
@@ -129,7 +130,74 @@ class FreightRateService implements FreightRateServiceInterface
     #[Override]
     public function quote(array $filters): array
     {
-        throw new LogicException('Pendiente: Paso 6 de la SPEC 09.');
+        /** Cada paso falla con su propio mensaje, así que el orden es parte del contrato. */
+        $zone = $this->zoneService->getZoneContainingPoint((float) $filters['lat'], (float) $filters['lng']);
+
+        if ($zone === null) {
+            throw new NotFoundError('El punto indicado no pertenece a ninguna zona registrada');
+        }
+
+        /** Un producto inactivo se trata como inexistente, igual que una zona dada de baja. */
+        $product = Product::query()->whereKey((int) $filters['productId'])->where('status', '=', true)->first();
+
+        if ($product === null) {
+            throw new BadRequestError('El producto seleccionado no está activo');
+        }
+
+        $fuelType = $filters['fuelType'];
+
+        /** El precio vigente sale de aquí y nunca de la petición: si no, cada quien cotizaría al precio que le conviene. */
+        $fuelPrice = FuelPrice::query()
+            ->where('fuel_type', '=', $fuelType)
+            ->where('status', '=', FuelPriceStatus::Active->value)
+            ->first();
+
+        if ($fuelPrice === null) {
+            throw new BadRequestError('No existe un precio vigente para el combustible indicado');
+        }
+
+        $rates = FreightRate::query()
+            ->with('zone', 'product')
+            ->where('zone_id', '=', $zone->id)
+            ->where('product_id', '=', $product->id)
+            ->where('fuel_type', '=', $fuelType)
+            ->orderBy('fuel_min')
+            ->get();
+
+        if ($rates->isEmpty()) {
+            throw new BadRequestError('No existe tarifa cotizada para ese producto en esa zona');
+        }
+
+        $rate = $this->resolveBand($rates, $fuelPrice->price);
+
+        $pounds = isset($filters['pounds']) ? (float) $filters['pounds'] : null;
+
+        return [
+            'rate' => $rate,
+            'currentFuelPrice' => $fuelPrice->price,
+            'pounds' => $pounds,
+            /** El redondeo va después del producto: redondear la tarifa antes costaría quetzales. */
+            'total' => $pounds === null ? null : round($pounds * (float) $rate->price_per_pound, 2),
+        ];
+    }
+
+    /**
+     * Pick the band that rules at the given fuel price.
+     *
+     * Bands are open: each one rules from its fuel_min upwards, so the winner is the
+     * highest one not above the price in effect. When the fuel is cheaper than every
+     * band the lowest one applies — the cheapest quoted, never an error. This step
+     * cannot fail: it is only reached with at least one rate in hand.
+     *
+     * @param  Collection<int, FreightRate>  $rates  live bands of the pair, ordered by fuel_min ascending.
+     */
+    private function resolveBand(Collection $rates, string $currentFuelPrice): FreightRate
+    {
+        $applicable = $rates->last(
+            fn (FreightRate $rate) => (float) $rate->fuel_min <= (float) $currentFuelPrice,
+        );
+
+        return $applicable ?? $rates->first();
     }
 
     /**
