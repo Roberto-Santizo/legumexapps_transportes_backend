@@ -140,6 +140,16 @@ it('lanza NotFoundError sobre un id que nunca existió', function (string $metho
     freightRateService()->{$method}(9999);
 })->with(['getFreightRateById', 'destroy'])->throws(NotFoundError::class, 'La tarifa no existe');
 
+it('devuelve la fila con su zona, su producto y su responsable ya cargados', function () {
+    $rate = FreightRate::factory()->create();
+
+    $found = freightRateService()->getFreightRateById($rate->id);
+
+    expect($found->relationLoaded('zone'))->toBeTrue()
+        ->and($found->relationLoaded('product'))->toBeTrue()
+        ->and($found->relationLoaded('registeredBy'))->toBeTrue();
+});
+
 it('lanza BadRequestError sobre una tarifa ya borrada', function () {
     $rate = FreightRate::factory()->create();
 
@@ -208,6 +218,32 @@ it('acepta un body vacío como no-op', function () {
         ->and($updated->price_per_pound)->toBe($rate->price_per_pound)
         ->and($updated->zone_id)->toBe($rate->zone_id);
 });
+
+it('mueve la tarifa a otra zona y otro producto activos', function () {
+    $rate = FreightRate::factory()->create();
+    $zone = Zone::factory()->active()->create();
+    $product = Product::factory()->active()->create();
+
+    $updated = freightRateService()->update($rate->id, ['zoneId' => $zone->id, 'productId' => $product->id]);
+
+    expect($updated->zone_id)->toBe($zone->id)
+        ->and($updated->product_id)->toBe($product->id)
+        ->and($updated->zone->name)->toBe($zone->name)
+        ->and($updated->product->name)->toBe($product->name);
+});
+
+it('rechaza mover la tarifa a una zona o un producto inactivos', function (string $key, string $message) {
+    $rate = FreightRate::factory()->create();
+
+    $target = $key === 'zoneId'
+        ? Zone::factory()->inactive()->create()->id
+        : Product::factory()->inactive()->create()->id;
+
+    freightRateService()->update($rate->id, [$key => $target]);
+})->with([
+    'zona inactiva' => ['zoneId', 'La zona seleccionada no está activa'],
+    'producto inactivo' => ['productId', 'El producto seleccionado no está activo'],
+])->throws(BadRequestError::class);
 
 it('no reescribe al responsable del alta al editar', function () {
     $rate = FreightRate::factory()->create();
@@ -407,6 +443,27 @@ it('deja libras y total en null cuando no llegan libras', function () {
 
     expect($quote['pounds'])->toBeNull()
         ->and($quote['total'])->toBeNull();
+});
+
+it('cotiza con el precio vigente y no con el histórico desplazado del mismo combustible', function () {
+    ['product' => $product] = freightRateScenario(40.00, [
+        [28.00, 0.400000],
+        [35.00, 0.454120],
+    ]);
+
+    FuelPrice::query()->delete();
+
+    /**
+     * El histórico se planta antes que el vigente y por debajo de la banda alta: si se colara
+     * —por llegar primero en la consulta—, la cotización bajaría de tarifa sin decirlo.
+     */
+    FuelPrice::factory()->inactive()->create(['fuel_type' => FuelType::Diesel, 'price' => 30.00]);
+    FuelPrice::factory()->active()->create(['fuel_type' => FuelType::Diesel, 'price' => 40.00]);
+
+    $quote = freightRateQuote($product);
+
+    expect($quote['currentFuelPrice'])->toBe('40.00')
+        ->and($quote['rate']->fuel_min)->toBe('35.00');
 });
 
 it('no persiste nada al cotizar', function () {
