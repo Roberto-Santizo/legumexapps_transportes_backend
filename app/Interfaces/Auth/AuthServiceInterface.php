@@ -21,17 +21,17 @@ interface AuthServiceInterface
     public function confirmAccount(array $data): void;
 
     /**
-     * Authenticate a confirmed user and issue its token.
+     * Authenticate a confirmed user and issue its access and refresh tokens.
      *
      * @param  array{email: string, password: string}  $data
-     * @return array{user: User, token: string}
+     * @return array{user: User, token: string, refreshToken: string}
      */
     public function login(array $data): array;
 
     /**
-     * Return the authenticated user along with a renewed token.
+     * Return the authenticated user along with a renewed pair of tokens.
      *
-     * @return array{user: User, token: string}
+     * @return array{user: User, token: string, refreshToken: string}
      */
     public function checkStatus(): array;
 
