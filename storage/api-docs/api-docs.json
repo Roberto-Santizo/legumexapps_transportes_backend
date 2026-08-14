@@ -1185,6 +1185,532 @@
                 ]
             }
         },
+        "/api/freight-rates": {
+            "get": {
+                "tags": [
+                    "FreightRates"
+                ],
+                "summary": "Listar tarifas de flete",
+                "description": "Devuelve la tabla de precios completa: todas las tarifas vivas, con su zona y su producto ya resueltos por nombre. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque la tarifa es un dato nacional y no está acotada por transportista. Todos ven exactamente las mismas filas.\n\nATENCIÓN — ESTE LISTADO NO PAGINA NUNCA, al contrario que Carriers, Vehicles, FuelPrices, Products y Zones. No existe el parámetro limit, no hay PaginatedResource y el sobre NO trae total, currentPage ni lastPage: enviar limit=10 devuelve igualmente la colección entera y no produce error. Es deliberado: la tabla de tarifas se lee como una tabla de precios completa, no como un histórico que se navega.\n\nEl ÚNICO filtro es zoneId, y es TOLERANTE: un zoneId no numérico (por ejemplo zoneId=abc) se ignora en silencio y devuelve el listado completo, sin 422; un zoneId numérico de una zona que no existe devuelve 200 con data vacío, nunca 404. Cualquier otro query param se ignora: no hay filtro por productId ni por fuelType, ni búsqueda, ni rango de fechas, ni orden configurable.\n\nEl orden es fijo: fuelType ASC y, dentro de cada tipo, fuelMin ASC — que es exactamente el orden en que se leen las bandas de un par.\n\nLas tarifas ELIMINADAS no aparecen: el DELETE es soft delete y saca la fila del listado de verdad, al contrario que la baja lógica de Zones y Products, que las deja visibles con status false.\n\nCuidado con el volumen sin filtro: el número de filas es zonas × productos × tipos de combustible × bandas. Con 15 zonas, 40 productos y tres bandas de diésel ya son 1 800 filas en una sola respuesta sin paginar; zoneId es la única mitigación disponible.",
+                "operationId": "indexFreightRates",
+                "parameters": [
+                    {
+                        "name": "zoneId",
+                        "in": "query",
+                        "description": "Acota el listado a las tarifas de una zona (zones.id). Es el único filtro que existe, y existe porque las tarifas se pintan dentro de la vista de la zona. Es TOLERANTE: un valor no numérico se ignora sin error y devuelve todas las tarifas; un id numérico sin coincidencias devuelve 200 con data vacío. No comprueba que la zona exista ni que esté activa, así que no produce 404 ni 422 por sí solo.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tarifas obtenidas correctamente. Siempre la colección completa —sin metadatos de paginación—, ordenada por fuelType ASC y fuelMin ASC. Una tabla vacía o un zoneId sin coincidencias devuelven 200 con data vacío, nunca 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FreightRateListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "FreightRates"
+                ],
+                "summary": "Cotizar una tarifa de flete",
+                "description": "Da de alta una banda: el precio por libra de un producto hasta una zona, a partir de cierto precio de combustible. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan listar y cotizar. No lleva carrier.required, porque la tarifa no pertenece a ninguna empresa.\n\nLos cinco campos del cuerpo son obligatorios. El registeredBy NO se acepta: sale del usuario autenticado y se devuelve resuelto en registeredByName, así que mandar otro en el cuerpo no tiene ningún efecto. Tampoco se manda ningún precio de combustible vigente: la tarifa guarda un fuelMin y no referencia ninguna fila de fuel_prices, de modo que publicar un FuelPrice nuevo no deja obsoleta ninguna tarifa ni obliga a recapturarlas.\n\nATENCIÓN — el fuelMin es un MÍNIMO, no un rango: la banda queda ABIERTA hacia arriba hasta que exista otra banda más alta del mismo par. No hay fuelMax y no se pueden dejar huecos. Cotizar una sola banda ya basta para que la cotización responda siempre.\n\nLa unicidad es de la banda entera (zoneId, productId, fuelType, fuelMin) y solo mira las filas VIVAS: repetirla es 400, pero el mismo fuelMin para otro fuelType, otra zona u otro producto se acepta, y tras un DELETE esa misma banda vuelve a estar libre y se puede recotizar con 201.\n\nEl pricePerPound se guarda con SEIS decimales y vuelve íntegro: 0.454120 no se redondea a 0.45 en ningún punto.",
+                "operationId": "storeFreightRate",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreFreightRateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Tarifa registrada correctamente. data trae la fila ya creada, con la zona y el producto resueltos por nombre, el pricePerPound con sus seis decimales intactos, el fuelMin con dos decimales y registeredByName el del administrador autenticado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Tarifa registrada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FreightRate"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida, nunca un valor mal formado. Tres mensajes posibles: la zona existe pero tiene status false (La zona seleccionada no está activa); el producto existe pero tiene status false (El producto seleccionado no está activo); o ya hay una tarifa VIVA con ese mismo (zoneId, productId, fuelType, fuelMin) (Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio). Ojo con la frontera: id inexistente es 422, id existente pero inactivo es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan listar tarifas y cotizar—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos del cuerpo. Casos típicos: falta alguno de los cinco campos obligatorios; el zoneId o el productId NO EXISTEN en su tabla (La zona seleccionada no existe / El producto seleccionado no existe) —que una zona o un producto estén inactivos es 400, no 422—; el fuelType no pertenece al enum; el fuelMin no es numérico o sale de [0.01, 999999.99]; o el pricePerPound no es numérico o sale de [0.000001, 999999.999999].",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/freight-rates/quote": {
+            "get": {
+                "tags": [
+                    "FreightRates"
+                ],
+                "summary": "Cotizar un flete hasta un punto",
+                "description": "Responde \"cuánto cuesta la libra hasta este punto\" y, si se envían las libras, cuánto cuesta el flete completo. Es el endpoint que debe usar cualquier pantalla que cotice: evita listar la tabla de precios y elegir la banda a mano.\n\nSolo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. La ruta está declarada ANTES del recurso, así que /quote nunca se confunde con el id de una tarifa.\n\nNO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, el número de filas de freight_rates no cambia y la respuesta no es una reserva ni bloquea el precio.\n\nATENCIÓN — EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN. Aquí solo se manda el TIPO (fuelType); el importe sale SIEMPRE del FuelPrice con status active de ese tipo, y cualquier precio que el cliente incluya en la query se ignora por completo, por ningún nombre. No hay simulación con un precio hipotético.\n\nDel punto solo se deriva la ZONA que lo contiene, resuelta contra los polígonos activos. No hay distancia real, kilometraje, geocodificación de direcciones ni cálculo de ruta, y no se puede mandar zoneId en vez del punto: resolver la zona es precisamente lo que se le pide al sistema.\n\nLa banda se elige así: de las tarifas VIVAS del par (zona + producto + fuelType), la de mayor fuelMin que sea MENOR O IGUAL que el precio vigente —el límite es inclusivo—; si el combustible vigente está por debajo de TODAS, se aplica la de menor fuelMin. Este paso NUNCA falla. Con bandas desde 28.00 y desde 35.00: diésel a 40 aplica la de 35, a 35 exacto aplica la de 35, a 30 la de 28 y a 25 también la de 28, sin error. La contrapartida es el riesgo más caro del dominio: una banda vieja se sigue aplicando EN SILENCIO —currentFuelPrice 60.00 con appliedFuelMin 28.00 responde 200 con un número que ya no cubre el costo—, y la distancia entre esos dos campos es la ÚNICA señal disponible.\n\nEL TOTAL AUTORITATIVO ES EL DE LA API: se multiplica por el pricePerPound de seis decimales y se redondea SOLO al final. Recalcularlo en pantalla con la tarifa redondeada a dos decimales da 20 250.00 en vez de 20 435.40 sobre 45 000 libras, 185 quetzales de diferencia en un solo flete.\n\nA diferencia del listado, aquí NADA es tolerante: lat=200, lng=500, un fuelType fuera del enum o un productId ausente devuelven 422, no se ignoran. Y hay CUATRO fallos de negocio con mensajes distintos entre sí —404 por punto fuera de zona, y tres 400 por producto inactivo, por combustible sin precio vigente y por par sin tarifa—, pensados para que el cliente sepa exactamente qué falta.\n\nEJEMPLO COMPLETO: 45 000 libras de brócoli con destino en la zona norte y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.",
+                "operationId": "quoteFreightRate",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/quoteLatQuery"
+                    },
+                    {
+                        "$ref": "#/components/parameters/quoteLngQuery"
+                    },
+                    {
+                        "$ref": "#/components/parameters/quoteProductIdQuery"
+                    },
+                    {
+                        "$ref": "#/components/parameters/quoteFuelTypeQuery"
+                    },
+                    {
+                        "$ref": "#/components/parameters/quotePoundsQuery"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Cotización obtenida correctamente. data trae la tarifa aplicada junto con el precio de combustible vigente (currentFuelPrice), la banda elegida (appliedFuelMin) y, solo si se enviaron pounds, el total; sin pounds, esos dos últimos campos viajan null y el resto es idéntico. No se ha creado ni modificado ninguna fila.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Cotización obtenida correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FreightQuote"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Fallo de negocio; son TRES casos con mensajes distintos, comprobados en este orden: el producto existe pero tiene status false (El producto seleccionado no está activo); el tipo de combustible no tiene ninguna fila con status active, aunque haya tarifas cotizadas (No existe un precio vigente para el combustible indicado); o el par zona+producto no tiene ninguna tarifa VIVA de ese fuelType, incluido el caso de que la única que había se eliminó (No existe tarifa cotizada para ese producto en esa zona). Ninguno de los tres se debe a un valor mal formado: eso sería 422.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El punto (lat, lng) no cae dentro de ninguna zona ACTIVA: una zona dada de baja que contuviera el punto no cuenta. Es el único 404 de la cotización, y llega antes que las tres comprobaciones de 400. El mensaje devuelto es: El punto indicado no pertenece a ninguna zona registrada",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Parámetros inválidos de la query. ATENCIÓN — a diferencia del listado de zonas, aquí NADA se ignora: falta lat, lng, productId o fuelType; lat=200 o lng=500 están fuera de rango; fuelType=gasolina no pertenece al enum; el productId no existe en la tabla (El producto seleccionado no existe — un producto que existe pero está inactivo es 400, no 422); o pounds no es numérico, es cero o supera 99999999.99.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/freight-rates/{freightRate}": {
+            "get": {
+                "tags": [
+                    "FreightRates"
+                ],
+                "summary": "Obtener una tarifa de flete por id",
+                "description": "Devuelve una tarifa concreta, con su zona, su producto y el nombre del administrador que la capturó.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator), a diferencia del detalle de FuelPrices y de Zones, que está abierto: un carrier, un pilot o un manager reciben 403 aunque sí puedan listar tarifas. El motivo es que quien no administra tarifas no necesita la fila: usa GET /api/freight-rates/quote.\n\nATENCIÓN — una tarifa ELIMINADA no devuelve 404: devuelve 400 con \"La tarifa ya fue eliminada\". La fila se resuelve con las borradas a la vista, así que el 404 queda reservado a los ids que NUNCA existieron. Es lo contrario de Zones y Products, donde la baja es lógica y el detalle sigue respondiendo 200.\n\nNo hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: el 403 aquí es siempre por rol.",
+                "operationId": "showFreightRate",
+                "parameters": [
+                    {
+                        "name": "freightRate",
+                        "in": "path",
+                        "description": "Identificador numérico de la tarifa (freight_rates.id). No es la zona ni el producto: no existe consulta por par, para eso está el filtro zoneId del listado, ni consulta por punto, para eso está /quote. El id de una tarifa eliminada sigue siendo un id válido, pero responde 400 en vez de 200.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tarifa obtenida correctamente. Solo se devuelven tarifas VIVAS: una eliminada responde 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Tarifa obtenida correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FreightRate"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "La fila existe pero ya fue eliminada (soft delete). No hay restore: si la banda hace falta otra vez, se recotiza con un POST. El mensaje devuelto es: La tarifa ya fue eliminada",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator. A diferencia del listado y de la cotización, este detalle NO está abierto a carrier, pilot ni manager. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni eliminada: es un id que nunca existió. Una tarifa eliminada NO cae aquí, cae en el 400. El mensaje devuelto es: La tarifa no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "FreightRates"
+                ],
+                "summary": "Eliminar una tarifa de flete",
+                "description": "ATENCIÓN — este DELETE es un SOFT DELETE REAL: marca deleted_at y la fila DESAPARECE de GET /api/freight-rates y de la cotización de inmediato. Es lo contrario de la baja lógica de Zones y Products, donde la fila sigue apareciendo en el listado con status false. La fila sigue existiendo en base, pero no hay ningún campo status en el recurso y ninguna lectura la devuelve.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nNO ES IDEMPOTENTE, al contrario que el DELETE de Zones y Products: un SEGUNDO DELETE sobre la misma tarifa responde 400 con \"La tarifa ya fue eliminada\", nunca 200 ni 404. Se considera información útil, no un error del cliente. El 404 queda reservado a los ids que nunca existieron.\n\nNO HAY RESTORE ni /toggle-status: una tarifa eliminada no se resucita por ninguna vía. Si la banda hace falta otra vez, se recotiza con un POST — y funciona, porque la unicidad solo mira filas vivas y el borrado LIBERA ese (zoneId, productId, fuelType, fuelMin) para volver a usarlo.\n\nA diferencia del PATCH, este DELETE SÍ funciona sobre una tarifa cuya zona o producto se desactivó después: borrar nunca se bloquea por el estado del par.\n\nSi era la única tarifa del par, la cotización de ese producto en esa zona pasa a responder 400 (No existe tarifa cotizada para ese producto en esa zona).",
+                "operationId": "destroyFreightRate",
+                "parameters": [
+                    {
+                        "name": "freightRate",
+                        "in": "path",
+                        "description": "Identificador numérico de la tarifa (freight_rates.id). Sigue existiendo en base después del borrado, pero deja de ser utilizable: cualquier GET, PATCH o DELETE posterior sobre él responde 400.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tarifa eliminada correctamente. data devuelve la fila tal como quedó, ya marcada como eliminada —el recurso no expone deleted_at—, para que el cliente confirme qué banda quitó sin releer el listado. A partir de aquí la tarifa no aparece en GET /api/freight-rates ni participa en ninguna cotización.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Tarifa eliminada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FreightRate"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "La tarifa ya estaba eliminada: es el SEGUNDO DELETE, que aquí NO es idempotente y no responde 200 ni 404. El mensaje devuelto es: La tarifa ya fue eliminada",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni eliminada: es un id que nunca existió. Repetir el DELETE sobre una tarifa ya borrada NO cae aquí, cae en el 400. El mensaje devuelto es: La tarifa no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "FreightRates"
+                ],
+                "summary": "Actualizar una tarifa de flete",
+                "description": "Corrige la zona, el producto, el tipo de combustible, el fuelMin, el pricePerPound o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nTodos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda pricePerPound no altera fuelMin, zoneId, productId ni fuelType. Un CUERPO VACÍO responde 200 como NO-OP, devolviendo la tarifa sin cambios, en vez de 422.\n\nATENCIÓN — LAS DOS REGLAS DE NEGOCIO MIRAN EL PAR COMPLETO, no solo lo enviado: lo que no llega se toma de la propia fila. Por eso un PATCH sobre una tarifa cuya ZONA O PRODUCTO SE DESACTIVÓ DESPUÉS responde 400 aunque solo cambie el precio: las tarifas de ese par quedan CONGELADAS hasta reactivarlo. Es el comportamiento decidido, no un accidente —editar la tarifa de algo que no se puede cotizar es trabajo perdido— y el mensaje dice cuál de los dos está inactivo. El DELETE, en cambio, SÍ funciona en ese caso: borrar nunca se bloquea.\n\nLa unicidad de la banda se revalida ignorando la propia fila, así que reenviar su mismo fuelMin responde 200 y moverlo a un valor que ya ocupa otra tarifa viva del mismo par responde 400. Moverlo a un valor libre responde 200.\n\nSobre una tarifa YA ELIMINADA responde 400 (La tarifa ya fue eliminada), no 404: no hay forma de editar ni de resucitar una fila borrada. Un id que nunca existió sí es 404.\n\nEl registeredBy no se reescribe: sigue apuntando a quien dio de alta la tarifa aunque la edite otro administrador. El createdAt tampoco cambia; el updatedAt sí. Del pricePerPound anterior NO queda ningún rastro: el PATCH sobrescribe sin auditoría.",
+                "operationId": "updateFreightRate",
+                "parameters": [
+                    {
+                        "name": "freightRate",
+                        "in": "path",
+                        "description": "Identificador numérico de la tarifa (freight_rates.id). Es también la fila que se ignora al revalidar la unicidad de la banda, de modo que reenviar su propio fuelMin no choca consigo misma.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateFreightRateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Tarifa actualizada correctamente. data trae la fila ya modificada, releída con su zona y su producto resueltos, el mismo registeredByName, el mismo createdAt y el updatedAt refrescado. Un cuerpo vacío también responde 200, con la tarifa intacta.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Tarifa actualizada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FreightRate"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Cuatro mensajes posibles: la tarifa ya fue eliminada (La tarifa ya fue eliminada); la zona del par —enviada o heredada de la fila— tiene status false (La zona seleccionada no está activa); el producto del par tiene status false (El producto seleccionado no está activo); o el nuevo fuelMin ya lo ocupa otra tarifa viva del mismo par (Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio). Los dos del medio saltan aunque el cuerpo solo traiga pricePerPound.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni eliminada. Una tarifa eliminada NO cae aquí, cae en el 400. El mensaje devuelto es: La tarifa no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos del cuerpo: el zoneId o el productId no existen en su tabla (La zona seleccionada no existe / El producto seleccionado no existe) —que estén inactivos es 400—; el fuelType no pertenece al enum; el fuelMin no es numérico o sale de [0.01, 999999.99]; o el pricePerPound no es numérico o sale de [0.000001, 999999.999999]. Un cuerpo vacío NO produce 422.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/fuel-prices": {
             "get": {
                 "tags": [
@@ -3773,6 +4299,101 @@
                 },
                 "type": "object"
             },
+            "StoreFreightRateRequest": {
+                "title": "Alta de tarifa de flete",
+                "description": "Cuerpo JSON para cotizar una banda nueva. Los cinco campos —zoneId, productId, fuelType, fuelMin y pricePerPound— son OBLIGATORIOS; no hay ningún campo opcional.\n\nEl registeredBy NO SE ACEPTA por ningún nombre: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no tiene ningún efecto, ni siquiera un 422. Tampoco se acepta ningún precio de combustible vigente: la tarifa guarda un fuelMin, no una referencia a fuel_prices.\n\nLas claves del cuerpo van en camelCase; el service traduce a snake_case al persistir.\n\nATENCIÓN — 422 Y 400 SIGNIFICAN COSAS DISTINTAS. La regla exists solo comprueba que la fila ESTÉ, nunca que esté activa: un zoneId o un productId inexistente es 422 (validación), mientras que una zona o un producto con status false es 400 (regla de negocio del service, con su propio mensaje: La zona seleccionada no está activa / El producto seleccionado no está activo). Repetir una banda ya cotizada también es 400, no 422: Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio.\n\nLa unicidad mira SOLO las filas vivas: tras un DELETE, ese mismo fuelMin vuelve a estar libre y se puede cotizar otra vez con 201.",
+                "required": [
+                    "zoneId",
+                    "productId",
+                    "fuelType",
+                    "fuelMin",
+                    "pricePerPound"
+                ],
+                "properties": {
+                    "zoneId": {
+                        "description": "Identificador de la zona a la que aplica la tarifa (zones.id). Obligatorio y entero. Si el id no existe es 422 con \"La zona seleccionada no existe\"; si existe pero tiene status false es 400 con \"La zona seleccionada no está activa\". Forma parte de la clave de la banda junto a productId, fuelType y fuelMin.",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "productId": {
+                        "description": "Identificador del producto transportado (products.id). Obligatorio y entero. Id inexistente: 422 con \"El producto seleccionado no existe\"; producto con status false: 400 con \"El producto seleccionado no está activo\". Forma parte de la clave de la banda.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "fuelType": {
+                        "description": "Tipo de combustible de la banda, del enum compartido con FuelPrices. Obligatorio; ausente o fuera del enum devuelve 422 (mensajes: El tipo de combustible es obligatorio / El tipo de combustible no es válido). No se comprueba que ese tipo tenga un precio vigente: se puede cotizar una banda de un combustible que todavía no tiene FuelPrice active. El mismo fuelMin para OTRO fuelType es una tarifa distinta y se acepta.",
+                        "type": "string",
+                        "example": "diesel",
+                        "enum": [
+                            "regular",
+                            "premium",
+                            "diesel",
+                            "diesel_premium"
+                        ]
+                    },
+                    "fuelMin": {
+                        "description": "Precio de combustible EN QUETZALES POR GALÓN DESDE EL CUAL rige la tarifa. Obligatorio, numérico, entre 0.01 y 999999.99 (fuera de rango: 422). Se normaliza a DOS decimales antes de comprobar la unicidad, de modo que 30.005 y 30.01 son la misma banda. NO es un rango cerrado: no existe fuelMax y la banda queda abierta hacia arriba hasta la siguiente banda más alta del mismo par. ATENCIÓN — un dedazo aquí no falla: teclear 3 en vez de 30 crea una banda válida que pasa la unicidad y se convierte en la más barata del par, y el error solo se descubre cuando alguien cotiza y el número sale raro. Por eso este campo es editable con PATCH.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 35,
+                        "maximum": 999999.99,
+                        "minimum": 0.01
+                    },
+                    "pricePerPound": {
+                        "description": "Tarifa del flete EN QUETZALES POR LIBRA. Obligatorio, numérico, entre 0.000001 y 999999.999999 (fuera de rango: 422). Se guarda con SEIS decimales, así que 0.454120 vuelve íntegro en la respuesta: no lo redondees a dos antes de enviarlo, porque sobre 45 000 libras esa pérdida vale 185 quetzales. No incluye impuestos ni recargos.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 0.45412,
+                        "maximum": 999999.999999,
+                        "minimum": 1.0e-6
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateFreightRateRequest": {
+                "title": "Actualización de tarifa de flete",
+                "description": "Cuerpo JSON para corregir una tarifa ya cotizada. TODOS los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda pricePerPound no altera zoneId, productId, fuelType ni fuelMin.\n\nUn CUERPO VACÍO es un NO-OP con 200, como en Zones y al contrario que en Products: hay cinco campos editables y encadenar required_without entre todos solo produciría cinco mensajes idénticos. La tarifa vuelve intacta salvo el updatedAt.\n\nEl registeredBy NO se acepta ni se reescribe: sigue apuntando a quien dio de alta la fila aunque la edite otro administrador. Tampoco se guarda rastro del pricePerPound anterior: el PATCH sobrescribe sin histórico.\n\nATENCIÓN — las dos reglas de negocio miran el PAR COMPLETO, no solo lo que se envió. Lo que no llega se toma de la propia fila, de modo que un PATCH con solo el precio revalida igualmente la zona y el producto: si cualquiera de los dos se DESACTIVÓ después de crear la tarifa, la respuesta es 400 y la fila queda CONGELADA hasta reactivarlo. El DELETE, en cambio, sí funciona en ese caso: borrar nunca se bloquea.\n\nMover el fuelMin a un valor que ya ocupa otra tarifa VIVA del mismo par es 400; reenviar su propio fuelMin es 200, porque la comprobación ignora la propia fila.\n\nSobre una tarifa YA ELIMINADA este PATCH responde 400 (La tarifa ya fue eliminada), no 404: la fila sigue existiendo con deleted_at. Un id que nunca existió sí es 404.\n\nLa ruta acepta PATCH y PUT indistintamente y el comportamiento es el mismo: el PUT no reemplaza el recurso completo.",
+                "properties": {
+                    "zoneId": {
+                        "description": "Nueva zona de la tarifa (zones.id). Opcional: omitirlo conserva la actual. Id inexistente: 422; zona con status false: 400. Mover la tarifa a otra zona cambia el par y por tanto revalida la unicidad de la banda contra las tarifas vivas de la zona destino.",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "productId": {
+                        "description": "Nuevo producto de la tarifa (products.id). Opcional. Id inexistente: 422; producto con status false: 400, incluso si el PATCH no lo enviaba y se tomó de la propia fila.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "fuelType": {
+                        "description": "Nuevo tipo de combustible de la banda. Opcional; fuera del enum devuelve 422. Cambiarlo mueve la tarifa a otra columna de la tabla de precios y revalida la unicidad contra las bandas de ese tipo.",
+                        "type": "string",
+                        "example": "diesel",
+                        "enum": [
+                            "regular",
+                            "premium",
+                            "diesel",
+                            "diesel_premium"
+                        ]
+                    },
+                    "fuelMin": {
+                        "description": "Nuevo precio de combustible EN QUETZALES POR GALÓN desde el cual rige la tarifa. Opcional, numérico, entre 0.01 y 999999.99. Es editable precisamente porque un dedazo al crear (3 en vez de 30) no produce ningún error y solo se descubre al cotizar. Moverlo a un valor libre responde 200; moverlo a uno que ya ocupa otra tarifa viva del mismo par responde 400.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 36.5,
+                        "maximum": 999999.99,
+                        "minimum": 0.01
+                    },
+                    "pricePerPound": {
+                        "description": "Nueva tarifa EN QUETZALES POR LIBRA, con hasta seis decimales. Opcional, entre 0.000001 y 999999.999999. Cambiarla NO deja rastro del valor anterior: no hay auditoría del precio. Aunque sea el único campo del cuerpo, la zona y el producto se revalidan igual y pueden devolver 400.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 0.4625,
+                        "maximum": 999999.999999,
+                        "minimum": 1.0e-6
+                    }
+                },
+                "type": "object"
+            },
             "StoreFuelPriceRequest": {
                 "title": "Alta de precio de combustible",
                 "description": "Cuerpo JSON para registrar un precio de combustible. Los dos campos son obligatorios: omitir cualquiera devuelve 422.\n\nEl status NO se acepta: el precio nace siempre en active y enviarlo se descarta sin error. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador.\n\nATENCIÓN — el alta tiene un efecto colateral sobre otra fila. Si ya existía un precio active del MISMO fuelType, pasa a inactive dentro de la misma transacción, de forma que el tipo nunca se queda con cero ni con dos vigentes. Los demás tipos de combustible no se tocan. No hay regla de unicidad que lo impida: registrar dos veces el mismo tipo devuelve 201 las dos veces y deja la primera fila en el histórico.",
@@ -4270,6 +4891,172 @@
                     }
                 ]
             },
+            "FreightQuote": {
+                "title": "Cotización de flete",
+                "description": "Respuesta de GET /api/freight-rates/quote: cuánto cuesta la libra hasta el punto consultado y, si se enviaron las libras, cuánto cuesta el flete completo.\n\nNO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, y llamarla mil veces deja freight_rates exactamente igual. No es una reserva, no es un pedido y no bloquea el precio: la misma consulta mañana puede devolver otro número si cambió el precio del combustible o si se cotizó una banda nueva.\n\nUNIDADES FIJAS DEL DOMINIO: currentFuelPrice y appliedFuelMin en QUETZALES (GTQ) POR GALÓN, pricePerPound en GTQ POR LIBRA con seis decimales, pounds en LIBRAS y total en GTQ con dos decimales. No hay moneda configurable, ni kilos, ni litros, ni impuestos.\n\nATENCIÓN — EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN. currentFuelPrice sale SIEMPRE del FuelPrice con status active de ese fuelType; cualquier precio que el cliente mande en la query se ignora por completo, por ningún nombre se acepta. No existe la simulación \"¿y si el diésel subiera a 45?\": si se aceptara, cada quien cotizaría al precio que le conviene.\n\nATENCIÓN — EL TOTAL AUTORITATIVO ES EL DE LA API. Recalcularlo en pantalla redondeando pricePerPound a dos decimales da 20 250.00 en vez de 20 435.40 para 45 000 libras: 185 quetzales de diferencia en un solo flete. La API multiplica con los seis decimales completos y redondea SOLO al final.\n\nEste recurso NO envuelve un modelo: junta la tarifa elegida con los tres datos que la hacen auditable —el precio de combustible vigente, la banda que se aplicó y el total—, que no viven en ninguna fila.\n\nEjemplo completo del dominio: 45 000 libras de brócoli con destino en la zona norte y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.",
+                "properties": {
+                    "freightRateId": {
+                        "description": "Identificador de la tarifa que se APLICÓ (freight_rates.id): la banda concreta que ganó entre todas las del par. Sirve para auditar la cotización y para ir al detalle de la fila, aunque GET /api/freight-rates/{freightRate} es exclusivo del administrator. No se crea nada: este id ya existía antes de la consulta.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "zoneId": {
+                        "description": "Identificador de la zona que CONTIENE el punto consultado, resuelta a partir de lat y lng. No se envía en la petición: el sistema la deduce del punto, que es justamente lo que se le pide. Si ninguna zona activa contiene el punto, la respuesta es 404 y no llega a este schema. Se asume que las zonas no se solapan; si dos se cruzan, gana la de id más bajo, de forma determinista y sin avisar de que había otra.",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "zoneName": {
+                        "description": "Nombre de la zona que contiene el punto, EN MAYÚSCULAS. Es lo que se muestra al usuario para que confirme que el destino cayó donde esperaba.",
+                        "type": "string",
+                        "example": "ZONA NORTE",
+                        "nullable": true
+                    },
+                    "productId": {
+                        "description": "Identificador del producto cotizado, el mismo que se envió en la query. Un producto con status false se trata como inexistente y devuelve 400, no 404.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "productName": {
+                        "description": "Nombre del producto cotizado, resuelto por relación.",
+                        "type": "string",
+                        "example": "BRÓCOLI",
+                        "nullable": true
+                    },
+                    "fuelType": {
+                        "description": "Tipo de combustible con el que se cotizó, el mismo que se envió en la query. Determina de qué FuelPrice active se lee currentFuelPrice y qué bandas se consideran.",
+                        "type": "string",
+                        "example": "diesel",
+                        "enum": [
+                            "regular",
+                            "premium",
+                            "diesel",
+                            "diesel_premium"
+                        ]
+                    },
+                    "currentFuelPrice": {
+                        "description": "Precio de combustible VIGENTE al momento de consultar, EN QUETZALES POR GALÓN, con dos decimales. Sale SIEMPRE del FuelPrice con status active de ese fuelType y NUNCA de la petición: mandar un precio en la query no lo altera en absoluto. Si el tipo no tiene ninguna fila active, la cotización responde 400 antes de llegar aquí. Junto con appliedFuelMin es la trazabilidad del cálculo.",
+                        "type": "string",
+                        "example": "40.00"
+                    },
+                    "appliedFuelMin": {
+                        "description": "fuelMin de la banda que se aplicó, EN QUETZALES POR GALÓN. Se elige la banda de mayor fuelMin que sea MENOR O IGUAL que currentFuelPrice —el límite es inclusivo—; si el combustible vigente está por debajo de TODAS las bandas, se aplica la de menor fuelMin, sin error. Este paso NUNCA falla. ATENCIÓN — la distancia entre currentFuelPrice y appliedFuelMin es la ÚNICA señal de que una tarifa se quedó vieja: currentFuelPrice 60.00 junto a appliedFuelMin 28.00 significa que esa banda lleva mucho sin recotizarse y que el flete se está cobrando por debajo del costo real. El sistema no avisa por ningún otro medio: responde 200 con un número que parece perfectamente válido.",
+                        "type": "string",
+                        "example": "35.00"
+                    },
+                    "pricePerPound": {
+                        "description": "Tarifa aplicada EN QUETZALES POR LIBRA, con los SEIS decimales completos. No lo redondees antes de multiplicar: es exactamente lo que produce la diferencia de 185 quetzales del ejemplo de 45 000 libras.",
+                        "type": "string",
+                        "example": "0.454120"
+                    },
+                    "pounds": {
+                        "description": "Peso EN LIBRAS que se envió en la query, normalizado a dos decimales. Es NULL cuando la query no trae pounds: el parámetro es opcional y su ausencia no es un error, simplemente devuelve la tarifa por libra sin total. El resto de la respuesta es idéntica con o sin él.",
+                        "type": "string",
+                        "example": "45000.00",
+                        "nullable": true
+                    },
+                    "total": {
+                        "description": "Costo total del flete EN QUETZALES, con dos decimales, calculado como pounds × pricePerPound y REDONDEADO SOLO AL FINAL, después del producto y nunca antes. Es NULL cuando no se enviaron pounds. ATENCIÓN — este es el total autoritativo: si el cliente lo recalcula con un pricePerPound redondeado a dos decimales, obtiene 20 250.00 en vez de 20 435.40. No incluye impuestos, IVA, recargos ni redondeo comercial: nada de eso existe en este dominio.",
+                        "type": "string",
+                        "example": "20435.40",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "FreightRate": {
+                "title": "Tarifa de flete",
+                "description": "Precio del flete por libra para una combinación concreta de zona, producto y tipo de combustible. NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso el recurso no expone carrierId y ninguna ruta lleva el middleware carrier.required.\n\nUNIDADES FIJAS DEL DOMINIO, no configurables y sin campo que las declare: el dinero va SIEMPRE en QUETZALES (GTQ), el fuelMin en GTQ POR GALÓN, el pricePerPound en GTQ POR LIBRA con SEIS decimales y el peso en LIBRAS. No hay moneda alternativa, ni kilos, ni litros, ni IVA, ni redondeo comercial.\n\nATENCIÓN — BANDA ABIERTA. Una tarifa no se ata a ningún precio de combustible concreto: rige DESDE su fuelMin HACIA ARRIBA, hasta que exista otra banda más alta del mismo par (zona + producto + combustible). Con bandas desde 28.00 y desde 35.00, un diésel a 40 aplica la de 35 y un diésel a 25 aplica la de 28. Ninguna cotización falla nunca por el precio del combustible, y por lo mismo una banda vieja se sigue aplicando en silencio: una tarifa cotizada desde 28.00 sigue rigiendo con el diésel a 60 sin ningún aviso, sin 400 y sin log. La única señal disponible es la distancia entre currentFuelPrice y appliedFuelMin en la respuesta de GET /api/freight-rates/quote.\n\nLa unicidad es de la banda entera: no pueden existir dos tarifas VIVAS con el mismo (zoneId, productId, fuelType, fuelMin). No la respalda ningún índice único a propósito, porque el DELETE es soft delete y un índice bloquearía para siempre un fuelMin ya borrado.\n\nATENCIÓN — la baja de este recurso es un SOFT DELETE REAL y NO idempotente, al contrario que Zones y Products: DELETE marca deleted_at, la fila desaparece del listado y de la cotización, y un SEGUNDO DELETE responde 400 (La tarifa ya fue eliminada), no 404 ni 200. No hay campo status, no hay /toggle-status y no hay restore: si la banda hace falta otra vez, se vuelve a cotizar con un POST.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la fila (freight_rates.id). Es el valor que va en el parámetro {freightRate} de las rutas de detalle, actualización y baja. Sobrevive a la baja: la fila sigue en base con deleted_at poblado, así que el id nunca se reutiliza ni desaparece, solo deja de ser utilizable con 400.",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "zoneId": {
+                        "description": "Identificador de la zona geográfica a la que aplica la tarifa (zones.id). La zona debe estar activa para poder crear o editar la tarifa; si se desactiva después, la fila queda CONGELADA: el PATCH responde 400 aunque solo se cambie el precio. Es también el único filtro del listado.",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "zoneName": {
+                        "description": "Nombre de la zona resuelto por relación, siempre EN MAYÚSCULAS como lo devuelve el dominio de Zones. Viaja resuelto para que el cliente pinte la tabla de precios sin un segundo GET. Es null solo si la relación no se pudo cargar.",
+                        "type": "string",
+                        "example": "ZONA NORTE",
+                        "nullable": true
+                    },
+                    "productId": {
+                        "description": "Identificador del producto transportado (products.id). Igual que la zona, debe estar activo para crear o editar la tarifa, y desactivarlo congela todas las tarifas de ese producto hasta reactivarlo.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "productName": {
+                        "description": "Nombre del producto resuelto por relación, para no obligar a un segundo GET al pintar la tabla de precios. Es null solo si la relación no se pudo cargar.",
+                        "type": "string",
+                        "example": "BRÓCOLI",
+                        "nullable": true
+                    },
+                    "fuelType": {
+                        "description": "Tipo de combustible al que corresponde la banda, del enum compartido con FuelPrices. Forma parte de la clave de la banda: el mismo fuelMin para otro fuelType es una tarifa distinta y perfectamente válida. La cotización exige este mismo valor para elegir la banda.",
+                        "type": "string",
+                        "example": "diesel",
+                        "enum": [
+                            "regular",
+                            "premium",
+                            "diesel",
+                            "diesel_premium"
+                        ]
+                    },
+                    "fuelMin": {
+                        "description": "Precio de combustible EN QUETZALES POR GALÓN DESDE EL CUAL rige la tarifa, como cadena con DOS decimales (misma forma que fuel_prices.price, para que la comparación de la banda no arrastre redondeos). NO es un precio máximo ni un rango cerrado: la banda es abierta hacia arriba y solo la corta la siguiente banda más alta del mismo par. Teclear 3.00 en vez de 30.00 crea una banda válida que pasa la unicidad sin problema y pasa a ser la más barata del par; el error no se detecta al crear, solo cuando alguien cotiza y el número sale raro.",
+                        "type": "string",
+                        "example": "35.00"
+                    },
+                    "pricePerPound": {
+                        "description": "Tarifa del flete EN QUETZALES POR LIBRA, como cadena con SEIS decimales, que es la precisión real de la columna decimal(12,6). ATENCIÓN — no lo redondees antes de multiplicar: redondear 0.454120 a 0.45 y multiplicar por 45 000 libras da 20 250.00 en vez de 20 435.40, es decir 185 quetzales de menos en un solo flete. Para obtener el total autoritativo, manda pounds a GET /api/freight-rates/quote y usa el total que devuelve la API.",
+                        "type": "string",
+                        "example": "0.454120"
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del administrador que dio de alta la tarifa, resuelto por la relación registeredBy. NO se acepta en el cuerpo del POST ni del PATCH: sale siempre del usuario autenticado, y el PATCH no lo reescribe, así que sigue apuntando a quien creó la fila aunque la edite otro administrador. No se guarda ningún rastro del pricePerPound anterior.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha de alta de la tarifa. ATENCIÓN — igual que en Products y Zones: NO viaja en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM). Por eso se documenta como string SIN format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. Está pensado para mostrarse tal cual.",
+                        "type": "string",
+                        "example": "13-08-2026 08:45:12 PM",
+                        "nullable": true
+                    },
+                    "updatedAt": {
+                        "description": "Fecha del último cambio de cualquiera de los cinco campos editables. Es lo más cercano a una auditoría que ofrece el dominio: el PATCH sobrescribe el precio sin conservar el valor anterior. Mismo formato propio d-m-Y h:i:s A que createdAt, tampoco ISO 8601. El deleted_at del soft delete no se expone en el recurso.",
+                        "type": "string",
+                        "example": "13-08-2026 09:02:40 PM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "FreightRateListResponse": {
+                "title": "Listado de tarifas de flete",
+                "description": "Respuesta de GET /api/freight-rates. ATENCIÓN — este listado NO PAGINA NUNCA, a diferencia de Carriers, Vehicles, FuelPrices, Products y Zones: no existe el parámetro limit, no hay PaginatedResource y el sobre NO trae total, currentPage ni lastPage. Enviar limit=10 no cambia nada. Es deliberado: la tabla de tarifas se lee entera, como una tabla de precios, no se navega. Las tarifas eliminadas (soft delete) NO aparecen. El orden es fijo: fuelType ASC y, dentro de cada tipo, fuelMin ASC, que es el orden en que se leen las bandas de un par.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Tarifas obtenidas correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FreightRate"
+                        }
+                    }
+                },
+                "type": "object"
+            },
             "FuelPrice": {
                 "title": "Precio de combustible",
                 "description": "Precio de combustible del catálogo nacional. NO pertenece a ninguna empresa transportista: es un dato único para toda la aplicación, por eso el recurso no expone carrierId ni carrierName y su lectura está abierta a los cuatro roles.\n\nSolo puede haber UNA fila con status active por cada fuelType. Registrar un precio nuevo desactiva automáticamente el vigente anterior de ese mismo tipo, así que el resto de filas del tipo son histórico y nunca vuelven a estar vigentes: no existe reactivación por ninguna vía.\n\nEl importe va SIEMPRE en quetzales (GTQ) por galón. Ni la moneda ni la unidad son columnas de la tabla ni viajan en la respuesta: son convención del dominio y solo están documentadas aquí.",
@@ -4666,6 +5453,71 @@
             }
         },
         "parameters": {
+            "quoteLatQuery": {
+                "name": "lat",
+                "in": "query",
+                "description": "LATITUD del punto de destino, en [-90, 90]. Va en la QUERY STRING: GET /api/freight-rates/quote?lat=14.6349&lng=-90.5069&productId=7&fuelType=diesel.\n\nEs OBLIGATORIA. ATENCIÓN — a diferencia del filtro lat+lng del listado de zonas, aquí una coordenada ausente o fuera de rango NO SE IGNORA: lat=200 devuelve 422 (mensajes: La latitud del destino es obligatoria / La latitud debe ser un número / La latitud debe estar entre -90 y 90). La cotización es dinero, y un punto imposible tiene que decirse, no resolverse en silencio.\n\nJunto con lng determina la ZONA: el sistema busca la primera zona ACTIVA cuyo polígono contiene el punto. No se manda zoneId —eso es precisamente lo que el sistema resuelve— y no se calcula distancia, kilometraje ni ruta: del punto solo se deriva la zona que lo contiene. Si ninguna zona activa lo contiene, la respuesta es 404.",
+                "required": true,
+                "schema": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 14.6349,
+                    "maximum": 90,
+                    "minimum": -90
+                }
+            },
+            "quoteLngQuery": {
+                "name": "lng",
+                "in": "query",
+                "description": "LONGITUD del punto de destino, en [-180, 180]. Obligatoria; ausente, no numérica o fuera de rango devuelve 422 (mensajes: La longitud del destino es obligatoria / La longitud debe ser un número / La longitud debe estar entre -180 y 180).\n\nAquí las coordenadas van en parámetros separados, así que no hay ambigüedad de orden como en el area de Zones —donde el par es [latitud, longitud]—, pero lat sigue siendo la latitud y lng la longitud.\n\nSe asume que las zonas no se solapan. Si dos zonas activas contuvieran el punto, gana la de id más bajo: la elección es determinista, pero la respuesta no avisa de que había otra candidata.",
+                "required": true,
+                "schema": {
+                    "type": "number",
+                    "format": "float",
+                    "example": -90.5069,
+                    "maximum": 180,
+                    "minimum": -180
+                }
+            },
+            "quoteProductIdQuery": {
+                "name": "productId",
+                "in": "query",
+                "description": "Identificador del producto a transportar (products.id). OBLIGATORIO; ausente o no entero devuelve 422 (mensajes: El producto es obligatorio / El producto debe ser un identificador numérico).\n\nATENCIÓN — 422 y 400 no son lo mismo: un id que NO EXISTE devuelve 422 con \"El producto seleccionado no existe\" (regla exists), mientras que un producto que existe pero tiene status false devuelve 400 con \"El producto seleccionado no está activo\". La cotización trata el producto inactivo como inexistente.\n\nSolo se cotiza UN producto por llamada: no hay cotización múltiple.",
+                "required": true,
+                "schema": {
+                    "type": "integer",
+                    "example": 7
+                }
+            },
+            "quoteFuelTypeQuery": {
+                "name": "fuelType",
+                "in": "query",
+                "description": "Tipo de combustible con el que se cotiza. OBLIGATORIO y, a diferencia del filtro homónimo de GET /api/fuel-prices, NO se ignora si es inválido: fuelType=gasolina devuelve 422, no el listado completo (mensajes: El tipo de combustible es obligatorio / El tipo de combustible no es válido).\n\nDetermina dos cosas: de qué FuelPrice con status active se lee el precio vigente y qué bandas del par se consideran. Si ese tipo no tiene ningún precio active, la respuesta es 400 con \"No existe un precio vigente para el combustible indicado\", aunque existan tarifas cotizadas.\n\nATENCIÓN — el PRECIO del combustible no se envía por ningún nombre: aquí solo viaja el TIPO. El importe sale siempre del FuelPrice vigente, y cualquier parámetro extra que intente fijarlo se ignora por completo.",
+                "required": true,
+                "schema": {
+                    "type": "string",
+                    "example": "diesel",
+                    "enum": [
+                        "regular",
+                        "premium",
+                        "diesel",
+                        "diesel_premium"
+                    ]
+                }
+            },
+            "quotePoundsQuery": {
+                "name": "pounds",
+                "in": "query",
+                "description": "Peso de la carga EN LIBRAS. Es el ÚNICO parámetro OPCIONAL de la cotización: omitirlo devuelve la tarifa por libra con pounds y total en null, y el resto de la respuesta idéntica. Si se envía, debe ser numérico y estar entre 0.01 y 99999999.99; fuera de rango es 422 (mensajes: Las libras deben ser un número / Las libras deben ser mayores que cero / Las libras no pueden superar las 99999999.99).\n\nEnviarlo es la forma de obtener el TOTAL AUTORITATIVO: la API multiplica por el pricePerPound de SEIS decimales y redondea solo al final. Recalcularlo en pantalla con la tarifa redondeada a dos decimales da 20 250.00 en vez de 20 435.40 sobre 45 000 libras — 185 quetzales de diferencia en un solo flete.\n\nLas libras no cambian la tarifa: no hay escalas por volumen ni descuentos por cantidad. Tampoco se registra nada: mandar pounds no crea ningún viaje ni ninguna carga.",
+                "required": false,
+                "schema": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 45000,
+                    "maximum": 99999999.99,
+                    "minimum": 0.01
+                }
+            },
             "currentFuelTypeQuery": {
                 "name": "fuelType",
                 "in": "query",
@@ -4700,6 +5552,10 @@
         {
             "name": "Carriers",
             "description": "Empresas transportistas y vinculación de pilotos. Todos los endpoints requieren token JWT (Authorization: Bearer {token}) y están filtrados por rol; además, los marcados con carrier.required exigen que el usuario autenticado esté vinculado a una empresa, salvo si es administrator o manager, que quedan exentos. El rol manager no puede llamar a ninguno de estos endpoints."
+        },
+        {
+            "name": "FreightRates",
+            "description": "Tarifas de flete por zona, producto y tipo de combustible: cuánto cuesta la libra hasta un punto del mapa. La tarifa NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los seis endpoints exigen token JWT (Authorization: Bearer {token}) y el reparto de permisos es asimétrico: el LISTADO y la COTIZACIÓN están abiertos a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; el DETALLE por id y toda la ESCRITURA (alta, edición y baja) son exclusivos del administrator (middleware role:administrator) y los otros tres roles reciben 403 — el detalle también, porque quien no administra tarifas cotiza con /quote en vez de leer la fila. UNIDADES FIJAS DEL DOMINIO, no configurables: todo el dinero va en QUETZALES (GTQ), el fuelMin en GTQ POR GALÓN, el pricePerPound en GTQ POR LIBRA con seis decimales, el peso en LIBRAS y el total en GTQ con dos decimales; no hay moneda alternativa, kilos, litros, IVA ni redondeo comercial. BANDA ABIERTA: cada tarifa rige DESDE su fuelMin HACIA ARRIBA hasta que exista otra banda más alta del mismo par, así que la cotización NUNCA falla por el precio del combustible — y, como contrapartida, una banda vieja se sigue aplicando en silencio hasta que alguien cotice una superior. EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN: sale siempre del FuelPrice con status active de ese tipo. LA COTIZACIÓN NO PERSISTE NADA: es una consulta pura. Dos rupturas respecto al resto del proyecto: el listado NO PAGINA (no hay limit, ni total, currentPage o lastPage) y el DELETE es un SOFT DELETE REAL Y NO IDEMPOTENTE, donde el segundo intento responde 400 en vez de 404 o 200, sin restore ni toggle-status."
         },
         {
             "name": "FuelPrices",

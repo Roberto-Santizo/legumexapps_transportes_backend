@@ -18,7 +18,7 @@ use Override;
 class FreightRateService implements FreightRateServiceInterface
 {
     /**
-     * The spatial query stays in the zone service: nothing here ever writes `ST_`.
+     * The spatial query stays in the zone service: no PostGIS ever leaks into this file.
      *
      * Injected through the constructor, like the storage contracts, because it is a
      * collaborator of the whole class and not of a single action.
