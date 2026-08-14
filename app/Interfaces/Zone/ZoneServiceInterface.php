@@ -36,6 +36,20 @@ interface ZoneServiceInterface
     public function getZoneById(int $id): Zone;
 
     /**
+     * Return the first active zone whose polygon contains the given point.
+     *
+     * The only way into the spatial query from outside this service: no consumer ever
+     * writes `ST_` itself. Inactive zones are invisible here, so a zone taken down
+     * stops resolving points even though it keeps its polygon.
+     *
+     * Zones are allowed to overlap, so the point may fall inside more than one; the
+     * lowest id wins, which makes the answer deterministic rather than arbitrary.
+     * Returns null when no active zone contains the point, which is a legitimate
+     * outcome and not an error.
+     */
+    public function getZoneContainingPoint(float $latitude, float $longitude): ?Zone;
+
+    /**
      * Register a new zone.
      *
      * The name is normalized before being persisted and rejected with a
