@@ -101,7 +101,7 @@ class AuthService implements AuthServiceInterface
             throw new UnauthorizedError('El token no es válido');
         }
 
-        if(!$user->email_verified_at){
+        if (! $user->email_verified_at) {
             throw new ForbiddenError('La cuenta aún no ha sido confirmada');
         }
 
