@@ -93,6 +93,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Refresh token time to live
+    |--------------------------------------------------------------------------
+    |
+    | Specify the length of time (in minutes) that the refresh token issued by
+    | AuthService::issueTokens() will be valid for. Defaults to 14 days.
+    |
+    | Notice: this is NOT the package's 'refresh_ttl' below, which only bounds
+    | the JWTAuth::refresh() method — a method this application never calls.
+    |
+    */
+
+    'refresh_token_ttl' => (int) env('JWT_REFRESH_TOKEN_TTL', 20160),
+
+    /*
+    |--------------------------------------------------------------------------
     | Refresh time to live
     |--------------------------------------------------------------------------
     |

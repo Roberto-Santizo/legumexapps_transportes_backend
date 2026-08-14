@@ -18,7 +18,9 @@ Cada recurso se implementa con la misma cadena de archivos, agrupados en subcarp
 
 El service se inyecta **por parámetro del método del controller** (`public function login(LoginRequest $request, AuthServiceInterface $authService)`), no por constructor.
 
-En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
+En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
+
+Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`, `Zone`, `FreightRate` (SPEC 01–09).
 
 ## Respuestas y errores
 
@@ -29,7 +31,7 @@ En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`) se declaran 
 
 ## Paginación
 
-- Opt-in por query param `limit`: sin `limit` (o no numérico) el service devuelve una `Collection` completa; con `limit` numérico pagina, acotado a `[10, 100]`.
+- Opt-in por query param `limit`: sin `limit` (o no numérico) el service devuelve una `Collection` completa; con `limit` numérico pagina, acotado a `[10, 100]`. Cada service repite `resolvePerPage()` con sus constantes `MIN_PER_PAGE`/`MAX_PER_PAGE`. Excepción: `FreightRate` no pagina.
 - El listado paginado se envuelve en `App\Http\Resources\PaginatedResource` (`new PaginatedResource($paginator, CarrierResource::class)`), y `ResponseHandler` funde `total/currentPage/lastPage` en la raíz del sobre, no bajo `meta`.
 
 ## Autenticación y autorización
@@ -55,6 +57,46 @@ En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`) se declaran 
 - La placa se normaliza a mayúsculas y es única **solo entre vehículos no desactivados** — un `inactive` la libera —, así que la unicidad no vive en un índice sino en `ensurePlateIsAvailable()`. Reactivar un vehículo revalida su placa.
 - `DELETE` es una baja lógica: pasa el `status` a `inactive`; la fila sigue viva y sigue apareciendo en los listados.
 
+## Catálogos nacionales (fuel prices, products, zones, freight rates)
+
+Cuatro dominios que no pertenecen a ninguna empresa y comparten reglas:
+
+- **Ninguna ruta lleva `carrier.required`**: son datos nacionales. La lectura queda abierta a cualquier autenticado (`jwt.auth` a secas) y toda escritura es `role:administrator`. Única excepción: `GET /api/freight-rates/{id}` también es admin — quien no administra tarifas cotiza con `/quote`.
+- Las rutas fijas (`/current`, `/quote`, `/{id}/toggle-status`, `/{id}/deactivate`) van **antes** del `apiResource`, que se declara sobre `'/'` con `->parameters(['' => 'fuelPrice'])`.
+- `registered_by` sale siempre del usuario autenticado, nunca del body, y **no se reescribe** en `update`.
+- Los filtros de listado son tolerantes: un `status`/`zoneId`/`lat,lng` inválido se **ignora** en vez de vaciar el listado (`filter_var(..., FILTER_NULL_ON_FAILURE)`).
+- El nombre único (`Product`, `Zone`) se normaliza con `Model::normalizeName()` (trim + colapsar espacios + mayúsculas), compartido por FormRequest y service; el service revalida con `ensureNameIsAvailable($name, $ignoreId)` **aunque haya índice único**, para que una llamada directa dé 400 y no 500.
+
+### Fuel Prices
+
+- `FuelPrice` con enums `FuelType` (regular, premium, diesel, diesel_premium) y `FuelPriceStatus` (active, inactive). Historial: por cada tipo hay **como mucho un `active`**.
+- `create` corre en `DB::transaction` + `lockForUpdate` sobre el vigente: lo desactiva y crea el nuevo en el mismo paso (a medias, el tipo quedaría con cero o con dos vigentes).
+- Todo write pasa por `resolveActiveFuelPrice()`: una fila ya inactiva es historial de solo lectura → **400**, no 404. `update` solo toca `price`. `deactivate` deja el tipo sin vigente (ninguna inactiva asciende). `destroy` es **borrado real** — la baja lógica ya la hace `deactivate`.
+- `GET /api/fuel-prices/current?fuelType=` devuelve el vigente o 404. Orden del listado: `created_at desc, id desc`.
+
+### Products
+
+- Catálogo plano: `name` único normalizado + `status` booleano. Filtros `status` y `search` (`LIKE %term%` sobre el nombre ya en mayúsculas, así que normalizar el término basta para ser case-insensitive). Orden por `id`.
+- El `status` no sale del body en `store`: nace `true`. `toggleStatus` invierte; `destroy` es baja lógica **idempotente** (`status = false`).
+
+### Zones
+
+- Polígonos en PostGIS: columna `area` `geography(Polygon,4326)`, **fuera del `#[Fillable]`** (entra como expresión, sale como GeoJSON).
+- `Zone::SRID`, `pairsToWkt()` y `geoJsonToPairs()` son el único sitio que conoce las dos reglas del formato: la API habla en pares `[lat, lng]` con anillo **abierto**, PostGIS en `lng lat` con anillo **cerrado**.
+- Toda lectura pasa por `readQuery()`, que añade `ST_AsGeoJSON(area) as area_geojson` — leer la geometría cruda daría WKB hexadecimal ilegible desde PHP. El polígono se escribe con `DB::statement('UPDATE zones SET area = ST_GeogFromText(?) ...')`, siempre por binding.
+- `whereContainsPoint()` es el único sitio con el predicado espacial (`ST_Contains(area::geometry, ...)` — `ST_Contains` no acepta `geography`, y el cast conserva el índice GiST). Lo usan el filtro `?lat=&lng=` del listado y `getZoneContainingPoint()`, del que cuelgan las tarifas.
+- Solape permitido: `getZoneContainingPoint()` gana el `id` más bajo y **solo mira zonas activas**; el filtro del listado no filtra por estado. `color` por defecto `#3388FF` (el azul de Leaflet), en mayúsculas. `description` se borra mandando `null` (por eso `array_key_exists`, no `isset`).
+
+### Freight Rates
+
+- `FreightRate` = banda **abierta** por (`zone_id`, `product_id`, `fuel_type`): rige desde `fuel_min` hacia arriba hasta que exista una banda mayor. `price_per_pound` es `decimal:6`.
+- Usa `SoftDeletes`. `getFreightRateById()` lee `withTrashed()` a propósito: una tarifa borrada da **400 "ya fue eliminada"**, no 404, así que el segundo DELETE se distingue de un id inexistente.
+- Unicidad de banda en `ensureFuelMinIsAvailable()` y **deliberadamente sin índice único**: con soft deletes, un índice bloquearía un `fuel_min` ya borrado. `fuelMinValue()` formatea a 2 decimales antes de comparar, porque si no un `30.005` que Postgres redondea a `30.01` se colaría.
+- Crear o editar exige zona **y** producto activos (`ensureZoneAndProductAreActive`), incluso si el PATCH solo mueve el precio; borrar nunca se bloquea.
+- `GET /api/freight-rates/quote?lat=&lng=&productId=&fuelType=[&pounds=]`: resuelve zona por punto → producto activo → precio de combustible vigente (**de la BD, jamás de la petición**) → bandas del trío → `resolveBand()` toma la mayor que no supere el precio vigente (si el combustible está por debajo de todas, aplica la más barata, no es error). El orden de los pasos es contrato: cada uno falla con su mensaje. `total = round(pounds * pricePerPound, 2)`, redondeando **después** del producto; sin `pounds`, `total` es `null`. Sale por `FreightQuoteResource`.
+- El listado **no pagina nunca**: devuelve `Collection` ordenada por `fuel_type, fuel_min` (la tabla de precios se lee entera).
+- El PostGIS no se toca aquí: `ZoneServiceInterface` se inyecta **por constructor** en `FreightRateService`, como los contratos de almacenamiento.
+
 ## Almacenamiento de archivos
 
 - Dos contratos en `app/Interfaces/Storage/`, con sus reglas de sustitución escritas en el PHPDoc (qué lanza, qué acepta `null`, qué garantiza la salida), implementados en `app/Services/Storage/` y bindeados por `StorageProvider`:
@@ -78,7 +120,7 @@ En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`) se declaran 
 - Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash), `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test) y `fakeDefaultDisk()` (sustituye el disco por defecto por un fake **con `url`**, porque uno pelado devolvería rutas relativas y la API promete URLs absolutas).
 - Dobles de los contratos de almacenamiento en `tests/Doubles/` (`InMemoryFileStorageService`, `StaticImageProcessorService`): se bindean en el contenedor para probar sustituibilidad y los caminos de error sin decodificar imágenes de verdad.
 - Helpers locales por archivo de test (ver `tests/Feature/CarrierTest.php`): `userWithRole()`, `asUser()` (llama a `resetAuthState()` y adjunta el token) y un `<recurso>Endpoints()` que alimenta los datasets de middleware.
-- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service.
+- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service. Lo que no es service tiene su propio Unit test: `ZoneGeometryTest` (WKT ↔ GeoJSON), `ZoneResourceTest`, `FreightRateModelTest`.
 - Ejecutar: `php artisan test --compact` (o `--filter=`).
 
 ## Flujo de trabajo
