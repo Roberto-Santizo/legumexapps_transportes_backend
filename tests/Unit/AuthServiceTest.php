@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 
 const SERVICE_CONFIRMATION_TABLE = 'account_confirmation_tokens';
 const SERVICE_RESET_TABLE = 'password_reset_tokens';
@@ -25,6 +26,22 @@ const SERVICE_RESET_TABLE = 'password_reset_tokens';
 function authService(): AuthServiceInterface
 {
     return app(AuthServiceInterface::class);
+}
+
+/**
+ * Decode the claims of a token, leaving the JWT singletons clean on both ends.
+ *
+ * @return array<string, mixed>
+ */
+function serviceClaimsOf(string $token): array
+{
+    resetAuthState();
+
+    $claims = JWTAuth::setToken($token)->getPayload()->toArray();
+
+    resetAuthState();
+
+    return $claims;
 }
 
 it('resuelve la implementación registrada en el provider', function () {
@@ -153,6 +170,38 @@ it('lanza ForbiddenError al iniciar sesión con una cuenta sin confirmar', funct
     resetAuthState();
 });
 
+it('devuelve los dos tokens con su vigencia y su tokenType al iniciar sesión', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+
+    $result = authService()->login(['email' => $user->email, 'password' => 'password123']);
+
+    expect($result)->toHaveKeys(['user', 'token', 'refreshToken'])
+        ->and($result['refreshToken'])->toBeString()->not->toBe($result['token']);
+
+    $access = serviceClaimsOf($result['token']);
+    $refresh = serviceClaimsOf($result['refreshToken']);
+
+    expect($access['tokenType'])->toBe('access')
+        ->and($access['exp'] - $access['iat'])->toBe(60 * 60)
+        ->and($refresh['tokenType'])->toBe('refresh')
+        ->and($refresh['exp'] - $refresh['iat'])->toBe(14 * 24 * 60 * 60);
+
+    resetAuthState();
+});
+
+it('restaura el TTL del factory tras emitir el par de tokens', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+
+    authService()->login(['email' => $user->email, 'password' => 'password123']);
+
+    /** El Factory es un singleton de la petición: sin restaurar, este token saldría con catorce días. */
+    $later = serviceClaimsOf(auth('api')->login($user));
+
+    expect($later['exp'] - $later['iat'])->toBe(60 * 60);
+
+    resetAuthState();
+});
+
 /*
 |--------------------------------------------------------------------------
 | checkStatus()
@@ -178,6 +227,25 @@ it('lanza UnauthorizedError en checkStatus cuando no hay sesión', function () {
 
     expect(fn () => authService()->checkStatus())
         ->toThrow(UnauthorizedError::class, 'El token no es válido');
+});
+
+it('devuelve un par nuevo de tokens en checkStatus', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+
+    $issued = authService()->login(['email' => $user->email, 'password' => 'password123']);
+
+    $result = authService()->checkStatus();
+
+    expect($result)->toHaveKeys(['user', 'token', 'refreshToken'])
+        ->and($result['token'])->not->toBe($issued['token'])
+        ->and($result['refreshToken'])->not->toBe($issued['refreshToken']);
+
+    $refresh = serviceClaimsOf($result['refreshToken']);
+
+    expect($refresh['tokenType'])->toBe('refresh')
+        ->and($refresh['exp'] - $refresh['iat'])->toBe(14 * 24 * 60 * 60);
+
+    resetAuthState();
 });
 
 /*
