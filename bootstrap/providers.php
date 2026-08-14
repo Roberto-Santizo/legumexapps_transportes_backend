@@ -3,6 +3,7 @@
 use App\Providers\AppServiceProvider;
 use App\Providers\Auth\AuthProvider;
 use App\Providers\Carrier\CarrierProvider;
+use App\Providers\FreightRate\FreightRateProvider;
 use App\Providers\FuelPrice\FuelPriceProvider;
 use App\Providers\Product\ProductProvider;
 use App\Providers\Storage\StorageProvider;
@@ -13,6 +14,7 @@ return [
     AppServiceProvider::class,
     AuthProvider::class,
     CarrierProvider::class,
+    FreightRateProvider::class,
     FuelPriceProvider::class,
     ProductProvider::class,
     StorageProvider::class,
