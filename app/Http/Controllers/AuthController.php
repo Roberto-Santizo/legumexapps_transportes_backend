@@ -109,7 +109,7 @@ class AuthController extends Controller
         path: '/api/auth/login',
         operationId: 'loginAuth',
         summary: 'Iniciar sesión',
-        description: 'Valida las credenciales y devuelve el usuario junto con un token JWT con vigencia de 60 minutos. El token se envía en las peticiones protegidas como: Authorization: Bearer {token}. Solo se renueva llamando a /api/auth/check-status.',
+        description: 'Valida las credenciales y devuelve el usuario junto con dos tokens JWT: token, con vigencia de 60 minutos, y refreshToken, con vigencia de 14 días. Cualquiera de los dos se envía en las peticiones protegidas como: Authorization: Bearer {token}. La sesión se prorroga llamando a /api/auth/check-status, que emite un par nuevo; la API no expone /refresh ni /logout. ADVERTENCIA: el refreshToken no está restringido a la renovación, es un token JWT corriente que autentica cualquier ruta protegida durante sus 14 días, y no existe forma de revocarlo antes de que expire.',
         requestBody: new OA\RequestBody(
             required: true,
             content: new OA\JsonContent(ref: '#/components/schemas/LoginRequest'),
@@ -129,9 +129,15 @@ class AuthController extends Controller
                                 new OA\Property(property: 'user', ref: '#/components/schemas/User'),
                                 new OA\Property(
                                     property: 'token',
-                                    description: 'Token JWT válido durante 60 minutos.',
+                                    description: 'Token JWT de acceso, válido durante 60 minutos. Lleva el claim tokenType con el valor access.',
                                     type: 'string',
                                     example: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.7Hh1c0mFq5Y',
+                                ),
+                                new OA\Property(
+                                    property: 'refreshToken',
+                                    description: 'Token JWT de refresco, válido durante 14 días. Lleva el claim tokenType con el valor refresh y los mismos claims de usuario que el de acceso. Su uso previsto es renovar la sesión en /api/auth/check-status, pero nada lo restringe a eso: autentica cualquier ruta protegida igual que el token de acceso.',
+                                    type: 'string',
+                                    example: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.9Kk2d1nGr6Z',
                                 ),
                             ],
                             type: 'object',
@@ -175,8 +181,8 @@ class AuthController extends Controller
     #[OA\Get(
         path: '/api/auth/check-status',
         operationId: 'checkStatusAuth',
-        summary: 'Verificar la sesión y renovar el token',
-        description: 'Devuelve el usuario autenticado y un token nuevo con otros 60 minutos de vigencia; el token usado en la petición queda invalidado. Es el único endpoint que renueva el token: la API no expone /refresh ni /logout. Requiere el header Authorization: Bearer {token}.',
+        summary: 'Verificar la sesión y renovar los tokens',
+        description: 'Devuelve el usuario autenticado y un par de tokens nuevo: token con otros 60 minutos y refreshToken con otros 14 días completos, no el remanente del que llegó. Admite en el header cualquiera de los dos tokens, porque ambos llevan la misma firma. Es el único endpoint que renueva la sesión: la API no expone /refresh ni /logout. Encadenar llamadas antes de que expire el refreshToken mantiene la sesión viva indefinidamente. Los tokens enviados en la petición NO quedan invalidados: siguen siendo válidos hasta su propia expiración. Requiere el header Authorization: Bearer {token}.',
         security: [['bearerAuth' => []]],
         tags: ['Auth'],
         responses: [
@@ -193,9 +199,15 @@ class AuthController extends Controller
                                 new OA\Property(property: 'user', ref: '#/components/schemas/User'),
                                 new OA\Property(
                                     property: 'token',
-                                    description: 'Token JWT renovado. Sustituye al enviado en la petición.',
+                                    description: 'Token JWT de acceso renovado, válido durante 60 minutos. Sustituye al enviado en la petición.',
                                     type: 'string',
                                     example: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.7Hh1c0mFq5Y',
+                                ),
+                                new OA\Property(
+                                    property: 'refreshToken',
+                                    description: 'Token JWT de refresco renovado, válido durante 14 días completos contados desde esta respuesta. Sustituye al anterior y, como él, autentica cualquier ruta protegida además de renovar la sesión aquí.',
+                                    type: 'string',
+                                    example: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.9Kk2d1nGr6Z',
                                 ),
                             ],
                             type: 'object',
@@ -207,6 +219,11 @@ class AuthController extends Controller
             new OA\Response(
                 response: 401,
                 description: 'Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado',
+                content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
+            ),
+            new OA\Response(
+                response: 403,
+                description: 'El token es válido pero la cuenta todavía no ha sido confirmada. El mensaje devuelto es: La cuenta aún no ha sido confirmada',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
         ],
