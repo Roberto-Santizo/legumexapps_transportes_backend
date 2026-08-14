@@ -165,6 +165,7 @@ class AuthController extends Controller
             return ResponseHandler::success([
                 'user' => new UserResource($result['user']),
                 'token' => $result['token'],
+                'refreshToken' => $result['refreshToken'],
             ], 'Sesión iniciada correctamente', 200);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
@@ -218,6 +219,7 @@ class AuthController extends Controller
             return ResponseHandler::success([
                 'user' => new UserResource($result['user']),
                 'token' => $result['token'],
+                'refreshToken' => $result['refreshToken'],
             ], 'Sesión válida', 200);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
