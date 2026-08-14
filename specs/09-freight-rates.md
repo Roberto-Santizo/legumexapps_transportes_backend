@@ -1,6 +1,6 @@
 # SPEC 09 — Tarifas de flete por zona y producto
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 03, SPEC 06, SPEC 07, SPEC 08
 > **Fecha:** 2026-08-13
 > **Objetivo:** Registrar tarifas de flete en quetzales por libra para cada combinación de zona, producto y tipo de combustible, vigentes desde un precio mínimo de combustible, y resolver automáticamente la tarifa aplicable a partir de un punto geográfico y del precio de combustible vigente.
@@ -293,87 +293,87 @@ Disparar el agente `endpoint-docs` con el modelo `FreightRate` y regenerar `stor
 
 **Contrato de zonas (Paso 1)**
 
-- [ ] `getZoneContainingPoint()` devuelve la zona cuando el punto cae dentro de su polígono.
-- [ ] Devuelve `null` cuando el punto no cae en ninguna zona.
-- [ ] Devuelve `null` cuando la única zona que contiene el punto tiene `status: false`.
-- [ ] La suite completa de SPEC 08 sigue en verde tras el cambio.
-- [ ] Ningún archivo de `FreightRate/` menciona `ST_`, `WKT` ni el orden `lng lat`.
+- [x] `getZoneContainingPoint()` devuelve la zona cuando el punto cae dentro de su polígono.
+- [x] Devuelve `null` cuando el punto no cae en ninguna zona.
+- [x] Devuelve `null` cuando la única zona que contiene el punto tiene `status: false`.
+- [x] La suite completa de SPEC 08 sigue en verde tras el cambio.
+- [x] Ningún archivo de `FreightRate/` menciona `ST_`, `WKT` ni el orden `lng lat`.
 
 **Alta y unicidad de banda**
 
-- [ ] `POST` con `zoneId`, `productId`, `fuelType: diesel`, `fuelMin: 30.00` y `pricePerPound: 0.454120` responde 201 y devuelve `pricePerPound: '0.454120'` con los seis decimales intactos.
-- [ ] Un segundo `POST` con el **mismo** `(zoneId, productId, fuelType, fuelMin)` responde 400.
-- [ ] El mismo `fuelMin` para **otro** `fuelType`, otra zona u otro producto se acepta.
-- [ ] Tras un `DELETE`, volver a cotizar ese mismo `fuelMin` para ese mismo par responde 201.
-- [ ] `POST` sobre una zona con `status: false` responde 400.
-- [ ] `POST` sobre un producto con `status: false` responde 400.
-- [ ] `POST` con `zoneId` o `productId` inexistente responde 422, no 400.
-- [ ] `registeredBy` apunta al usuario autenticado aunque el body traiga otro.
+- [x] `POST` con `zoneId`, `productId`, `fuelType: diesel`, `fuelMin: 30.00` y `pricePerPound: 0.454120` responde 201 y devuelve `pricePerPound: '0.454120'` con los seis decimales intactos.
+- [x] Un segundo `POST` con el **mismo** `(zoneId, productId, fuelType, fuelMin)` responde 400.
+- [x] El mismo `fuelMin` para **otro** `fuelType`, otra zona u otro producto se acepta.
+- [x] Tras un `DELETE`, volver a cotizar ese mismo `fuelMin` para ese mismo par responde 201.
+- [x] `POST` sobre una zona con `status: false` responde 400.
+- [x] `POST` sobre un producto con `status: false` responde 400.
+- [x] `POST` con `zoneId` o `productId` inexistente responde 422, no 400.
+- [x] `registeredBy` apunta al usuario autenticado aunque el body traiga otro.
 
 **Selección de banda**
 
 Con tarifas cotizadas *desde 28* (`0.400000`) y *desde 35* (`0.454120`) para el mismo par:
 
-- [ ] Diésel vigente a **40** → aplica `0.454120` y `appliedFuelMin: '35.00'`.
-- [ ] Diésel vigente a **35** exacto → aplica `0.454120`; el límite es inclusivo.
-- [ ] Diésel vigente a **30** → aplica `0.400000` y `appliedFuelMin: '28.00'`.
-- [ ] Diésel vigente a **25**, por debajo de todas → aplica `0.400000`, **sin error**.
-- [ ] Con una sola banda cotizada, cualquier precio de combustible la aplica.
+- [x] Diésel vigente a **40** → aplica `0.454120` y `appliedFuelMin: '35.00'`.
+- [x] Diésel vigente a **35** exacto → aplica `0.454120`; el límite es inclusivo.
+- [x] Diésel vigente a **30** → aplica `0.400000` y `appliedFuelMin: '28.00'`.
+- [x] Diésel vigente a **25**, por debajo de todas → aplica `0.400000`, **sin error**.
+- [x] Con una sola banda cotizada, cualquier precio de combustible la aplica.
 
 **Cotización**
 
-- [ ] `GET /api/freight-rates/quote` con un punto dentro de una zona devuelve `zoneName`, `pricePerPound`, `currentFuelPrice` y `appliedFuelMin`.
-- [ ] Con `pounds: 45000` devuelve `total` con **dos** decimales, y el producto se calcula sobre la tarifa completa de seis decimales, no sobre una redondeada.
-- [ ] Sin `pounds`, `pounds` y `total` viajan `null` y el resto de la respuesta es idéntica.
-- [ ] `currentFuelPrice` coincide con el `FuelPrice` `active` de ese tipo aunque el cliente mande un precio en la query: el parámetro se ignora por completo.
-- [ ] Un punto **fuera** de toda zona responde **404**.
-- [ ] Un producto con `status: false` responde **400**.
-- [ ] Un `fuelType` sin ningún `FuelPrice` `active` responde **400**.
-- [ ] Un par zona+producto sin ninguna tarifa responde **400**.
-- [ ] Los cuatro fallos anteriores traen **mensajes distintos entre sí**, en español.
-- [ ] Una tarifa borrada no se aplica nunca: si era la única del par, la cotización responde 400.
-- [ ] `quote` sin `fuelType`, sin `productId`, sin `lat` o sin `lng` responde 422.
-- [ ] `lat=200`, `lng=500` o `fuelType=gasolina` responden 422 — a diferencia del `index` de SPEC 08, aquí un valor fuera de rango **no se ignora**.
-- [ ] La cotización **no persiste nada**: el número de filas de `freight_rates` no cambia tras llamarla.
+- [x] `GET /api/freight-rates/quote` con un punto dentro de una zona devuelve `zoneName`, `pricePerPound`, `currentFuelPrice` y `appliedFuelMin`.
+- [x] Con `pounds: 45000` devuelve `total` con **dos** decimales, y el producto se calcula sobre la tarifa completa de seis decimales, no sobre una redondeada.
+- [x] Sin `pounds`, `pounds` y `total` viajan `null` y el resto de la respuesta es idéntica.
+- [x] `currentFuelPrice` coincide con el `FuelPrice` `active` de ese tipo aunque el cliente mande un precio en la query: el parámetro se ignora por completo.
+- [x] Un punto **fuera** de toda zona responde **404**.
+- [x] Un producto con `status: false` responde **400**.
+- [x] Un `fuelType` sin ningún `FuelPrice` `active` responde **400**.
+- [x] Un par zona+producto sin ninguna tarifa responde **400**.
+- [x] Los cuatro fallos anteriores traen **mensajes distintos entre sí**, en español.
+- [x] Una tarifa borrada no se aplica nunca: si era la única del par, la cotización responde 400.
+- [x] `quote` sin `fuelType`, sin `productId`, sin `lat` o sin `lng` responde 422.
+- [x] `lat=200`, `lng=500` o `fuelType=gasolina` responden 422 — a diferencia del `index` de SPEC 08, aquí un valor fuera de rango **no se ignora**.
+- [x] La cotización **no persiste nada**: el número de filas de `freight_rates` no cambia tras llamarla.
 
 **Edición y baja**
 
-- [ ] `PATCH` con solo `pricePerPound` cambia el precio y no toca `fuelMin`, `zoneId`, `productId` ni `fuelType`.
-- [ ] `PATCH` que mueve el `fuelMin` a un valor ya ocupado por otra tarifa viva del mismo par responde 400.
-- [ ] `PATCH` que mueve el `fuelMin` a un valor libre responde 200.
-- [ ] `PATCH` sobre una tarifa cuya zona o producto se desactivó después responde 400, aunque solo cambie el precio.
-- [ ] `PATCH` con body vacío responde 200 sin cambios.
-- [ ] `DELETE` responde 200 y la fila **desaparece** de `GET /api/freight-rates`.
-- [ ] La fila sigue existiendo en base con `deleted_at` poblado.
-- [ ] Un segundo `DELETE` sobre la misma tarifa responde **400**, no 404.
-- [ ] `show` y `update` sobre una tarifa borrada responden **400**.
-- [ ] `show`, `update` y `destroy` sobre un id que nunca existió responden **404**.
+- [x] `PATCH` con solo `pricePerPound` cambia el precio y no toca `fuelMin`, `zoneId`, `productId` ni `fuelType`.
+- [x] `PATCH` que mueve el `fuelMin` a un valor ya ocupado por otra tarifa viva del mismo par responde 400.
+- [x] `PATCH` que mueve el `fuelMin` a un valor libre responde 200.
+- [x] `PATCH` sobre una tarifa cuya zona o producto se desactivó después responde 400, aunque solo cambie el precio.
+- [x] `PATCH` con body vacío responde 200 sin cambios.
+- [x] `DELETE` responde 200 y la fila **desaparece** de `GET /api/freight-rates`.
+- [x] La fila sigue existiendo en base con `deleted_at` poblado.
+- [x] Un segundo `DELETE` sobre la misma tarifa responde **400**, no 404.
+- [x] `show` y `update` sobre una tarifa borrada responden **400**.
+- [x] `show`, `update` y `destroy` sobre un id que nunca existió responden **404**.
 
 **Autorización**
 
-- [ ] Las seis rutas sin token responden 401 con el sobre estándar.
-- [ ] `GET /api/freight-rates` y `/quote` responden 200 con token de `carrier`, `pilot` y `manager`.
-- [ ] Ninguna ruta exige tener empresa: un `carrier` sin empresa las alcanza.
-- [ ] `POST`, `GET /{id}`, `PATCH` y `DELETE` responden 403 con token de `carrier`, `pilot` y `manager`.
+- [x] Las seis rutas sin token responden 401 con el sobre estándar.
+- [x] `GET /api/freight-rates` y `/quote` responden 200 con token de `carrier`, `pilot` y `manager`.
+- [x] Ninguna ruta exige tener empresa: un `carrier` sin empresa las alcanza.
+- [x] `POST`, `GET /{id}`, `PATCH` y `DELETE` responden 403 con token de `carrier`, `pilot` y `manager`.
 
 **Listado y forma de la respuesta**
 
-- [ ] `GET /api/freight-rates?zoneId=` devuelve solo las tarifas de esa zona.
-- [ ] Sin `zoneId`, devuelve todas las tarifas de todas las zonas.
-- [ ] Un `zoneId` de una zona que no existe devuelve una lista vacía con 200.
-- [ ] Un `zoneId` no numérico se ignora y devuelve el listado completo, sin error. Cualquier otro query param se ignora.
-- [ ] `GET /api/freight-rates` devuelve la colección completa: `limit=10` **no** pagina y el sobre no trae `total`, `currentPage` ni `lastPage`.
-- [ ] El listado sale ordenado por `fuelType` y, dentro de cada tipo, por `fuelMin` ascendente.
-- [ ] Todas las claves de ambos Resources están en camelCase y `createdAt` tiene la forma `13-08-2026 08:45:12 PM`.
-- [ ] Listar 20 tarifas ejecuta un número de queries independiente del número de filas (sin N+1 sobre `zone`, `product` ni `registeredBy`).
-- [ ] Toda respuesta viaja en el sobre `{ statusCode, message, data }`.
+- [x] `GET /api/freight-rates?zoneId=` devuelve solo las tarifas de esa zona.
+- [x] Sin `zoneId`, devuelve todas las tarifas de todas las zonas.
+- [x] Un `zoneId` de una zona que no existe devuelve una lista vacía con 200.
+- [x] Un `zoneId` no numérico se ignora y devuelve el listado completo, sin error. Cualquier otro query param se ignora.
+- [x] `GET /api/freight-rates` devuelve la colección completa: `limit=10` **no** pagina y el sobre no trae `total`, `currentPage` ni `lastPage`.
+- [x] El listado sale ordenado por `fuelType` y, dentro de cada tipo, por `fuelMin` ascendente.
+- [x] Todas las claves de ambos Resources están en camelCase y `createdAt` tiene la forma `13-08-2026 08:45:12 PM`.
+- [x] Listar 20 tarifas ejecuta un número de queries independiente del número de filas (sin N+1 sobre `zone`, `product` ni `registeredBy`).
+- [x] Toda respuesta viaja en el sobre `{ statusCode, message, data }`.
 
 **Cierre**
 
-- [ ] `php artisan test --compact` pasa la suite entera, incluidas las specs anteriores.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan route:list --path=freight-rates` muestra `quote` **antes** de la ruta `{freightRate}`.
-- [ ] `/api/documentation` muestra los seis endpoints con el ejemplo de 45 000 libras de brócoli.
+- [x] `php artisan test --compact` pasa la suite entera, incluidas las specs anteriores.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan route:list --path=freight-rates` muestra `quote` **antes** de la ruta `{freightRate}`.
+- [x] `/api/documentation` muestra los seis endpoints con el ejemplo de 45 000 libras de brócoli.
 
 ---
 
