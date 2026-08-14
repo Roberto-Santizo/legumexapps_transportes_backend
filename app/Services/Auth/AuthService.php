@@ -106,7 +106,7 @@ class AuthService implements AuthServiceInterface
         }
 
         /** Se reemite desde el usuario, no con refresh(): refresh arrastra los claims del token anterior y dejaría los de transportista desactualizados hasta que expirase la sesión. */
-        return ['user' => $user, 'token' => auth('api')->login($user)];
+        return ['user' => $user, ...$this->issueTokens($user)];
     }
 
     #[Override]
