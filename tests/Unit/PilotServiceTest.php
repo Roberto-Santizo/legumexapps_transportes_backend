@@ -4,6 +4,7 @@ use App\Enums\UserRole;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
+use App\Interfaces\Pilot\PilotServiceInterface;
 use App\Models\Carrier;
 use App\Models\CarrierPilot;
 use App\Models\CarrierPilotSalaryHistory;
@@ -13,10 +14,14 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
 
-function pilotService(): PilotService
+function pilotService(): PilotServiceInterface
 {
-    return new PilotService;
+    return app(PilotServiceInterface::class);
 }
+
+it('resuelve la implementación de pilotos registrada en el provider', function () {
+    expect(pilotService())->toBeInstanceOf(PilotService::class);
+});
 
 function pilotServiceAdmin(): User
 {
