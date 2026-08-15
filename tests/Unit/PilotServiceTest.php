@@ -9,6 +9,8 @@ use App\Models\CarrierPilot;
 use App\Models\CarrierPilotSalaryHistory;
 use App\Models\User;
 use App\Services\Pilot\PilotService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
 
 function pilotService(): PilotService
@@ -168,4 +170,99 @@ it('permite a un transportista asignar el salario de un piloto suyo', function (
     $updated = pilotService()->updateSalary($pilot->user_id, ['salary' => 4500], $carrier->owner);
 
     expect($updated->salary)->toBe('4500.00');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Bitácora
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve los cambios del más reciente al más antiguo', function () {
+    $pilot = linkPilot(Carrier::factory()->create());
+    $admin = pilotServiceAdmin();
+
+    foreach ([4500, 5200, 4800] as $salary) {
+        pilotService()->updateSalary($pilot->user_id, ['salary' => $salary], $admin);
+    }
+
+    $history = pilotService()->getSalaryHistory($pilot->user_id, $admin, null);
+
+    expect($history)->toBeInstanceOf(Collection::class)
+        ->and($history)->toHaveCount(3)
+        ->and($history->pluck('new_salary')->all())->toBe(['4800.00', '5200.00', '4500.00'])
+        /** La más antigua es la única con previous_salary null. */
+        ->and($history->last()->previous_salary)->toBeNull();
+});
+
+it('devuelve una colección vacía para un piloto sin cambios', function () {
+    $pilot = linkPilot(Carrier::factory()->create());
+
+    expect(pilotService()->getSalaryHistory($pilot->user_id, pilotServiceAdmin(), null))->toHaveCount(0);
+});
+
+it('resuelve el autor de cada cambio sin consultarlo aparte', function () {
+    $pilot = linkPilot(Carrier::factory()->create());
+    $admin = pilotServiceAdmin();
+
+    pilotService()->updateSalary($pilot->user_id, ['salary' => 4500], $admin);
+
+    $history = pilotService()->getSalaryHistory($pilot->user_id, $admin, null);
+
+    expect($history->first()->relationLoaded('changedBy'))->toBeTrue()
+        ->and($history->first()->changedBy->name)->toBe($admin->name);
+});
+
+it('pagina el historial con la misma regla acotada a [10, 100]', function (?string $limit, int $expected) {
+    $pilot = linkPilot(Carrier::factory()->create());
+
+    CarrierPilotSalaryHistory::factory()->count(12)->create([
+        'carrier_pilot_id' => $pilot->id,
+        'changed_by' => pilotServiceAdmin()->id,
+    ]);
+
+    $history = pilotService()->getSalaryHistory($pilot->user_id, pilotServiceAdmin(), $limit);
+
+    expect($history)->toBeInstanceOf(LengthAwarePaginator::class)
+        ->and($history->perPage())->toBe($expected)
+        ->and($history->total())->toBe(12);
+})->with([
+    ['10', 10],
+    ['1', 10],
+    ['500', 100],
+]);
+
+it('no pagina el historial sin limit numérico', function (?string $limit) {
+    $pilot = linkPilot(Carrier::factory()->create());
+
+    CarrierPilotSalaryHistory::factory()->count(12)->create([
+        'carrier_pilot_id' => $pilot->id,
+        'changed_by' => pilotServiceAdmin()->id,
+    ]);
+
+    expect(pilotService()->getSalaryHistory($pilot->user_id, pilotServiceAdmin(), $limit))
+        ->toBeInstanceOf(Collection::class)
+        ->toHaveCount(12);
+})->with([null, 'abc']);
+
+it('impide a un transportista leer el historial de un piloto de otra empresa', function () {
+    $pilot = linkPilot(Carrier::factory()->create());
+    $otherOwner = Carrier::factory()->create()->owner;
+
+    expect(fn () => pilotService()->getSalaryHistory($pilot->user_id, $otherOwner, null))
+        ->toThrow(ForbiddenError::class);
+});
+
+it('deja a un transportista leer el historial de un piloto suyo', function () {
+    $carrier = Carrier::factory()->create();
+    $pilot = linkPilot($carrier);
+
+    pilotService()->updateSalary($pilot->user_id, ['salary' => 4500], $carrier->owner);
+
+    expect(pilotService()->getSalaryHistory($pilot->user_id, $carrier->owner, null))->toHaveCount(1);
+});
+
+it('responde 404 al pedir el historial de un user_id inexistente', function () {
+    expect(fn () => pilotService()->getSalaryHistory(999999, pilotServiceAdmin(), null))
+        ->toThrow(NotFoundError::class, 'El piloto no existe o no está vinculado a ninguna empresa transportista');
 });
