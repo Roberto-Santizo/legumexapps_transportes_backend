@@ -168,58 +168,58 @@ Skill `document-endpoint` sobre los mismos dos endpoints —tampoco el agente `e
 
 **Configuración**
 
-- [ ] `php artisan config:show jwt.refresh_token_ttl` devuelve `20160`.
-- [ ] `php artisan config:show jwt.ttl` sigue devolviendo `60`.
-- [ ] `.env.example` declara `JWT_REFRESH_TOKEN_TTL=20160`.
-- [ ] Con la variable ausente del `.env`, el refresh token sigue saliendo de 14 días.
+- [X] `php artisan config:show jwt.refresh_token_ttl` devuelve `20160`.
+- [X] `php artisan config:show jwt.ttl` sigue devolviendo `60`.
+- [X] `.env.example` declara `JWT_REFRESH_TOKEN_TTL=20160`.
+- [X] Con la variable ausente del `.env`, el refresh token sigue saliendo de 14 días.
 
 **Login**
 
-- [ ] `POST /api/auth/login` con credenciales válidas devuelve un `data` con exactamente tres claves: `user`, `token` y `refreshToken`.
-- [ ] `token` y `refreshToken` son cadenas distintas entre sí.
-- [ ] El payload de `token` tiene `exp - iat === 3600` y `tokenType === 'access'`.
-- [ ] El payload de `refreshToken` tiene `exp - iat === 1209600` y `tokenType === 'refresh'`.
-- [ ] Los dos payloads traen los mismos `id`, `name`, `email`, `role`, `carrierId`, `carrierName` y `carrierCode`.
-- [ ] Con contraseña incorrecta sigue devolviendo 401 y con cuenta sin confirmar sigue devolviendo 403, en ambos casos sin `refreshToken`.
+- [X] `POST /api/auth/login` con credenciales válidas devuelve un `data` con exactamente tres claves: `user`, `token` y `refreshToken`.
+- [X] `token` y `refreshToken` son cadenas distintas entre sí.
+- [X] El payload de `token` tiene `exp - iat === 3600` y `tokenType === 'access'`.
+- [X] El payload de `refreshToken` tiene `exp - iat === 1209600` y `tokenType === 'refresh'`.
+- [X] Los dos payloads traen los mismos `id`, `name`, `email`, `role`, `carrierId`, `carrierName` y `carrierCode`.
+- [X] Con contraseña incorrecta sigue devolviendo 401 y con cuenta sin confirmar sigue devolviendo 403, en ambos casos sin `refreshToken`.
 
 **Check-status**
 
-- [ ] `GET /api/auth/check-status` con un `token` normal devuelve `user`, `token` y `refreshToken`.
-- [ ] Llamado con el `refreshToken` en el header responde **200** y devuelve también las tres claves.
-- [ ] El `token` devuelto es distinto del enviado y el `refreshToken` devuelto es distinto del anterior.
-- [ ] El `refreshToken` devuelto vuelve a tener 14 días completos, no el remanente del que llegó.
-- [ ] Sin header `Authorization` sigue devolviendo 401 en JSON.
-- [ ] Con una cuenta sin confirmar sigue devolviendo 403.
+- [X] `GET /api/auth/check-status` con un `token` normal devuelve `user`, `token` y `refreshToken`.
+- [X] Llamado con el `refreshToken` en el header responde **200** y devuelve también las tres claves.
+- [X] El `token` devuelto es distinto del enviado y el `refreshToken` devuelto es distinto del anterior.
+- [X] El `refreshToken` devuelto vuelve a tener 14 días completos, no el remanente del que llegó.
+- [X] Sin header `Authorization` sigue devolviendo 401 en JSON.
+- [X] Con una cuenta sin confirmar sigue devolviendo 403.
 
 **El refresh token es un token corriente**
 
-- [ ] El `refreshToken` autentica una ruta protegida cualquiera de otro dominio — p. ej. `GET /api/products` — con 200.
-- [ ] El middleware `role:administrator` se comporta igual con `token` que con `refreshToken`.
-- [ ] Ningún middleware ni servicio del proyecto lee el claim `tokenType`: `grep -r "tokenType" app/` solo lo encuentra en `AuthService`.
+- [X] El `refreshToken` autentica una ruta protegida cualquiera de otro dominio — p. ej. `GET /api/products` — con 200.
+- [X] El middleware `role:administrator` se comporta igual con `token` que con `refreshToken`.
+- [X] Ningún middleware ni servicio del proyecto lee el claim `tokenType`: `grep -r "tokenType" app/` solo lo encuentra en `AuthService`.
 
 **Sesión indefinida**
 
-- [ ] Encadenar `check-status` usando cada vez el `refreshToken` de la respuesta anterior funciona indefinidamente, sin tope de renovaciones.
-- [ ] Un `refreshToken` cuyo `exp` ya pasó devuelve 401 en `check-status`.
+- [X] Encadenar `check-status` usando cada vez el `refreshToken` de la respuesta anterior funciona indefinidamente, sin tope de renovaciones.
+- [X] Un `refreshToken` cuyo `exp` ya pasó devuelve 401 en `check-status`.
 
 **No regresión de SPEC 01**
 
-- [ ] El test de SPEC 01 que asserta `exp - iat === 60 * 60` sobre el token de login pasa **sin haber sido modificado**.
-- [ ] `register`, `confirm-account`, `forgot-password` y `reset-password` devuelven exactamente el mismo `data` que antes de esta spec.
-- [ ] `UserResource` no cambió.
-- [ ] No hay migraciones nuevas: `php artisan migrate:status` lista las mismas de antes.
-- [ ] `User::getJWTCustomClaims()` no menciona `tokenType`.
+- [X] El test de SPEC 01 que asserta `exp - iat === 60 * 60` sobre el token de login pasa **sin haber sido modificado**.
+- [X] `register`, `confirm-account`, `forgot-password` y `reset-password` devuelven exactamente el mismo `data` que antes de esta spec.
+- [X] `UserResource` no cambió.
+- [X] No hay migraciones nuevas: `php artisan migrate:status` lista las mismas de antes.
+- [X] `User::getJWTCustomClaims()` no menciona `tokenType`.
 
 **Emisión**
 
-- [ ] Tras un `login`, un token emitido más adelante **en la misma petición** sale con 60 minutos, no con 14 días (el TTL del `Factory` quedó restaurado).
-- [ ] `issueTokens()` es el único método del proyecto que llama a `claims()` o a `factory()->setTTL()`.
+- [X] Tras un `login`, un token emitido más adelante **en la misma petición** sale con 60 minutos, no con 14 días (el TTL del `Factory` quedó restaurado).
+- [X] `issueTokens()` es el único método del proyecto que llama a `claims()` o a `factory()->setTTL()`.
 
 **Cierre**
 
-- [ ] `php artisan test --compact` pasa la suite entera, incluidas las nueve specs anteriores.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `/api/documentation` muestra `refreshToken` en `login` y en `check-status`, con las dos vigencias y la advertencia de que el refresh sirve como token normal.
+- [X] `php artisan test --compact` pasa la suite entera, incluidas las nueve specs anteriores.
+- [X] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [X] `/api/documentation` muestra `refreshToken` en `login` y en `check-status`, con las dos vigencias y la advertencia de que el refresh sirve como token normal.
 
 ---
 
