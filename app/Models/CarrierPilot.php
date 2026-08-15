@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['carrier_id', 'user_id', 'salary'])]
 class CarrierPilot extends Model
@@ -40,5 +41,15 @@ class CarrierPilot extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The log of every real change made to this pilot's salary.
+     *
+     * @return HasMany<CarrierPilotSalaryHistory, $this>
+     */
+    public function salaryHistories(): HasMany
+    {
+        return $this->hasMany(CarrierPilotSalaryHistory::class);
     }
 }
