@@ -3,12 +3,16 @@
 namespace App\Services\Pilot;
 
 use App\Enums\UserRole;
+use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
+use App\Errors\NotFoundError;
 use App\Interfaces\Pilot\PilotServiceInterface;
 use App\Models\CarrierPilot;
+use App\Models\CarrierPilotSalaryHistory;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Override;
 
 class PilotService implements PilotServiceInterface
@@ -46,6 +50,98 @@ class PilotService implements PilotServiceInterface
         $perPage = $this->resolvePerPage($filters['limit'] ?? null);
 
         return $perPage === null ? $query->get() : $query->paginate($perPage);
+    }
+
+    #[Override]
+    public function updateSalary(int $userId, array $data, User $user): CarrierPilot
+    {
+        return DB::transaction(function () use ($userId, $data, $user): CarrierPilot {
+            $pilot = $this->resolvePilot($user, $userId, lockForUpdate: true);
+
+            $newSalary = $this->salaryValue($data['salary']);
+            $previousSalary = $pilot->salary;
+
+            /** La comparación va sobre el valor formateado: 4500, 4500.00 y 4500.004 son el mismo salario. */
+            if ($previousSalary !== null && $this->salaryValue($previousSalary) === $newSalary) {
+                throw new BadRequestError('El salario indicado es el mismo que el piloto ya tiene registrado');
+            }
+
+            $pilot->salary = $newSalary;
+            $pilot->save();
+
+            /** Misma transacción que el UPDATE: a medias quedaría un salario sin rastro o un rastro de un cambio que no ocurrió. */
+            CarrierPilotSalaryHistory::create([
+                'carrier_pilot_id' => $pilot->id,
+                'previous_salary' => $previousSalary,
+                'new_salary' => $newSalary,
+                /** Sale del usuario autenticado, nunca del cuerpo de la petición. */
+                'changed_by' => $user->id,
+            ]);
+
+            return $pilot;
+        });
+    }
+
+    #[Override]
+    public function getSalaryHistory(int $userId, User $user, ?string $limit): LengthAwarePaginator|Collection
+    {
+        /** Misma guarda que el PATCH: mismo 404 y mismo 403. */
+        $pilot = $this->resolvePilot($user, $userId);
+
+        /**
+         * Ordena por id y no por created_at: dos cambios en el mismo segundo empatarían
+         * la fecha y el orden quedaría indefinido.
+         */
+        $query = $pilot->salaryHistories()->with('changedBy')->orderByDesc('id');
+
+        $perPage = $this->resolvePerPage($limit);
+
+        return $perPage === null ? $query->get() : $query->paginate($perPage);
+    }
+
+    /**
+     * Resolve the carrier_pilots row of the given pilot, within the user's scope.
+     *
+     * The 404 covers two cases on purpose: a user_id that does not exist and a user
+     * that exists but is not a pilot of any company. Telling them apart would leak
+     * which user ids are registered in the system.
+     *
+     * @param  int  $userId  the pilot's user_id, not the id of the carrier_pilots row.
+     * @param  bool  $lockForUpdate  Held while a salary change is written.
+     */
+    private function resolvePilot(User $user, int $userId, bool $lockForUpdate = false): CarrierPilot
+    {
+        $query = CarrierPilot::query()->where('user_id', '=', $userId);
+
+        if ($lockForUpdate) {
+            $query->lockForUpdate();
+        }
+
+        $pilot = $query->first();
+
+        if ($pilot === null) {
+            throw new NotFoundError('El piloto no existe o no está vinculado a ninguna empresa transportista');
+        }
+
+        $scopedCarrierId = $this->resolveScopedCarrierId($user);
+
+        if ($scopedCarrierId !== null && $pilot->carrier_id !== $scopedCarrierId) {
+            throw new ForbiddenError('No puedes acceder a un piloto que no pertenece a tu empresa transportista');
+        }
+
+        return $pilot;
+    }
+
+    /**
+     * Render a salary the way the column stores it, with exactly two decimals.
+     *
+     * Comparing what arrives against what the table holds only works when both have
+     * the same shape: without this, a 4500.004 would look like a different salary and
+     * would slip into the log as a change that never happened.
+     */
+    private function salaryValue(int|float|string $salary): string
+    {
+        return number_format((float) $salary, 2, '.', '');
     }
 
     /**
