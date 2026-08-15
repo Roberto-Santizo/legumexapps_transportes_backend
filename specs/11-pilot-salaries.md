@@ -306,78 +306,78 @@ Disparar el agente `endpoint-docs` con el dominio `Pilot` y regenerar `storage/a
 
 **Migraciones y modelos**
 
-- [ ] `php artisan migrate` corre limpio sobre una base ya migrada.
-- [ ] Un piloto recién unido con `POST /api/carriers/join` tiene `salary` **`null`**, no `0.00`.
-- [ ] `CarrierPilot::create(['carrier_id' => …, 'user_id' => …, 'salary' => 4500])` persiste `'4500.00'`.
-- [ ] Borrar una fila de `carrier_pilots` borra sus filas de `carrier_pilot_salary_histories`.
-- [ ] Borrar el usuario que aparece en `changed_by` **falla** con error de FK: el rastro no se borra en cascada.
-- [ ] El `down()` de las dos migraciones revierte sin dejar la tabla ni la columna.
+- [x] `php artisan migrate` corre limpio sobre una base ya migrada.
+- [x] Un piloto recién unido con `POST /api/carriers/join` tiene `salary` **`null`**, no `0.00`.
+- [x] `CarrierPilot::create(['carrier_id' => …, 'user_id' => …, 'salary' => 4500])` persiste `'4500.00'`.
+- [x] Borrar una fila de `carrier_pilots` borra sus filas de `carrier_pilot_salary_histories`.
+- [x] Borrar el usuario que aparece en `changed_by` **falla** con error de FK: el rastro no se borra en cascada.
+- [x] El `down()` de las dos migraciones revierte sin dejar la tabla ni la columna.
 
 **Listado `GET /api/pilots`**
 
-- [ ] Un `carrier` recibe **solo** los pilotos de su propia empresa.
-- [ ] Un `carrier` que manda `carrierId` de otra empresa recibe igualmente **sus** pilotos: el parámetro se ignora, no da error.
-- [ ] Un `administrator` sin `carrierId` recibe los pilotos de **todas** las empresas.
-- [ ] Un `manager` sin `carrierId` recibe también los de todas las empresas.
-- [ ] `carrierId` numérico como `administrator` o `manager` acota el listado a esa empresa.
-- [ ] Un `carrierId` de una empresa inexistente devuelve lista **vacía** con 200.
-- [ ] Un `carrierId` no numérico se ignora y devuelve el listado completo, sin error.
-- [ ] Sin `limit`, la respuesta trae la colección completa y el sobre **no** incluye `total`, `currentPage` ni `lastPage`.
-- [ ] Con `limit=10` el sobre trae los tres metadatos en la raíz, no bajo `meta`.
-- [ ] `limit=1` pagina de 10 en 10 y `limit=500` de 100 en 100.
-- [ ] Cada elemento trae `id`, `name`, `email`, `carrierId`, `carrierName`, `salary` y `joinedAt`, todo en camelCase.
-- [ ] `id` es el **`user_id`** del piloto; el `id` de la fila de `carrier_pilots` no aparece en ninguna respuesta.
-- [ ] Un piloto sin salario asignado sale con `salary: null`.
-- [ ] Listar 20 pilotos ejecuta un número de queries independiente del número de filas (sin N+1 sobre `user` ni `carrier`).
+- [x] Un `carrier` recibe **solo** los pilotos de su propia empresa.
+- [x] Un `carrier` que manda `carrierId` de otra empresa recibe igualmente **sus** pilotos: el parámetro se ignora, no da error.
+- [x] Un `administrator` sin `carrierId` recibe los pilotos de **todas** las empresas.
+- [x] Un `manager` sin `carrierId` recibe también los de todas las empresas.
+- [x] `carrierId` numérico como `administrator` o `manager` acota el listado a esa empresa.
+- [x] Un `carrierId` de una empresa inexistente devuelve lista **vacía** con 200.
+- [x] Un `carrierId` no numérico se ignora y devuelve el listado completo, sin error.
+- [x] Sin `limit`, la respuesta trae la colección completa y el sobre **no** incluye `total`, `currentPage` ni `lastPage`.
+- [x] Con `limit=10` el sobre trae los tres metadatos en la raíz, no bajo `meta`.
+- [x] `limit=1` pagina de 10 en 10 y `limit=500` de 100 en 100.
+- [x] Cada elemento trae `id`, `name`, `email`, `carrierId`, `carrierName`, `salary` y `joinedAt`, todo en camelCase.
+- [x] `id` es el **`user_id`** del piloto; el `id` de la fila de `carrier_pilots` no aparece en ninguna respuesta.
+- [x] Un piloto sin salario asignado sale con `salary: null`.
+- [x] Listar 20 pilotos ejecuta un número de queries independiente del número de filas (sin N+1 sobre `user` ni `carrier`).
 
 **Asignación `PATCH /api/pilots/{pilot}/salary`**
 
-- [ ] La **primera** asignación responde 200, deja `salary` en la fila pivote y crea **una** fila de bitácora con `previous_salary` `null`.
-- [ ] La segunda asignación crea una segunda fila con `previous_salary` igual al salario anterior.
-- [ ] Bajar el salario responde 200 y se registra igual que una subida.
-- [ ] Mandar el **mismo** salario responde **400** y el número de filas de la bitácora **no cambia**.
-- [ ] `4500`, `4500.00` y `4500.004` se consideran el mismo salario que un `salary` de `'4500.00'`: los tres responden 400.
-- [ ] `changed_by` apunta al usuario autenticado aunque el body traiga otro valor.
-- [ ] Body vacío responde **422**; `salary: 0`, negativo, `'abc'` o mayor que 99999999.99 responden 422.
-- [ ] Un `carrier` sobre un piloto de **otra** empresa responde **403**.
-- [ ] Un `administrator` sobre un piloto de cualquier empresa responde 200.
-- [ ] Un `user_id` que no existe responde **404**.
-- [ ] Un `user_id` que existe pero **no es piloto de ninguna empresa** responde **404**, con el mismo mensaje.
-- [ ] Si la inserción en la bitácora falla, el `salary` de `carrier_pilots` **no queda modificado** (la transacción revierte los dos).
+- [x] La **primera** asignación responde 200, deja `salary` en la fila pivote y crea **una** fila de bitácora con `previous_salary` `null`.
+- [x] La segunda asignación crea una segunda fila con `previous_salary` igual al salario anterior.
+- [x] Bajar el salario responde 200 y se registra igual que una subida.
+- [x] Mandar el **mismo** salario responde **400** y el número de filas de la bitácora **no cambia**.
+- [x] `4500`, `4500.00` y `4500.004` se consideran el mismo salario que un `salary` de `'4500.00'`: los tres responden 400.
+- [x] `changed_by` apunta al usuario autenticado aunque el body traiga otro valor.
+- [x] Body vacío responde **422**; `salary: 0`, negativo, `'abc'` o mayor que 99999999.99 responden 422.
+- [x] Un `carrier` sobre un piloto de **otra** empresa responde **403**.
+- [x] Un `administrator` sobre un piloto de cualquier empresa responde 200.
+- [x] Un `user_id` que no existe responde **404**.
+- [x] Un `user_id` que existe pero **no es piloto de ninguna empresa** responde **404**, con el mismo mensaje.
+- [x] Si la inserción en la bitácora falla, el `salary` de `carrier_pilots` **no queda modificado** (la transacción revierte los dos).
 
 **Historial `GET /api/pilots/{pilot}/salary-history`**
 
-- [ ] Tras tres cambios, devuelve **tres** filas ordenadas del más reciente al más antiguo.
-- [ ] La fila más antigua es la que tiene `previousSalary: null`.
-- [ ] Cada elemento trae `id`, `previousSalary`, `newSalary`, `changedById`, `changedByName` y `changedAt`.
-- [ ] Un piloto sin ningún cambio devuelve lista **vacía** con 200, no 404.
-- [ ] `limit` pagina el historial con la misma regla `[10, 100]`.
-- [ ] Un `carrier` sobre un piloto de otra empresa responde **403**; sobre uno suyo, 200.
-- [ ] Un `manager` puede leer el historial de cualquier piloto.
-- [ ] Un `user_id` inexistente responde 404.
+- [x] Tras tres cambios, devuelve **tres** filas ordenadas del más reciente al más antiguo.
+- [x] La fila más antigua es la que tiene `previousSalary: null`.
+- [x] Cada elemento trae `id`, `previousSalary`, `newSalary`, `changedById`, `changedByName` y `changedAt`.
+- [x] Un piloto sin ningún cambio devuelve lista **vacía** con 200, no 404.
+- [x] `limit` pagina el historial con la misma regla `[10, 100]`.
+- [x] Un `carrier` sobre un piloto de otra empresa responde **403**; sobre uno suyo, 200.
+- [x] Un `manager` puede leer el historial de cualquier piloto.
+- [x] Un `user_id` inexistente responde 404.
 
 **Autorización**
 
-- [ ] Los tres endpoints sin token responden **401** con el sobre estándar.
-- [ ] Un `pilot` recibe **403** en los tres, incluso usando **su propio** `user_id`.
-- [ ] Un `manager` recibe 200 en `index` y en `salary-history`, y **403** en el `PATCH`.
-- [ ] Un `carrier` **sin empresa registrada** recibe 403 en los tres (lo frena `carrier.required`).
-- [ ] Un `administrator` sin empresa alcanza los tres sin problema: está exento de `carrier.required`.
+- [x] Los tres endpoints sin token responden **401** con el sobre estándar.
+- [x] Un `pilot` recibe **403** en los tres, incluso usando **su propio** `user_id`.
+- [x] Un `manager` recibe 200 en `index` y en `salary-history`, y **403** en el `PATCH`.
+- [x] Un `carrier` **sin empresa registrada** recibe 403 en los tres (lo frena `carrier.required`).
+- [x] Un `administrator` sin empresa alcanza los tres sin problema: está exento de `carrier.required`.
 
 **No regresión de SPEC 03**
 
-- [ ] `GET /api/carriers/me/pilots` devuelve exactamente el mismo JSON que antes de esta spec, **sin** `salary`.
-- [ ] `CarrierPilotResource` no cambió.
-- [ ] `CarrierService::getMyPilots()` y `joinCarrier()` no cambiaron.
-- [ ] `tests/Feature/CarrierTest.php` y `tests/Unit/CarrierServiceTest.php` pasan **sin haber sido modificados**.
-- [ ] El índice único sobre `carrier_pilots.user_id` sigue en pie: un piloto no puede unirse a dos empresas.
+- [x] `GET /api/carriers/me/pilots` devuelve exactamente el mismo JSON que antes de esta spec, **sin** `salary`.
+- [x] `CarrierPilotResource` no cambió.
+- [x] `CarrierService::getMyPilots()` y `joinCarrier()` no cambiaron.
+- [x] `tests/Feature/CarrierTest.php` y `tests/Unit/CarrierServiceTest.php` pasan **sin haber sido modificados**.
+- [x] El índice único sobre `carrier_pilots.user_id` sigue en pie: un piloto no puede unirse a dos empresas.
 
 **Cierre**
 
-- [ ] `php artisan test --compact` pasa la suite entera, incluidas las diez specs anteriores.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan route:list --path=pilots` muestra **tres** rutas, con las dos fijas antes del `index`.
-- [ ] `/api/documentation` muestra los tres endpoints, con `salary` documentado como GTQ mensuales y el 400 del salario idéntico.
+- [x] `php artisan test --compact` pasa la suite entera, incluidas las diez specs anteriores.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan route:list --path=pilots` muestra **tres** rutas, con las dos fijas antes del `index`.
+- [x] `/api/documentation` muestra los tres endpoints, con `salary` documentado como GTQ mensuales y el 400 del salario idéntico.
 
 ---
 

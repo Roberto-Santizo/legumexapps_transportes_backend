@@ -13,6 +13,7 @@ use App\Services\Pilot\PilotService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Schema;
 
 function pilotService(): PilotServiceInterface
 {
@@ -41,6 +42,43 @@ function linkPilot(Carrier $carrier, int|float|string|null $salary = null): Carr
         'salary' => $salary,
     ]);
 }
+
+/*
+|--------------------------------------------------------------------------
+| Base de datos y modelos
+|--------------------------------------------------------------------------
+*/
+
+it('crea la tabla del historial de salarios', function () {
+    expect(Schema::hasTable('carrier_pilot_salary_histories'))->toBeTrue()
+        ->and(Schema::hasColumn('carrier_pilots', 'salary'))->toBeTrue();
+});
+
+it('persiste el salario con dos decimales al crear la pivote', function () {
+    $pilot = linkPilot(Carrier::factory()->create(), 4500);
+
+    expect($pilot->fresh()->salary)->toBe('4500.00');
+});
+
+it('borra el historial al borrar la fila pivote', function () {
+    $pilot = linkPilot(Carrier::factory()->create());
+
+    CarrierPilotSalaryHistory::factory()->count(3)->create(['carrier_pilot_id' => $pilot->id]);
+
+    $pilot->delete();
+
+    expect(CarrierPilotSalaryHistory::query()->where('carrier_pilot_id', $pilot->id)->count())->toBe(0);
+});
+
+/** La FK a users no cascadea a propósito: borrar al autor no puede borrar el rastro. */
+it('impide borrar al usuario que figura como autor de un cambio', function () {
+    $pilot = linkPilot(Carrier::factory()->create());
+    $admin = pilotServiceAdmin();
+
+    pilotService()->updateSalary($pilot->user_id, ['salary' => 4500], $admin);
+
+    expect(fn () => $admin->delete())->toThrow(QueryException::class);
+});
 
 /*
 |--------------------------------------------------------------------------
