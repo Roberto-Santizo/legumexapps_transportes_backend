@@ -44,6 +44,39 @@ function tokenFor(User $user, string $password = 'password123'): string
     return $token;
 }
 
+/**
+ * Log in through the endpoint and return both issued tokens.
+ *
+ * @return array{token: string, refreshToken: string}
+ */
+function tokensFor(User $user, string $password = 'password123'): array
+{
+    $data = test()->postJson(route('auth.login'), [
+        'email' => $user->email,
+        'password' => $password,
+    ])->json('data');
+
+    resetAuthState();
+
+    return ['token' => $data['token'], 'refreshToken' => $data['refreshToken']];
+}
+
+/**
+ * Decode the claims of a token, leaving the JWT singletons clean on both ends.
+ *
+ * @return array<string, mixed>
+ */
+function authClaimsOf(string $token): array
+{
+    resetAuthState();
+
+    $claims = JWTAuth::setToken($token)->getPayload()->toArray();
+
+    resetAuthState();
+
+    return $claims;
+}
+
 /*
 |--------------------------------------------------------------------------
 | POST /api/auth/register
@@ -340,6 +373,43 @@ it('valida los campos obligatorios al iniciar sesión', function (array $payload
     'correo con formato inválido' => [['email' => 'no-es-un-correo', 'password' => 'password123'], 'email'],
 ]);
 
+it('devuelve exactamente el usuario y los dos tokens al iniciar sesión', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+
+    $response = $this->postJson(route('auth.login'), [
+        'email' => $user->email,
+        'password' => 'password123',
+    ])->assertOk();
+
+    expect(array_keys($response->json('data')))->toBe(['user', 'token', 'refreshToken'])
+        ->and($response->json('data.refreshToken'))->toBeString()->not->toBeEmpty()
+        ->and($response->json('data.refreshToken'))->not->toBe($response->json('data.token'));
+
+    resetAuthState();
+});
+
+it('emite el token de refresco con catorce días de vigencia y marca el tokenType de cada uno', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+
+    $tokens = tokensFor($user);
+
+    $access = authClaimsOf($tokens['token']);
+    $refresh = authClaimsOf($tokens['refreshToken']);
+
+    expect($access['tokenType'])->toBe('access')
+        ->and($access['exp'] - $access['iat'])->toBe(60 * 60)
+        ->and($refresh['tokenType'])->toBe('refresh')
+        ->and($refresh['exp'] - $refresh['iat'])->toBe(14 * 24 * 60 * 60);
+});
+
+it('emite los dos tokens del login con los mismos claims de negocio', function (string $claim) {
+    $user = User::factory()->create(['password' => 'password123']);
+
+    $tokens = tokensFor($user);
+
+    expect(authClaimsOf($tokens['refreshToken'])[$claim])->toBe(authClaimsOf($tokens['token'])[$claim]);
+})->with(['id', 'name', 'email', 'role', 'carrierId', 'carrierName', 'carrierCode']);
+
 /*
 |--------------------------------------------------------------------------
 | GET /api/auth/check-status
@@ -418,6 +488,115 @@ it('rechaza check-status con un token manipulado', function () {
         ->assertExactJson([
             'statusCode' => 401,
             'message' => 'El token de sesión no es válido o ha expirado',
+            'data' => null,
+        ]);
+
+    resetAuthState();
+});
+
+it('devuelve exactamente el usuario y un par nuevo de tokens en check-status', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+    $tokens = tokensFor($user);
+
+    $response = $this->withHeader('Authorization', "Bearer {$tokens['token']}")
+        ->getJson(route('auth.check-status'))
+        ->assertOk();
+
+    expect(array_keys($response->json('data')))->toBe(['user', 'token', 'refreshToken'])
+        ->and($response->json('data.token'))->not->toBe($tokens['token'])
+        ->and($response->json('data.refreshToken'))->not->toBe($tokens['refreshToken']);
+
+    resetAuthState();
+});
+
+it('acepta el token de refresco en check-status y devuelve un par nuevo', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+    $tokens = tokensFor($user);
+
+    $response = $this->withHeader('Authorization', "Bearer {$tokens['refreshToken']}")
+        ->getJson(route('auth.check-status'))
+        ->assertOk()
+        ->assertJsonPath('data.user.id', $user->id);
+
+    expect(array_keys($response->json('data')))->toBe(['user', 'token', 'refreshToken'])
+        ->and($response->json('data.refreshToken'))->not->toBe($tokens['refreshToken']);
+
+    resetAuthState();
+});
+
+it('renueva la ventana completa de catorce días del token de refresco', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+    $tokens = tokensFor($user);
+
+    $issued = authClaimsOf($tokens['refreshToken']);
+
+    $this->travel(7)->days();
+
+    $renewed = authClaimsOf(
+        $this->withHeader('Authorization', "Bearer {$tokens['refreshToken']}")
+            ->getJson(route('auth.check-status'))
+            ->assertOk()
+            ->json('data.refreshToken'),
+    );
+
+    /** No hereda el remanente del que llegó: vuelve a contar catorce días desde ahora. */
+    expect($renewed['exp'] - $renewed['iat'])->toBe(14 * 24 * 60 * 60)
+        ->and($renewed['exp'])->toBeGreaterThan($issued['exp']);
+
+    resetAuthState();
+});
+
+it('encadena check-status con cada token de refresco devuelto sin tope de renovaciones', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+    $refreshToken = tokensFor($user)['refreshToken'];
+
+    foreach (range(1, 3) as $ignored) {
+        $this->travel(13)->days();
+
+        $refreshToken = $this->withHeader('Authorization', "Bearer {$refreshToken}")
+            ->getJson(route('auth.check-status'))
+            ->assertOk()
+            ->assertJsonPath('data.user.id', $user->id)
+            ->json('data.refreshToken');
+
+        resetAuthState();
+    }
+
+    expect($refreshToken)->toBeString()->not->toBeEmpty();
+});
+
+it('rechaza check-status con un token de refresco expirado', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+    $tokens = tokensFor($user);
+
+    $this->travel(15)->days();
+
+    $this->withHeader('Authorization', "Bearer {$tokens['refreshToken']}")
+        ->getJson(route('auth.check-status'))
+        ->assertUnauthorized()
+        ->assertExactJson([
+            'statusCode' => 401,
+            'message' => 'El token de sesión no es válido o ha expirado',
+            'data' => null,
+        ]);
+
+    resetAuthState();
+});
+
+it('rechaza con 403 el check-status de una cuenta sin confirmar', function () {
+    $user = User::factory()->unverified()->create(['password' => 'password123']);
+
+    /** El login bloquea la cuenta sin confirmar, así que el token se emite directamente. */
+    $token = JWTAuth::fromUser($user);
+
+    resetAuthState();
+
+    $this->withHeader('Authorization', "Bearer {$token}")
+        ->getJson(route('auth.check-status'))
+        ->assertForbidden()
+        ->assertExactJson([
+            'statusCode' => 403,
+            'message' => 'La cuenta aún no ha sido confirmada',
             'data' => null,
         ]);
 
@@ -673,3 +852,41 @@ it('devuelve 201 en el registro aunque el proveedor de correo falle', function (
     $this->assertDatabaseHas('users', ['email' => 'juan.perez@example.com']);
     $this->assertDatabaseCount(CONFIRMATION_TABLE, 1);
 });
+
+/*
+|--------------------------------------------------------------------------
+| El token de refresco en el resto de la API
+|--------------------------------------------------------------------------
+*/
+
+it('autentica una ruta protegida de otro dominio con el token de refresco', function () {
+    $user = User::factory()->create(['password' => 'password123']);
+    $refreshToken = tokensFor($user)['refreshToken'];
+
+    $this->withHeader('Authorization', "Bearer {$refreshToken}")
+        ->getJson(route('products.index'))
+        ->assertOk();
+
+    resetAuthState();
+});
+
+it('aplica el middleware de rol igual con el token de acceso que con el de refresco', function (string $key) {
+    $pilot = User::factory()->create(['role' => UserRole::Pilot->value, 'password' => 'password123']);
+    $administrator = User::factory()->create(['role' => UserRole::Administrator->value, 'password' => 'password123']);
+
+    $pilotTokens = tokensFor($pilot);
+    $administratorTokens = tokensFor($administrator);
+
+    $this->withHeader('Authorization', "Bearer {$pilotTokens[$key]}")
+        ->postJson(route('products.store'), [])
+        ->assertForbidden();
+
+    resetAuthState();
+
+    /** El administrador sí atraviesa el middleware: el 422 lo produce la validación, no el rol. */
+    $this->withHeader('Authorization', "Bearer {$administratorTokens[$key]}")
+        ->postJson(route('products.store'), [])
+        ->assertUnprocessable();
+
+    resetAuthState();
+})->with(['token', 'refreshToken']);

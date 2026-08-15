@@ -88,7 +88,8 @@ class AuthService implements AuthServiceInterface
             throw new ForbiddenError('La cuenta aún no ha sido confirmada');
         }
 
-        return ['user' => $user, 'token' => $token];
+        /** El token de attempt() se descarta: los dos que viajan salen de issueTokens(), que es quien les pone el tokenType. */
+        return ['user' => $user, ...$this->issueTokens($user)];
     }
 
     #[Override]
@@ -100,12 +101,12 @@ class AuthService implements AuthServiceInterface
             throw new UnauthorizedError('El token no es válido');
         }
 
-        if(!$user->email_verified_at){
+        if (! $user->email_verified_at) {
             throw new ForbiddenError('La cuenta aún no ha sido confirmada');
         }
 
         /** Se reemite desde el usuario, no con refresh(): refresh arrastra los claims del token anterior y dejaría los de transportista desactualizados hasta que expirase la sesión. */
-        return ['user' => $user, 'token' => auth('api')->login($user)];
+        return ['user' => $user, ...$this->issueTokens($user)];
     }
 
     #[Override]
@@ -134,6 +135,28 @@ class AuthService implements AuthServiceInterface
 
             DB::table(self::RESET_TABLE)->where('email', '=', $data['email'])->delete();
         });
+    }
+
+    /**
+     * Issue the access and refresh tokens of a user.
+     *
+     * Only place in the project aware of claims() and factory()->setTTL(): both the
+     * TTL and the custom claims are request state, so the access token is issued
+     * first with the config TTL intact, both declare their tokenType explicitly, and
+     * the TTL is restored afterwards — otherwise any later token of the same request
+     * would inherit the refresh one.
+     *
+     * @return array{token: string, refreshToken: string}
+     */
+    private function issueTokens(User $user): array
+    {
+        $token = auth('api')->claims(['tokenType' => 'access'])->login($user);
+
+        auth('api')->factory()->setTTL(config('jwt.refresh_token_ttl'));
+        $refreshToken = auth('api')->claims(['tokenType' => 'refresh'])->login($user);
+        auth('api')->factory()->setTTL(config('jwt.ttl'));
+
+        return ['token' => $token, 'refreshToken' => $refreshToken];
     }
 
     /**
