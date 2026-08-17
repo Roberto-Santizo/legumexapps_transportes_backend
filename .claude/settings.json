@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/spec-impl-reference.sh\"",
+            "timeout": 15,
+            "statusMessage": "Marcando el resumen de feature de /spec-impl"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/spec-impl-reference-check.sh\"",
+            "timeout": 15,
+            "statusMessage": "Comprobando el resumen de feature en references/"
+          }
+        ]
+      }
+    ]
+  }
+}

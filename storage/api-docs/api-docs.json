@@ -2457,6 +2457,306 @@
                 ]
             }
         },
+        "/api/pilots": {
+            "get": {
+                "tags": [
+                    "Pilots"
+                ],
+                "summary": "Listar pilotos con su salario",
+                "description": "Devuelve los pilotos vinculados a una empresa transportista, cada uno con su empresa resuelta por nombre y con su SALARIO BASE MENSUAL EN QUETZALES. Es el listado de administración del dominio; el listado del transportista es otro, GET /api/carriers/me/pilots, que no trae salary y formatea la fecha en ISO 8601.\n\nSolo aparecen usuarios que SON pilotos de alguna empresa: la lista sale de la pivote carrier_pilots, no de la tabla de usuarios, así que un usuario con rol pilot que todavía no se ha unido a ninguna empresa NO figura aquí.\n\nATENCIÓN — EL ÁMBITO DEPENDE DEL ROL. Un administrator o un manager ven los pilotos de TODAS las empresas del sistema, y para ellos el filtro carrierId sí acota. Un carrier queda acotado a su propia empresa y el carrierId SE LE IGNORA EN SILENCIO: mandar el id de otra empresa NO devuelve 403 ni 422, devuelve 200 con SUS pilotos, exactamente igual que si no lo hubiera mandado. Un pilot recibe 403, incluso queriendo verse a sí mismo.\n\nConviene decirlo en voz alta: un manager no está acotado a ninguna empresa, así que esta llamada le devuelve el sueldo de cada piloto de cada transportista registrado. El control es por rol, no por campo — quien alcanza este endpoint ve el salario de todos los pilotos que su ámbito le permita listar.\n\nLos filtros son TOLERANTES y ninguno provoca 422: un carrierId no numérico (carrierId=abc) se ignora y devuelve el listado completo del ámbito; un carrierId numérico de una empresa que no existe devuelve 200 con data VACÍO, nunca 404; un limit no numérico simplemente no pagina. No hay filtro por nombre, por email, por rango de salario ni por \"pilotos sin salario asignado\".\n\nEl orden es fijo y no configurable: id ASC de la fila pivote, es decir el orden en que los pilotos se fueron uniendo. No hay sortBy ni sortDir.\n\nLa forma de la respuesta depende de limit: sin limit se devuelve la colección completa y el sobre NO trae total, currentPage ni lastPage; con un limit numérico esos tres campos salen APLANADOS en la raíz del sobre, no bajo meta.\n\nUn piloto al que todavía no se le ha asignado salario sale con salary null. Ese null NO es cero: es \"sin asignar\".",
+                "operationId": "indexPilots",
+                "parameters": [
+                    {
+                        "name": "carrierId",
+                        "in": "query",
+                        "description": "Acota el listado a los pilotos de una empresa transportista (carriers.id). ATENCIÓN — SOLO SURTE EFECTO PARA administrator Y manager: a un carrier se le IGNORA EN SILENCIO, porque su ámbito ya está fijado a su propia empresa, y mandar el id de otra empresa le devuelve 200 con sus propios pilotos, no 403 ni 422. Es TOLERANTE: un valor no numérico se ignora sin error; un id numérico de una empresa inexistente devuelve 200 con data vacío. No comprueba que la empresa exista, así que por sí solo nunca produce 404 ni 422.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 4
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los pilotos del ámbito sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=1 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con carrierId.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Pilotos obtenidos correctamente. Sin limit se devuelve PilotListResponse; con limit numérico, PaginatedPilotListResponse. Una empresa sin pilotos, o un carrierId sin coincidencias, devuelven 200 con data vacío, nunca 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/PilotListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedPilotListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Dos causas distintas con mensajes distintos. Por ROL: el usuario autenticado es un pilot —el único de los cuatro roles que no puede leer este listado, ni siquiera para verse a sí mismo—, y el middleware role responde: No tienes permisos para acceder a este recurso. Por FALTA DE EMPRESA: el usuario es un carrier que todavía no ha registrado ninguna empresa y lo frena carrier.required antes de llegar al service, con el mensaje: Debes estar vinculado a un transportista para acceder a este recurso. Un administrator y un manager están exentos de esta segunda comprobación y alcanzan el listado aunque no pertenezcan a ninguna empresa.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/pilots/{pilot}/salary": {
+            "patch": {
+                "tags": [
+                    "Pilots"
+                ],
+                "summary": "Asignar o actualizar el salario de un piloto",
+                "description": "Fija el SALARIO BASE MENSUAL EN QUETZALES (GTQ) de un piloto y deja registrado el cambio en la bitácora. Sirve igual para la PRIMERA asignación —el piloto tenía salary null— que para cualquier cambio posterior: no hay dos endpoints, y lo único que distingue a la primera vez es que su entrada del historial es la única con previousSalary null.\n\nEs la ÚNICA escritura de todo el dominio. El cuerpo tiene un solo campo, salary, y es OBLIGATORIO: un CUERPO VACÍO responde 422, no 200 como no-op. No se acepta ningún otro campo; en particular, el autor del cambio (changedBy) sale SIEMPRE del usuario autenticado y mandarlo en el cuerpo no tiene ningún efecto.\n\nATENCIÓN — PERMISOS MÁS ESTRECHOS QUE LOS DE LECTURA: solo administrator y carrier. El MANAGER RECIBE 403 AQUÍ, aunque sí pueda listar pilotos y leer historiales de cualquier empresa: es el único punto del proyecto donde un rol tiene alcance total de lectura y cero de escritura. El pilot también recibe 403, incluso sobre su propio user_id.\n\nATENCIÓN — MANDAR EL MISMO SALARIO QUE EL PILOTO YA TIENE RESPONDE 400 y NO añade ninguna fila a la bitácora. La comparación es sobre el valor formateado a DOS DECIMALES: contra un salary de 4500.00, los valores 4500, 4500.00 y 4500.004 son el mismo salario y los tres devuelven 400. Es deliberado, para que toda fila del historial sea un cambio real y el reenvío del mismo formulario no ensucie la bitácora. Un front que reenvíe sin cambios debe esperar este 400 y tratarlo como \"no había nada que guardar\".\n\nBAJAR EL SALARIO ESTÁ PERMITIDO, sin restricción ni aprobación, y se registra igual que una subida. Lo que no se puede es poner a alguien en cero: el mínimo es 0.01, porque dejar a un piloto en cero sería desvincularlo y eso no existe en esta API.\n\nEl {pilot} de la ruta es el user_id del piloto, NO el id de la fila de carrier_pilots. El 404 cubre DOS CASOS a propósito y con el MISMO mensaje: un user_id que no existe y un usuario que existe pero no es piloto de ninguna empresa. Distinguirlos convertiría el endpoint en un oráculo de qué ids de usuario hay en el sistema.\n\nPara un carrier, tocar un piloto de OTRA empresa es 403, no 404: el piloto existe, simplemente no es suyo. Un administrator puede tocar el de cualquier empresa.\n\nLa escritura de la columna y la inserción en la bitácora corren en la MISMA TRANSACCIÓN, con la fila bloqueada: no puede quedar un salario cambiado sin rastro, ni un rastro de un cambio que no ocurrió. Si la bitácora fallara, el salario tampoco se guardaría.\n\nEl cambio rige DESDE QUE SE GUARDA: no hay effective_from ni aumentos programados a futuro, y no se notifica al piloto. La respuesta devuelve el piloto completo, ya con el salario nuevo.",
+                "operationId": "updatePilotSalary",
+                "parameters": [
+                    {
+                        "name": "pilot",
+                        "in": "path",
+                        "description": "Identificador del USUARIO piloto (users.id), NO el id de la fila de carrier_pilots — ese id no sale nunca de la API. Es el mismo valor que devuelve el campo id de GET /api/pilots y el de GET /api/carriers/me/pilots. El service lo traduce internamente a la fila pivote; si no hay ninguna fila con ese user_id, la respuesta es 404, tanto si el usuario no existe como si existe pero no es piloto de ninguna empresa.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 12
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdatePilotSalaryRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Salario actualizado correctamente. data trae el piloto completo con el salario YA APLICADO, como cadena con dos decimales, y en la bitácora ha quedado UNA fila nueva con el salario anterior (null si era la primera asignación), el nuevo y el usuario autenticado como autor.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Salario actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Pilot"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El salario enviado es IDÉNTICO al que el piloto ya tiene registrado, comparado a dos decimales: contra un 4500.00 caen aquí tanto 4500 como 4500.00 y 4500.004. La bitácora NO cambia y el número de filas del historial se queda igual. No es un valor mal formado —eso sería 422— sino un cambio que no cambia nada. El mensaje devuelto es: El salario indicado es el mismo que el piloto ya tiene registrado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Tres causas con dos mensajes distintos. Por ROL: el usuario es un manager o un pilot —ATENCIÓN, el manager SÍ puede listar pilotos y leer historiales, pero NO puede escribir el salario, y el pilot no alcanza nada del dominio ni sobre sí mismo—, con el mensaje del middleware role: No tienes permisos para acceder a este recurso. Por FALTA DE EMPRESA: un carrier que aún no ha registrado empresa lo frena carrier.required, con el mensaje: Debes estar vinculado a un transportista para acceder a este recurso. Por ÁMBITO: un carrier que intenta tocar un piloto de OTRA empresa, con el mensaje: No puedes acceder a un piloto que no pertenece a tu empresa transportista — nótese que este último confirma que el piloto existe, al contrario que el 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No hay ninguna fila de carrier_pilots con ese user_id. Cubre DOS casos a propósito y con el MISMO mensaje: el usuario no existe, o existe pero no es piloto de ninguna empresa transportista. Distinguirlos filtraría qué ids de usuario están registrados. Un piloto que existe pero es de otra empresa NO cae aquí, cae en el 403. El mensaje devuelto es: El piloto no existe o no está vinculado a ninguna empresa transportista",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos del cuerpo. Casos: falta salary —un CUERPO VACÍO cae aquí, este PATCH no admite no-op— (El salario es obligatorio); salary no es numérico, por ejemplo \"abc\" (El salario debe ser un número en quetzales); salary es 0 o negativo (El salario debe ser mayor que cero); o salary supera 99999999.99 (El salario no puede superar los 99999999.99 quetzales). Enviar el salario que el piloto ya tiene NO es 422: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/pilots/{pilot}/salary-history": {
+            "get": {
+                "tags": [
+                    "Pilots"
+                ],
+                "summary": "Consultar la bitácora de salario de un piloto",
+                "description": "Devuelve todos los cambios de salario de un piloto: qué salario tenía, cuál pasó a tener, quién lo cambió y cuándo. Todos los importes son MENSUALES Y EN QUETZALES (GTQ), como cadenas con dos decimales.\n\nEl orden es fijo: del cambio MÁS RECIENTE al MÁS ANTIGUO. Se ordena por id DESC y no por fecha, porque dos cambios en el mismo segundo empatarían el changedAt y el orden quedaría indefinido. La ÚLTIMA entrada de la lista es siempre la primera asignación, y es la única de todo el historial que trae previousSalary null.\n\nTODA ENTRADA ES UN CAMBIO REAL: un PATCH con el salario que el piloto ya tiene responde 400 y no escribe aquí, así que no hay filas en las que previousSalary y newSalary coincidan. Encadenando la lista al revés, el newSalary de cada entrada es el previousSalary de la siguiente.\n\nUn piloto al que NUNCA se le ha cambiado el salario —el caso normal de un recién unido, con salary null— devuelve 200 con data VACÍO, nunca 404. El 404 es solo del piloto, no del historial.\n\nLO LEEN administrator, manager Y carrier: es lectura, así que aquí el manager SÍ entra, al contrario que en el PATCH. Un pilot recibe 403 incluso consultando su propio historial. Para un carrier, el historial de un piloto de OTRA empresa es 403, no 404.\n\nEl {pilot} es el user_id del piloto, igual que en el PATCH, y comparte exactamente la misma guarda: el mismo 404 de dos casos y el mismo 403 de ámbito.\n\nPagina con la MISMA regla que el resto del proyecto: sin limit se devuelve el historial completo y el sobre no trae total, currentPage ni lastPage; con un limit numérico, acotado a [10, 100], esos tres campos salen aplanados en la raíz. La bitácora crece sin techo y no se purga nunca, así que un piloto con muchos años de ajustes conviene leerlo paginado.\n\nEs SOLO LECTURA: no hay endpoint que edite ni borre una entrada, ni existe un historial global de la empresa (GET /api/pilots/salary-history sin id no existe), ni exportación a CSV o Excel.",
+                "operationId": "salaryHistoryPilots",
+                "parameters": [
+                    {
+                        "name": "pilot",
+                        "in": "path",
+                        "description": "Identificador del USUARIO piloto (users.id), NO el id de la fila de carrier_pilots. Es el mismo valor que el campo id de GET /api/pilots y el mismo que se manda en el PATCH. Si no hay ninguna fila de carrier_pilots con ese user_id, la respuesta es 404, tanto si el usuario no existe como si existe pero no es piloto de ninguna empresa.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 12
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página del historial. Su presencia es lo que activa la paginación. Si se omite o no es numérico (limit=abc), se devuelve la bitácora completa sin metadatos de paginación. Si es numérico se acota a [10, 100]: limit=1 devuelve páginas de 10 y limit=500 de 100. No existe filtro por rango de fechas ni por autor del cambio.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Historial de salario obtenido correctamente, ordenado del cambio más reciente al más antiguo. Sin limit se devuelve PilotSalaryHistoryListResponse; con limit numérico, PaginatedPilotSalaryHistoryListResponse. Un piloto sin ningún cambio de salario devuelve 200 con data vacío, nunca 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/PilotSalaryHistoryListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedPilotSalaryHistoryListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Tres causas con dos mensajes distintos. Por ROL: el usuario es un pilot —el único rol que no lee este historial, tampoco el suyo propio; el manager SÍ puede leerlo, aunque no pueda escribir el salario—, con el mensaje del middleware role: No tienes permisos para acceder a este recurso. Por FALTA DE EMPRESA: un carrier sin empresa registrada, frenado por carrier.required, con el mensaje: Debes estar vinculado a un transportista para acceder a este recurso. Por ÁMBITO: un carrier consultando el historial de un piloto de OTRA empresa, con el mensaje: No puedes acceder a un piloto que no pertenece a tu empresa transportista",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No hay ninguna fila de carrier_pilots con ese user_id. Cubre los mismos DOS casos que el PATCH y con el MISMO mensaje: el usuario no existe, o existe pero no es piloto de ninguna empresa transportista. Un piloto que existe pero no tiene ningún cambio registrado NO cae aquí: eso es un 200 con data vacío. El mensaje devuelto es: El piloto no existe o no está vinculado a ninguna empresa transportista",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/products": {
             "get": {
                 "tags": [
@@ -4462,6 +4762,24 @@
                 },
                 "type": "object"
             },
+            "UpdatePilotSalaryRequest": {
+                "title": "Asignación de salario a un piloto",
+                "description": "Cuerpo JSON de PATCH /api/pilots/{pilot}/salary. Tiene UN SOLO campo, salary, y es OBLIGATORIO: al contrario que los PATCH de FreightRates, Zones o Products, aquí un CUERPO VACÍO es un 422 y no un no-op con 200. El endpoint existe únicamente para cambiar el salario, así que no mandarlo es un error del cliente.\n\nNO SE ACEPTA NINGÚN OTRO CAMPO. En particular NO se acepta changedBy: el autor del cambio sale SIEMPRE del usuario autenticado, y mandarlo en el cuerpo no tiene ningún efecto —ni lo escribe, ni produce error—. Tampoco hay reason, notes ni effective_from: la bitácora registra el qué y el quién, no el por qué, y el cambio rige desde que se guarda.\n\nSirve tanto para la PRIMERA asignación —el piloto tenía salary null— como para cualquier cambio posterior. No hay dos endpoints distintos: la diferencia solo se nota en la bitácora, donde la primera entrada es la única con previousSalary null.\n\nATENCIÓN — MANDAR EL MISMO SALARIO QUE EL PILOTO YA TIENE RESPONDE 400, no 200 ni 422, y no escribe nada en la bitácora. La comparación se hace sobre el valor FORMATEADO A DOS DECIMALES, así que contra un salary de '4500.00' los tres valores 4500, 4500.00 y 4500.004 son el mismo salario y los tres devuelven 400. Es deliberado: corta de raíz el reenvío del mismo formulario y garantiza que toda fila del historial sea un cambio real.\n\nBAJAR EL SALARIO ESTÁ PERMITIDO, sin restricción y sin aprobación: se registra exactamente igual que una subida. Lo que no se puede es poner a alguien en cero (min 0.01), porque eso sería desvincularlo y no existe en esta API.\n\nEl campo NO acepta moneda ni periodicidad: el número se interpreta siempre como QUETZALES AL MES.",
+                "required": [
+                    "salary"
+                ],
+                "properties": {
+                    "salary": {
+                        "description": "Nuevo salario base MENSUAL del piloto EN QUETZALES (GTQ). Obligatorio, numérico, entre 0.01 y 99999999.99 — el mínimo cierra la puerta al cero y a los negativos, y el máximo es el tope de la columna decimal(10,2). Se acepta como número (4500.5) o como cadena numérica (\"4500.50\"); en la respuesta vuelve siempre como CADENA con dos decimales. Los decimales de más allá del segundo se pierden al guardar, y la comprobación del salario repetido también los ignora: 4500.004 se considera igual a 4500.00. No es un aumento ni un delta: es el salario resultante, absoluto. Enviar null, 0, un negativo, \"abc\" o superar el máximo devuelve 422; enviar el salario que el piloto ya tiene devuelve 400.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 4500,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    }
+                },
+                "type": "object"
+            },
             "StoreProductRequest": {
                 "title": "Alta de producto",
                 "description": "Cuerpo JSON para dar de alta un producto del catálogo nacional. El único campo aceptado es name, y es obligatorio.\n\nEl status NO se acepta: el producto nace siempre en true y enviarlo se descarta sin error, así que no hay forma de crear un producto ya dado de baja. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador; mandarlo en el cuerpo no cambia nada.\n\nATENCIÓN — el name se NORMALIZA antes de validarse y antes de guardarse: se recorta, se colapsan los espacios internos y se pasa a mayúsculas. Enviar \"brocoli\" crea el producto \"BROCOLI\", y \"  mini   zanahoria  \" crea \"MINI ZANAHORIA\". Como la normalización ocurre ANTES de la regla de unicidad, enviar \"brocoli\" existiendo ya \"BROCOLI\" devuelve 422, no 500 ni una fila duplicada.",
@@ -5181,6 +5499,160 @@
                 },
                 "type": "object"
             },
+            "Pilot": {
+                "title": "Piloto con salario",
+                "description": "Piloto vinculado a una empresa transportista, con su salario base vigente. Envuelve una fila de la pivote carrier_pilots con su usuario y su empresa ya resueltos, así que el recurso mezcla tres tablas y no se corresponde con ningún modelo suelto.\n\nATENCIÓN — EL id ES EL user_id DEL PILOTO, no el id de la fila de carrier_pilots. El id del pivote NO SALE NUNCA de la API: no aparece aquí, no aparece en el historial y no hay forma de obtenerlo. Es el user_id el que viaja en el parámetro {pilot} de PATCH /api/pilots/{pilot}/salary y de GET /api/pilots/{pilot}/salary-history.\n\nATENCIÓN — EXISTEN DOS LISTADOS DE PILOTOS y devuelven cosas distintas. GET /api/carriers/me/pilots (SPEC 03) es el listado del TRANSPORTISTA: solo sus propios pilotos, SIN el campo salary y con joinedAt en ISO 8601. GET /api/pilots —este recurso— es el listado de ADMINISTRACIÓN: incluye salary, usa el formato de fecha propio d-m-Y h:i:s A y admite el filtro carrierId para administrator y manager. No se han unificado a propósito; el de SPEC 03 se mantiene intacto.\n\nEl salario NO se puede modificar desde aquí: este recurso es solo de lectura y la única escritura del dominio es PATCH /api/pilots/{pilot}/salary. Tampoco existen show, store, update ni destroy: el dominio tiene TRES endpoints y ninguno más, y vincular un piloto sigue siendo POST /api/carriers/join.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador del USUARIO piloto (users.id), NO el id de la fila de carrier_pilots. Es el número que el front ya tiene en pantalla y el que se manda como {pilot} en las otras dos rutas del dominio. Coincide con el id que devuelve GET /api/carriers/me/pilots, así que los dos listados son cruzables por este campo.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "name": {
+                        "description": "Nombre del piloto, resuelto por la relación con users. Es null solo si la relación no se pudo cargar; en la práctica siempre viaja poblado, porque la FK a users no admite huérfanos.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "email": {
+                        "description": "Correo del piloto, resuelto por la relación con users. Es el mismo con el que inicia sesión. Este dominio no lo modifica ni lo valida: se muestra tal como está en users.",
+                        "type": "string",
+                        "format": "email",
+                        "example": "piloto@legumex.com",
+                        "nullable": true
+                    },
+                    "carrierId": {
+                        "description": "Identificador de la empresa transportista a la que está vinculado el piloto (carriers.id). Un piloto pertenece como mucho a UNA empresa —hay índice único sobre carrier_pilots.user_id—, así que este campo nunca es una lista. Es también el valor que se manda en el filtro carrierId del listado, que solo surte efecto para administrator y manager.",
+                        "type": "integer",
+                        "example": 4
+                    },
+                    "carrierName": {
+                        "description": "Nombre de la empresa transportista, resuelto por relación para que el cliente pinte la tabla sin un segundo GET. Es null solo si la relación no se pudo cargar.",
+                        "type": "string",
+                        "example": "Transportes del Norte",
+                        "nullable": true
+                    },
+                    "salary": {
+                        "description": "Salario base MENSUAL del piloto EN QUETZALES (GTQ), como CADENA con DOS decimales por el cast decimal:2 — nunca como número JSON. La columna decimal(10,2) no declara ni la unidad ni la periodicidad: que sea mensual y en quetzales es convención del dominio y solo lo dice esta documentación. ATENCIÓN — null NO significa \"gana cero\": significa \"todavía no se le ha asignado salario\". Un piloto que se une con POST /api/carriers/join nace con null, y el PATCH valida min:0.01 precisamente para que no exista un 0.00 que se confunda con lo uno o con lo otro. Solo cambia por PATCH /api/pilots/{pilot}/salary, y cada cambio deja una fila en el historial.",
+                        "type": "string",
+                        "example": "4500.00",
+                        "nullable": true
+                    },
+                    "joinedAt": {
+                        "description": "Fecha en que el piloto se vinculó a la empresa (created_at de carrier_pilots), NO la fecha de alta de su usuario ni la del último cambio de salario. ATENCIÓN — igual que en Products, Zones y FreightRates: NO viaja en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM). Por eso se documenta como string SIN format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. Ojo, el joinedAt de GET /api/carriers/me/pilots SÍ es ISO 8601: son dos Resources distintos y solo este adopta la convención nueva.",
+                        "type": "string",
+                        "example": "04-08-2026 10:15:00 AM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "PilotListResponse": {
+                "title": "Listado de pilotos sin paginar",
+                "description": "Respuesta de GET /api/pilots cuando no se envía limit o cuando el limit no es numérico: se devuelven todos los pilotos que el ámbito del usuario permita ver y el sobre NO incluye total, currentPage ni lastPage. Es la forma que quiere un selector que necesita la lista entera. El orden es fijo, id ASC de la fila pivote, es decir el orden en que los pilotos se fueron uniendo.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Pilotos obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Pilot"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedPilotListResponse": {
+                "title": "Listado de pilotos paginado",
+                "description": "Respuesta de GET /api/pilots cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/PilotListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
+            "PilotSalaryHistory": {
+                "title": "Entrada de la bitácora de salario",
+                "description": "Una entrada de la bitácora de cambios de salario de un piloto: qué salario tenía, cuál pasó a tener, quién lo cambió y cuándo. Todos los importes van EN QUETZALES (GTQ) y son SALARIOS MENSUALES, igual que el campo salary del piloto.\n\nTODA FILA DEL HISTORIAL ES UN CAMBIO REAL. Un PATCH con un salario idéntico al vigente responde 400 y NO escribe aquí, así que la bitácora no tiene filas de ruido en las que el salario anterior y el nuevo coincidan: previousSalary y newSalary de una misma fila son siempre distintos.\n\nLa bitácora es de SOLO ESCRITURA por parte del sistema y SOLO LECTURA por parte del cliente: no hay endpoint que edite ni que borre una entrada, ni existe un historial global de la empresa. La única forma de crear una entrada es PATCH /api/pilots/{pilot}/salary, y la única de leerlas es GET /api/pilots/{pilot}/salary-history.\n\nNO HAY reason, notes NI effective_from: la bitácora registra el QUÉ y el QUIÉN, nunca el POR QUÉ, y el cambio rige desde que se guarda —changedAt es la fecha de vigencia—. No existen aumentos programados a futuro.\n\nATENCIÓN — el salario vigente vive en dos sitios: la columna salary del piloto y la última fila de esta bitácora. Nada en la base garantiza que coincidan; solo la transacción del PATCH lo hace. Un UPDATE directo a la columna por fuera de la API dejaría este historial mintiendo sin ningún error ni señal.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la entrada de bitácora (carrier_pilot_salary_histories.id). No se usa en ninguna ruta —no hay detalle, edición ni baja de una entrada—, pero sirve como clave estable de la fila y refleja el orden real de los cambios: el listado se ordena por este id DESC y no por la fecha, porque dos cambios en el mismo segundo empatarían el created_at y el orden quedaría indefinido.",
+                        "type": "integer",
+                        "example": 37
+                    },
+                    "previousSalary": {
+                        "description": "Salario MENSUAL EN QUETZALES que el piloto tenía ANTES de este cambio, como cadena con dos decimales. ATENCIÓN — es null ÚNICAMENTE en la PRIMERA asignación de cada piloto, cuando no había salario previo; es la fila más antigua del historial y la única de todo el listado que puede traer null aquí. Un null NO significa que ganara cero. En cualquier otra fila coincide con el newSalary de la fila inmediatamente anterior en el tiempo, de modo que la bitácora queda encadenada.",
+                        "type": "string",
+                        "example": "4000.00",
+                        "nullable": true
+                    },
+                    "newSalary": {
+                        "description": "Salario MENSUAL EN QUETZALES con el que quedó el piloto tras este cambio, como cadena con dos decimales. Nunca es null y nunca es igual al previousSalary de su propia fila. En la entrada más reciente coincide con el campo salary que devuelve GET /api/pilots. Puede ser MENOR que el anterior: bajar el salario está permitido sin restricción y se registra exactamente igual que una subida.",
+                        "type": "string",
+                        "example": "4500.00"
+                    },
+                    "changedById": {
+                        "description": "Identificador del usuario que realizó el cambio (users.id). Sale SIEMPRE del usuario autenticado que llamó al PATCH, NUNCA del cuerpo de la petición: mandar un changedBy en el body no tiene ningún efecto. Es un administrator o un carrier, los dos únicos roles que pueden escribir el salario. La FK a users no cascadea a propósito: borrar al usuario que hizo el cambio no puede borrar el rastro del cambio.",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "changedByName": {
+                        "description": "Nombre del usuario que realizó el cambio, resuelto por la relación changedBy, para que el cliente pinte la bitácora sin un segundo GET. Es null solo si la relación no se pudo cargar. Es el nombre actual del usuario, no una copia congelada en el momento del cambio: si se renombra, la bitácora entera pasa a mostrar el nombre nuevo.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "changedAt": {
+                        "description": "Fecha en que el cambio se guardó, que es también su fecha de VIGENCIA: no hay effective_from ni aumentos a futuro, el salario rige desde este instante. ATENCIÓN — NO viaja en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que el joinedAt de Pilot y las fechas de Products, Zones y FreightRates. Por eso se documenta como string SIN format date-time: parsearlo como ISO fallaría. No sirve para ordenar el historial —el orden lo da el id—, porque dos cambios del mismo segundo empatan aquí.",
+                        "type": "string",
+                        "example": "15-08-2026 09:30:12 PM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "PilotSalaryHistoryListResponse": {
+                "title": "Historial de salario sin paginar",
+                "description": "Respuesta de GET /api/pilots/{pilot}/salary-history cuando no se envía limit o cuando el limit no es numérico: se devuelve la bitácora completa del piloto y el sobre NO incluye total, currentPage ni lastPage. El orden es fijo: del cambio MÁS RECIENTE al MÁS ANTIGUO (id DESC), de modo que la última entrada de la lista es la primera asignación, la única con previousSalary null. Un piloto al que nunca se le ha cambiado el salario devuelve 200 con data vacío, nunca 404.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Historial de salario obtenido correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PilotSalaryHistory"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedPilotSalaryHistoryListResponse": {
+                "title": "Historial de salario paginado",
+                "description": "Respuesta de GET /api/pilots/{pilot}/salary-history cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El historial pagina con la misma regla que el listado de pilotos, acotada a [10, 100].",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/PilotSalaryHistoryListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
             "Product": {
                 "title": "Producto",
                 "description": "Producto del catálogo nacional: la mercancía que se transporta. NO pertenece a ninguna empresa transportista, por eso el recurso no expone carrierId ni carrierName y su lectura está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa.\n\nEl catálogo es deliberadamente mínimo: solo name y status. No hay categoría, unidad de medida, precio, peso por caja, código SKU ni imagen, y el producto no está relacionado todavía con vehículos, viajes ni guías.\n\nATENCIÓN — el name que se devuelve NO es necesariamente el que se envió: siempre viaja normalizado (recortado, con los espacios internos colapsados y EN MAYÚSCULAS). Un cliente que quiera reflejar lo que acaba de guardar debe pintar lo que devuelve la respuesta, no lo que tecleó el usuario.",
@@ -5580,6 +6052,10 @@
         {
             "name": "FuelPrices",
             "description": "Catálogo nacional de precios de combustible. El precio NO pertenece a ninguna empresa: es un dato único para toda la aplicación, por eso ninguna ruta lleva el middleware carrier.required. Los siete endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado, precio vigente y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, corrección, desactivación y borrado) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. Solo hay un precio active por tipo de combustible, el importe va siempre EN QUETZALES (GTQ) POR GALÓN y el histórico, una vez desplazado, es intocable."
+        },
+        {
+            "name": "Pilots",
+            "description": "Administración del salario base de los pilotos vinculados a una empresa transportista, y bitácora de cada cambio. El dominio tiene EXACTAMENTE TRES ENDPOINTS y ninguno más: el listado GET /api/pilots, la asignación PATCH /api/pilots/{pilot}/salary y el historial GET /api/pilots/{pilot}/salary-history. NO EXISTEN show, store, update ni destroy: vincular un piloto a una empresa sigue siendo POST /api/carriers/join, y desvincularlo no existe en ninguna parte de la API. EL SALARIO ES MENSUAL Y EN QUETZALES (GTQ): la columna decimal(10,2) no lo declara, es convención del dominio y solo lo dice esta documentación; viaja como CADENA con dos decimales, y un salary null significa \"todavía no se le ha asignado salario\", NUNCA \"gana cero\" —un piloto recién unido nace con null—. EL PARÁMETRO {pilot} ES EL user_id DEL PILOTO, no el id de la fila de carrier_pilots, que no sale nunca de la API. PERMISOS ASIMÉTRICOS ENTRE LECTURA Y ESCRITURA: leen administrator, manager y carrier; escribe el salario solo administrator y carrier, de modo que el manager recibe 403 en el PATCH aunque pueda ver todos los salarios y todos los historiales. EL ROL pilot RECIBE 403 EN LOS TRES ENDPOINTS, incluso consultando su propio user_id: hoy el dominio entero es de administración y no hay \"mi salario\". Las tres rutas llevan jwt.auth, role: y carrier.required, aunque administrator y manager están exentos de este último por definición del middleware. ÁMBITO: administrator y manager ven los pilotos de TODAS las empresas y pueden filtrar por carrierId; a un carrier el carrierId se le IGNORA EN SILENCIO —ni 403 ni 422— y queda acotado a su propia empresa, y tocar un piloto ajeno es 403. OJO CON EL OTRO LISTADO: GET /api/carriers/me/pilots (SPEC 03) también lista pilotos, pero SIN salary y con joinedAt en ISO 8601 — aquel es el listado del transportista, este es el de administración; conviven a propósito y no se han unificado."
         },
         {
             "name": "Products",

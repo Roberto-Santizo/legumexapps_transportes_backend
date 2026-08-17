@@ -5,10 +5,24 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['carrier_id', 'user_id'])]
+#[Fillable(['carrier_id', 'user_id', 'salary'])]
 class CarrierPilot extends Model
 {
+    /**
+     * The attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            /** Monthly base salary in GTQ; null means it has not been assigned yet. */
+            'salary' => 'decimal:2',
+        ];
+    }
+
     /**
      * The company the pilot is linked to.
      *
@@ -27,5 +41,15 @@ class CarrierPilot extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The log of every real change made to this pilot's salary.
+     *
+     * @return HasMany<CarrierPilotSalaryHistory, $this>
+     */
+    public function salaryHistories(): HasMany
+    {
+        return $this->hasMany(CarrierPilotSalaryHistory::class);
     }
 }
