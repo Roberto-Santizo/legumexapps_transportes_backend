@@ -6,6 +6,7 @@ use App\Providers\Carrier\CarrierProvider;
 use App\Providers\FreightRate\FreightRateProvider;
 use App\Providers\FuelPrice\FuelPriceProvider;
 use App\Providers\Pilot\PilotProvider;
+use App\Providers\Place\PlaceProvider;
 use App\Providers\Product\ProductProvider;
 use App\Providers\Storage\StorageProvider;
 use App\Providers\Vehicle\VehicleProvider;
@@ -18,6 +19,7 @@ return [
     FreightRateProvider::class,
     FuelPriceProvider::class,
     PilotProvider::class,
+    PlaceProvider::class,
     ProductProvider::class,
     StorageProvider::class,
     VehicleProvider::class,
