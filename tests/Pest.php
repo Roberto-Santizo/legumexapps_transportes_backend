@@ -32,11 +32,14 @@ pest()->extend(TestCase::class)
         /**
          * Ningún test sale a internet ni gasta cuota de un proveedor de pago.
          *
-         * Http::fake() sin argumentos responde 200 vacío a cualquier petición, y
-         * preventStrayRequests() convierte en fallo del test cualquier llamada que
-         * el propio test no haya declarado con su Http::fake([...]).
+         * Va solo, sin el Http::fake() de acompañamiento: un fake global sin
+         * argumentos empuja un comodín al principio de la lista de stubs, y como
+         * PendingRequest se queda con el primero que responda, taparía los
+         * Http::fake([...]) que cada test declara después.
+         *
+         * Sin comodín, una petición que el test no haya declarado no recibe un
+         * 200 vacío: lanza StrayRequestException y revienta el test.
          */
-        Http::fake();
         Http::preventStrayRequests();
     })
     ->in('Feature', 'Unit');
