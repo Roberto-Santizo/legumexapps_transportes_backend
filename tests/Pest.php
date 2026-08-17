@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
@@ -27,6 +28,19 @@ pest()->extend(TestCase::class)
 
         /** Ningún test sube nada de verdad: el disco por defecto se sustituye entero. */
         fakeDefaultDisk();
+
+        /**
+         * Ningún test sale a internet ni gasta cuota de un proveedor de pago.
+         *
+         * Va solo, sin el Http::fake() de acompañamiento: un fake global sin
+         * argumentos empuja un comodín al principio de la lista de stubs, y como
+         * PendingRequest se queda con el primero que responda, taparía los
+         * Http::fake([...]) que cada test declara después.
+         *
+         * Sin comodín, una petición que el test no haya declarado no recibe un
+         * 200 vacío: lanza StrayRequestException y revienta el test.
+         */
+        Http::preventStrayRequests();
     })
     ->in('Feature', 'Unit');
 

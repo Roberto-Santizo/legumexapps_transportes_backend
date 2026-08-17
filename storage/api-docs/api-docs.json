@@ -2757,6 +2757,166 @@
                 ]
             }
         },
+        "/api/places": {
+            "get": {
+                "tags": [
+                    "Places"
+                ],
+                "summary": "Buscar direcciones por texto",
+                "description": "Devuelve hasta 10 direcciones que coinciden con el texto buscado, cada una con su id y su dirección formateada. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa registrada, porque ninguna ruta de este dominio lleva role: ni carrier.required.\n\nPRIMER PASO DE UN FLUJO DE DOS LLAMADAS. Este listado NO TRAE COORDENADAS a propósito: se muestra al usuario, se elige una dirección y con su id se llama a GET /api/places/{place}, que sí las devuelve. Resolver la posición de los diez resultados factura un nivel más caro por nueve posiciones que nadie va a usar. El cliente es responsable de guardar el id elegido entre una llamada y la otra.\n\nUNA BÚSQUEDA SIN COINCIDENCIAS ES 200 CON data VACÍO, NUNCA 404. Que el usuario todavía no haya terminado de escribir es el caso más normal del mundo y no debe tratarse como excepción.\n\nATENCIÓN — un search inválido devuelve 422 y NO LLEGA AL PROVEEDOR DE DIRECCIONES, que factura cada llamada. Ese 422 sale con el formato de Laravel { message, errors }, no con el sobre { statusCode, message, data } del resto de la API.\n\nNO PAGINA NUNCA y no admite ningún otro parámetro: son diez como mucho y no hay página siguiente. limit, page, pageSize y regionCode se ignoran por completo —enviarlos devuelve exactamente la misma respuesta— y el sobre nunca trae total, currentPage ni lastPage.\n\nNO PERSISTE NADA: buscar no guarda la dirección, no crea un destino y no deja historial. Tampoco hay caché: cada llamada sale al proveedor externo. No hay límite de búsquedas por usuario ni throttle, pero cada llamada cuesta dinero, así que el cliente debería aplicar un debounce antes de disparar la petición.\n\nLos resultados están SESGADOS a Guatemala y en español —se priorizan, no se restringen—: una dirección fronteriza legítima de otro país también puede aparecer.",
+                "operationId": "indexPlaces",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/placesSearchQuery"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Direcciones obtenidas correctamente. data trae de 0 a 10 elementos, cada uno con exactamente id y formattedAddress y SIN coordenadas. Una búsqueda sin coincidencias devuelve este mismo 200 con data vacío, nunca 404. El sobre no incluye metadatos de paginación porque este listado no pagina.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Direcciones obtenidas correctamente"
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/PlacePrediction"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "El search es inválido: ausente, cadena vacía, de menos de 3 caracteres o de más de 200 (mensajes: El texto de búsqueda es obligatorio / El texto de búsqueda debe tener al menos 3 caracteres / El texto de búsqueda no puede superar los 200 caracteres). En los cuatro casos la petición NO llega al proveedor de direcciones. La respuesta usa el formato de Laravel { message, errors: { search: [...] } }, no el sobre { statusCode, message, data }.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "ATENCIÓN — EL CLIENTE NO SE EQUIVOCÓ: el proveedor de direcciones no respondió. El search era válido y la petición estaba bien formada; lo que falló es un tercero. Se produce por timeout (el backend espera 10 segundos y no reintenta), error de red o DNS, credencial ausente o rechazada, cuota agotada, error 5xx del servicio externo o una respuesta con forma inesperada —si a una sola de las diez direcciones le falta un campo, se invalida la respuesta entera en vez de devolver nueve—. Los seis casos salen con el MISMO mensaje genérico, sin filtrar nada del error original: El servicio de búsqueda de direcciones no está disponible en este momento. Intenta de nuevo en unos minutos. Un cliente que recibe 503 REINTENTA MÁS TARDE; no corrige el formulario ni marca el campo en rojo. No hay caché ni proveedor alternativo del que tirar mientras dura.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/places/{place}": {
+            "get": {
+                "tags": [
+                    "Places"
+                ],
+                "summary": "Obtener una dirección con sus coordenadas",
+                "description": "Devuelve la dirección de un place id concreto junto con su latitude y su longitude. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa registrada. No hay ámbito por empresa ni recurso ajeno, así que en este endpoint NO existe el 403.\n\nSEGUNDO PASO DEL FLUJO DE DOS LLAMADAS. El {place} de la ruta es el id que devolvió GET /api/places?search=: no se puede construir, ni adivinar, ni derivar de la dirección escrita. Sin haber buscado antes no hay nada válido que poner aquí.\n\nATENCIÓN — latitude y longitude son NÚMEROS y salen PLANOS EN LA RAÍZ de data, no anidados bajo geometry ni location, y no se formatean con dos decimales como los importes del resto de la API. Se pasan tal cual como lat y lng a GET /api/freight-rates/quote; encadenar las dos llamadas es trabajo del cliente, esta API no cotiza nada.\n\nNO SE COMPRUEBA que el punto caiga dentro de una zona registrada: una dirección de cualquier parte del mundo se devuelve igual con 200. Quien avisa es la cotización, con su propio 404 «El punto indicado no pertenece a ninguna zona registrada».\n\nNO PERSISTE NADA y no hay caché: consultar una dirección no la guarda ni crea ningún destino, y cada llamada sale al proveedor externo.",
+                "operationId": "showPlace",
+                "parameters": [
+                    {
+                        "name": "place",
+                        "in": "path",
+                        "description": "Identificador OPACO de la dirección, tal y como lo devolvió GET /api/places?search= en el campo id. ATENCIÓN — NO ES UN ENTERO AUTOINCREMENTAL como el {product} o el {vehicle} del resto de la API: es una CADENA del proveedor externo, de forma no garantizada, que esta API NO VALIDA en absoluto y que no hay manera de adivinar. La única forma de conseguirlo es buscar primero. Enviar un id inexistente y enviar uno con forma inválida producen exactamente el mismo 404.",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "ChIJk4h8_Q6ii4ARZ4gGpXY8bJ0"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Dirección obtenida correctamente. data trae exactamente id, formattedAddress, latitude y longitude, las dos coordenadas como números y en la raíz, nunca en null. No se ha creado ni guardado nada.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Dirección obtenida correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Place"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No hay ninguna dirección con ese id. Un id INEXISTENTE y un id MAL FORMADO devuelven EL MISMO 404 con el mismo mensaje: para esta API los dos casos son \"no hay tal lugar\", y distinguirlos obligaría a explicarle al cliente la taxonomía de errores del servicio externo. El mensaje devuelto es: La dirección no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "ATENCIÓN — EL CLIENTE NO SE EQUIVOCÓ: el proveedor de direcciones no respondió. El id podía ser perfectamente válido; lo que falló es un tercero. Se produce por timeout (10 segundos de espera y ningún reintento), error de red o DNS, credencial ausente o rechazada, cuota agotada, error 5xx del servicio externo, o una respuesta con forma inesperada —incluida una respuesta correcta a la que le falten las coordenadas, que sale como 503 y NO como un latitude en null—. Todos los casos comparten el mismo mensaje genérico: El servicio de búsqueda de direcciones no está disponible en este momento. Intenta de nuevo en unos minutos. Un cliente que recibe 503 REINTENTA MÁS TARDE; no corrige nada ni vuelve al formulario. OJO — no confundirlo con el 404: 503 no significa que la dirección no exista.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/products": {
             "get": {
                 "tags": [
@@ -5653,6 +5813,52 @@
                     }
                 ]
             },
+            "PlacePrediction": {
+                "title": "Dirección sugerida",
+                "description": "Una de las direcciones que devuelve GET /api/places?search=. Es el PRIMER paso de un flujo de DOS llamadas: aquí se elige, y con el id elegido se pide GET /api/places/{place} para obtener las coordenadas.\n\nATENCIÓN — ESTE OBJETO NO TRAE COORDENADAS, y es a propósito: pedirle la posición al proveedor de direcciones para los diez resultados factura un nivel más caro por nueve posiciones que nadie usa. El usuario elige una sola dirección, y solo esa se resuelve.\n\nNO PERSISTE NADA. Este dominio no tiene tabla, ni modelo, ni migración: es un proxy de lectura sobre un servicio externo. La dirección no queda guardada en ningún sitio, no hay favoritos ni historial de búsquedas, y el mismo search mañana puede devolver otras direcciones o el mismo id con otro texto.\n\nNingún campo es fecha, así que el formato d-m-Y h:i:s A del resto del proyecto no aplica aquí.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador OPACO de la dirección tal y como lo entrega el proveedor externo. ATENCIÓN — NO es un entero autoincremental como el id del resto de recursos de esta API: es una CADENA sin significado, sin formato garantizado y sin forma de adivinarse ni construirse. La única manera de obtener uno es esta búsqueda. Es lo que se pasa como {place} a GET /api/places/{place}, y lo único de la respuesta que el cliente puede guardar entre las dos llamadas.",
+                        "type": "string",
+                        "example": "ChIJk4h8_Q6ii4ARZ4gGpXY8bJ0"
+                    },
+                    "formattedAddress": {
+                        "description": "Dirección completa ya formateada y lista para pintar en pantalla, en español y sesgada a Guatemala —lo que prioriza resultados guatemaltecos sin excluir los de otros países—. Llega en una sola cadena: no viene desglosada en calle, número, municipio ni departamento, y no hay ningún otro campo del lugar (nombre comercial, tipos, horarios, teléfono o fotos). Es texto de presentación: no se busca ni se filtra por él.",
+                        "type": "string",
+                        "example": "5a Avenida 12-38, Zona 4, Ciudad de Guatemala"
+                    }
+                },
+                "type": "object"
+            },
+            "Place": {
+                "title": "Dirección con coordenadas",
+                "description": "Respuesta de GET /api/places/{place}: la dirección elegida en la búsqueda, ya con su posición. Es el SEGUNDO paso del flujo de dos llamadas —buscar con GET /api/places?search=, elegir un id, pedir aquí sus coordenadas— y el motivo por el que existe el dominio.\n\nATENCIÓN — latitude y longitude son NÚMEROS, no cadenas, y salen PLANOS EN LA RAÍZ de data: no van anidados bajo geometry, ni bajo location, ni bajo ninguna otra clave. No son dinero, no hay cast decimal de por medio y no se formatean con dos decimales como los importes del resto de la API: son la posición tal cual la entregó el proveedor externo.\n\nSU DESTINO NATURAL es la cotización: latitude y longitude se pasan tal cual como lat y lng a GET /api/freight-rates/quote. Ese encadenado lo hace el cliente; ESTA API NO COTIZA NADA y no llama a la cotización por su cuenta.\n\nNO SE VALIDA NADA DE LA DIRECCIÓN. El punto puede caer fuera de toda zona registrada, o incluso fuera de Guatemala, y esta respuesta lo devuelve igual con 200. Si eso pasa, quien avisa es la cotización, con su propio 404 «El punto indicado no pertenece a ninguna zona registrada», ya con la dirección elegida en pantalla.\n\nNO PERSISTE NADA: no hay tabla, ni modelo, ni migración. Consultar una dirección no la guarda, no crea un destino y no registra ningún viaje. Ningún campo es fecha, así que el formato d-m-Y h:i:s A del resto del proyecto no aplica aquí.",
+                "properties": {
+                    "id": {
+                        "description": "El mismo identificador OPACO que se envió en la ruta, devuelto para que el cliente confirme qué dirección resolvió. Es una CADENA del proveedor externo, no un entero autoincremental, y solo se obtiene de GET /api/places?search=.",
+                        "type": "string",
+                        "example": "ChIJk4h8_Q6ii4ARZ4gGpXY8bJ0"
+                    },
+                    "formattedAddress": {
+                        "description": "Dirección completa formateada, la misma clave y el mismo formato que en el listado de búsqueda. Puede no ser idéntica carácter a carácter a la que se mostró al elegir: el texto lo compone el proveedor externo en cada llamada. Lo que se pinta al usuario es este valor, no el que tecleó.",
+                        "type": "string",
+                        "example": "5a Avenida 12-38, Zona 4, Ciudad de Guatemala"
+                    },
+                    "latitude": {
+                        "description": "LATITUD de la dirección, como NÚMERO en grados decimales. Es lo que se envía como lat a GET /api/freight-rates/quote, sin convertir ni redondear. Nunca es null: si el proveedor externo devuelve la dirección sin posición, la respuesta entera es 503 en vez de unas coordenadas vacías que la cotización rechazaría después con un mensaje confuso.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 14.6248
+                    },
+                    "longitude": {
+                        "description": "LONGITUD de la dirección, como NÚMERO en grados decimales. Es lo que se envía como lng a GET /api/freight-rates/quote. Cuidado con el orden al reenviarla: aquí cada coordenada viaja con su nombre, pero el area de Zones usa pares [latitud, longitud]. Tampoco es null nunca, por la misma razón que latitude.",
+                        "type": "number",
+                        "format": "float",
+                        "example": -90.5152
+                    }
+                },
+                "type": "object"
+            },
             "Product": {
                 "title": "Producto",
                 "description": "Producto del catálogo nacional: la mercancía que se transporta. NO pertenece a ninguna empresa transportista, por eso el recurso no expone carrierId ni carrierName y su lectura está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa.\n\nEl catálogo es deliberadamente mínimo: solo name y status. No hay categoría, unidad de medida, precio, peso por caja, código SKU ni imagen, y el producto no está relacionado todavía con vehículos, viajes ni guías.\n\nATENCIÓN — el name que se devuelve NO es necesariamente el que se envió: siempre viaja normalizado (recortado, con los espacios internos colapsados y EN MAYÚSCULAS). Un cliente que quiera reflejar lo que acaba de guardar debe pintar lo que devuelve la respuesta, no lo que tecleó el usuario.",
@@ -6025,6 +6231,18 @@
                         "diesel_premium"
                     ]
                 }
+            },
+            "placesSearchQuery": {
+                "name": "search",
+                "in": "query",
+                "description": "TEXTO LIBRE que se busca como dirección. Va en la QUERY STRING: GET /api/places?search=zona 4 guatemala. Es el ÚNICO parámetro del endpoint y es OBLIGATORIO.\n\nSe escribe tal cual lo teclea el usuario —calle, colonia, zona, municipio, nombre de un negocio o una mezcla de todo—: no hay sintaxis, ni campos separados, ni códigos postales, ni filtro por departamento. Los acentos y las mayúsculas dan igual.\n\nATENCIÓN — un search inválido devuelve 422 y NUNCA LLEGA AL PROVEEDOR DE DIRECCIONES, que factura cada llamada. Son cuatro casos: ausente (El texto de búsqueda es obligatorio), cadena vacía (El texto de búsqueda es obligatorio), menos de 3 caracteres (El texto de búsqueda debe tener al menos 3 caracteres) y más de 200 caracteres (El texto de búsqueda no puede superar los 200 caracteres). Exactamente 3 y exactamente 200 caracteres SÍ son válidos. El mínimo de 3 es una defensa de costo, no de usabilidad: una sola letra devuelve ruido y se paga igual, así que el cliente debería además aplicar un debounce antes de llamar.\n\nATENCIÓN — ese 422 sale con el formato de Laravel { message, errors: { search: [...] } }, NO con el sobre { statusCode, message, data } del resto de la API: lo emite la validación antes de entrar al controller.\n\nUna búsqueda válida SIN COINCIDENCIAS no es un error: devuelve 200 con data vacío, nunca 404.\n\nNO existe ningún otro parámetro. limit, pageSize, page y regionCode se ignoran por completo: el listado devuelve como mucho 10 direcciones, no pagina y no hay token de página siguiente. Tampoco hay tope de búsquedas por usuario ni throttle.",
+                "required": true,
+                "schema": {
+                    "type": "string",
+                    "example": "zona 4 guatemala",
+                    "maxLength": 200,
+                    "minLength": 3
+                }
             }
         },
         "securitySchemes": {
@@ -6056,6 +6274,10 @@
         {
             "name": "Pilots",
             "description": "Administración del salario base de los pilotos vinculados a una empresa transportista, y bitácora de cada cambio. El dominio tiene EXACTAMENTE TRES ENDPOINTS y ninguno más: el listado GET /api/pilots, la asignación PATCH /api/pilots/{pilot}/salary y el historial GET /api/pilots/{pilot}/salary-history. NO EXISTEN show, store, update ni destroy: vincular un piloto a una empresa sigue siendo POST /api/carriers/join, y desvincularlo no existe en ninguna parte de la API. EL SALARIO ES MENSUAL Y EN QUETZALES (GTQ): la columna decimal(10,2) no lo declara, es convención del dominio y solo lo dice esta documentación; viaja como CADENA con dos decimales, y un salary null significa \"todavía no se le ha asignado salario\", NUNCA \"gana cero\" —un piloto recién unido nace con null—. EL PARÁMETRO {pilot} ES EL user_id DEL PILOTO, no el id de la fila de carrier_pilots, que no sale nunca de la API. PERMISOS ASIMÉTRICOS ENTRE LECTURA Y ESCRITURA: leen administrator, manager y carrier; escribe el salario solo administrator y carrier, de modo que el manager recibe 403 en el PATCH aunque pueda ver todos los salarios y todos los historiales. EL ROL pilot RECIBE 403 EN LOS TRES ENDPOINTS, incluso consultando su propio user_id: hoy el dominio entero es de administración y no hay \"mi salario\". Las tres rutas llevan jwt.auth, role: y carrier.required, aunque administrator y manager están exentos de este último por definición del middleware. ÁMBITO: administrator y manager ven los pilotos de TODAS las empresas y pueden filtrar por carrierId; a un carrier el carrierId se le IGNORA EN SILENCIO —ni 403 ni 422— y queda acotado a su propia empresa, y tocar un piloto ajeno es 403. OJO CON EL OTRO LISTADO: GET /api/carriers/me/pilots (SPEC 03) también lista pilotos, pero SIN salary y con joinedAt en ISO 8601 — aquel es el listado del transportista, este es el de administración; conviven a propósito y no se han unificado."
+        },
+        {
+            "name": "Places",
+            "description": "Búsqueda de direcciones para elegir el destino de un flete. Es el único dominio de la API que NO PERSISTE NADA: no hay tabla, ni modelo, ni migración —es un proxy de LECTURA sobre un proveedor de direcciones externo—, y por eso solo existen DOS endpoints, los dos GET. No hay alta, ni edición, ni borrado: POST, PUT, PATCH y DELETE sobre /api/places no existen y responden 405. El flujo son DOS LLAMADAS ENCADENADAS: GET /api/places?search= devuelve hasta 10 direcciones con su id y su texto, el usuario elige una, y GET /api/places/{place} resuelve las coordenadas de esa. El listado NO trae coordenadas a propósito: resolver las diez factura un nivel más caro por nueve posiciones que nadie usa. Esas latitude y longitude se pasan tal cual como lat y lng a GET /api/freight-rates/quote, pero ese encadenado lo hace el cliente: ESTA API NO COTIZA NADA. Permisos: los dos endpoints exigen solo token JWT (Authorization: Bearer {token}) y están abiertos a los CUATRO roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa: ninguna ruta lleva role: ni carrier.required. ATENCIÓN — los dos endpoints pueden responder 503, que significa que EL SERVICIO EXTERNO NO RESPONDIÓ, no que el cliente se equivocara: ante un 503 se reintenta más tarde, no se corrige el formulario."
         },
         {
             "name": "Products",
