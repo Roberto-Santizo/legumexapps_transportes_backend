@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
@@ -27,6 +28,16 @@ pest()->extend(TestCase::class)
 
         /** Ningún test sube nada de verdad: el disco por defecto se sustituye entero. */
         fakeDefaultDisk();
+
+        /**
+         * Ningún test sale a internet ni gasta cuota de un proveedor de pago.
+         *
+         * Http::fake() sin argumentos responde 200 vacío a cualquier petición, y
+         * preventStrayRequests() convierte en fallo del test cualquier llamada que
+         * el propio test no haya declarado con su Http::fake([...]).
+         */
+        Http::fake();
+        Http::preventStrayRequests();
     })
     ->in('Feature', 'Unit');
 
