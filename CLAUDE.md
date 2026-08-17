@@ -18,9 +18,9 @@ Cada recurso se implementa con la misma cadena de archivos, agrupados en subcarp
 
 El service se inyecta **por parámetro del método del controller** (`public function login(LoginRequest $request, AuthServiceInterface $authService)`), no por constructor.
 
-En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
+En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`, `/{pilot}/salary`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
 
-Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`, `Zone`, `FreightRate` (SPEC 01–09).
+Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`, `Zone`, `FreightRate`, `Pilot` (SPEC 01–11).
 
 ## Respuestas y errores
 
@@ -36,9 +36,11 @@ Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`,
 
 ## Autenticación y autorización
 
-- Guard `api` de JWT; alias de middleware `jwt.auth`. `JWT_TTL=60` minutos.
+- Guard `api` de JWT; alias de middleware `jwt.auth`. `JWT_TTL=60` minutos y `JWT_REFRESH_TOKEN_TTL=20160` (14 días) — clave propia `jwt.refresh_token_ttl`, **no** el `jwt.refresh_ttl` del paquete, que solo acota un `JWTAuth::refresh()` que este código nunca llama.
 - `User` implementa `JWTSubject` y añade claims `id/name/email/role` + `carrierId/carrierName/carrierCode` (null si no tiene empresa; **informativos para el front, nunca fuente de verdad para autorizar**). Roles en `App\Enums\UserRole` (administrator, carrier, pilot, manager) — solo `pilot` y `carrier` pueden autoregistrarse.
-- Flujo: register (sin token, cuenta sin confirmar) → confirm-account → login (emite token) → check-status (único endpoint que renueva token; no hay `/refresh` ni `/logout`).
+- Flujo: register (sin token, cuenta sin confirmar) → confirm-account → login (emite el par de tokens) → check-status (único endpoint que reemite; no hay `/refresh` ni `/logout`).
+- `login` y `check-status` devuelven `{ user, token, refreshToken }`. Los dos JWT llevan los mismos claims y la misma firma; solo cambian el `exp` (60 min vs 14 días) y el claim `tokenType` (`access`/`refresh`), puesto **inline** en la emisión porque `getJWTCustomClaims()` no puede variar por token. Nadie lee `tokenType` todavía: el `refreshToken` vale como `Bearer` en cualquier ruta protegida.
+- `AuthService::issueTokens()` es el **único sitio** que toca `claims()` y `factory()->setTTL()`, y restaura el TTL a `config('jwt.ttl')` tras emitir el refresh — el TTL es estado de la petición, no del token. `check-status` reemite desde el usuario (`login($user)`), no con `refresh()`, que arrastraría claims de transportista obsoletos.
 - Códigos de 6 dígitos hasheados con vigencia de 1 h en `account_confirmation_tokens` y `password_reset_tokens`.
 - Middlewares de autorización (alias en `bootstrap/app.php`), ambos resuelven el usuario con `auth('api')->user()` y **devuelven** `ResponseHandler::error(new ForbiddenError(...))` en vez de lanzar, porque el `try/catch` del controller no ve excepciones de middleware:
   - `role:admin,carrier` — filtro grueso por rol.
@@ -56,6 +58,20 @@ Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`,
 - Ámbito: el `administrator` ve todos y puede filtrar por `carrierId`; cualquier otro rol queda acotado a su propia empresa (`resolveScopedCarrierId()`), y tocar un vehículo ajeno es 403. Filtro opcional `status`.
 - La placa se normaliza a mayúsculas y es única **solo entre vehículos no desactivados** — un `inactive` la libera —, así que la unicidad no vive en un índice sino en `ensurePlateIsAvailable()`. Reactivar un vehículo revalida su placa.
 - `DELETE` es una baja lógica: pasa el `status` a `inactive`; la fila sigue viva y sigue apareciendo en los listados.
+
+## Dominio Pilots (salarios)
+
+Primer dominio publicado **sobre una tabla pivote existente**: `carrier_pilots` gana la columna `salary` (`decimal(10,2)` nullable, mensual y en GTQ por convención — la columna no lo dice) y la bitácora `carrier_pilot_salary_histories`.
+
+- **Tres endpoints y ninguno más**, todos con `carrier.required`: `GET /api/pilots` (listado con salario), `PATCH /api/pilots/{pilot}/salary`, `GET /api/pilots/{pilot}/salary-history`. El `apiResource` se declara `->only(['index'])`; `show/store/update/destroy` quedan deliberadamente sin generar y vincular un piloto sigue siendo `POST /api/carriers/join`.
+- **`{pilot}` es el `user_id`**, no el `id` de la fila pivote, que no sale nunca de la API. `PilotResource` expone ese `user_id` como `id`.
+- **`GET /api/carriers/me/pilots` (SPEC 03) no se tocó**: sigue sin `salary` y con `joinedAt` en ISO 8601. El listado de este dominio es el de administración — trae `salary`, admite filtro `carrierId` y formatea fechas como `d-m-Y h:i:s A`. Dos Resources distintos a propósito, cruzables por `id`.
+- Ámbito distinto en lectura y escritura: `administrator` y `manager` leen todas las empresas y filtran por `carrierId`; a un `carrier` se le ignora ese filtro y tocar un piloto ajeno es 403. Escribir el salario es solo `administrator` y `carrier` (el `manager` recibe 403 en el PATCH), y el `pilot` recibe 403 en los tres.
+- `resolvePilot()` es la guarda común del PATCH y del historial: **404 tanto si el `user_id` no existe como si existe pero no es piloto de ninguna empresa** (distinguirlos filtraría qué ids están registrados), y 403 si es de otra empresa.
+- `null` en `salary` significa "sin asignar", no "gana cero"; por eso el PATCH valida `min:0.01`. El cuerpo tiene un solo campo obligatorio: a diferencia del resto de PATCH del proyecto, **vacío es 422, no un no-op**.
+- **Mandar el mismo salario responde 400** y no escribe en la bitácora, para que toda fila del historial sea un cambio real. La comparación va sobre el valor formateado a dos decimales (`salaryValue()`), así que `4500`, `4500.00` y `4500.004` son el mismo salario. Bajar el salario está permitido.
+- El UPDATE y la fila de bitácora corren en la **misma transacción**, con `lockForUpdate` sobre el pivote; `changed_by` sale del usuario autenticado, nunca del body. La bitácora es de solo escritura y solo lectura: `created_at` es la fecha de vigencia y no hay `reason`, `notes` ni `effective_from`. Se ordena por `id desc`, no por `created_at`, que empataría entre dos cambios del mismo segundo.
+- Listado e historial paginan opt-in con `limit`, como el resto del proyecto.
 
 ## Catálogos nacionales (fuel prices, products, zones, freight rates)
 
