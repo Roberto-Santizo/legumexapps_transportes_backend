@@ -2,6 +2,7 @@
 
 namespace App\Services\Place;
 
+use App\Errors\NotFoundError;
 use App\Errors\ServiceUnavailableError;
 use App\Interfaces\Place\PlaceServiceInterface;
 use Illuminate\Http\Client\PendingRequest;
@@ -46,6 +47,8 @@ final class GooglePlacesService implements PlaceServiceInterface
      */
     private const UNAVAILABLE_MESSAGE = 'El servicio de búsqueda de direcciones no está disponible en este momento. Intenta de nuevo en unos minutos.';
 
+    private const NOT_FOUND_MESSAGE = 'La dirección no existe';
+
     #[Override]
     public function searchPlaces(string $search): array
     {
@@ -80,8 +83,22 @@ final class GooglePlacesService implements PlaceServiceInterface
     #[Override]
     public function getPlaceById(string $placeId): array
     {
-        /** Marcador de posición: el paso 6 de la SPEC 12 lo sustituye por la llamada real. */
-        throw new \RuntimeException('getPlaceById todavía no está implementado.');
+        $response = $this->send(fn (): Response => $this->request(self::DETAIL_FIELD_MASK)
+            ->get(self::BASE_URL.'/'.$placeId));
+
+        /**
+         * An unknown id answers 404 and a malformed one answers 400; for this API
+         * both mean the same thing, so both come out as the same NotFoundError.
+         */
+        if (in_array($response->status(), [400, 404], true)) {
+            throw new NotFoundError(self::NOT_FOUND_MESSAGE);
+        }
+
+        if ($response->failed()) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        return $this->toPlace($this->decode($response));
     }
 
     /**
@@ -162,6 +179,42 @@ final class GooglePlacesService implements PlaceServiceInterface
         return [
             'id' => $id,
             'formattedAddress' => $formattedAddress,
+        ];
+    }
+
+    /**
+     * Map the place detail, flattening the provider's nested location.
+     *
+     * A 200 without coordinates is a broken contract, not a place without a
+     * position: it comes out as a 503 rather than as null coordinates that the
+     * quote endpoint would reject later with a confusing message.
+     *
+     * @param  array<string, mixed>  $body
+     * @return array{id: string, formattedAddress: string, latitude: float, longitude: float}
+     *
+     * @throws ServiceUnavailableError
+     */
+    private function toPlace(array $body): array
+    {
+        $prediction = $this->toPrediction($body);
+
+        $location = $body['location'] ?? null;
+
+        if (! is_array($location)) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        $latitude = $location['latitude'] ?? null;
+        $longitude = $location['longitude'] ?? null;
+
+        if (! is_numeric($latitude) || ! is_numeric($longitude)) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        return [
+            ...$prediction,
+            'latitude' => (float) $latitude,
+            'longitude' => (float) $longitude,
         ];
     }
 }
