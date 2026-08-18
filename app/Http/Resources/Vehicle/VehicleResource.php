@@ -98,6 +98,12 @@ class VehicleResource extends JsonResource
             'year' => $this->year,
             'capacity' => $this->capacity,
             'type' => $this->type->value,
+            'condition' => $this->condition->value,
+            'kilometersPerGallon' => $this->kilometers_per_gallon,
+            'purchasePrice' => $this->purchase_price,
+            'monthlyInsuranceCost' => $this->monthly_insurance_cost,
+            'mileage' => $this->mileage,
+            'engineNumber' => $this->engine_number,
             /** Un JsonResource se instancia con new, así que el contrato se resuelve del contenedor. */
             'image' => app(FileStorageServiceInterface::class)->url($this->image),
             'status' => $this->status->value,
