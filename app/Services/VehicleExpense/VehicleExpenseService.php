@@ -35,6 +35,14 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
      */
     private const DATE_FORMAT = 'Y-m-d';
 
+    /**
+     * Fields the update accepts.
+     *
+     * `vehicle_id` and `registered_by` are deliberately absent: an expense
+     * never moves between vehicles, and it keeps the user that created it.
+     */
+    private const UPDATABLE_FIELDS = ['category', 'nature', 'amount', 'expense_date', 'description'];
+
     #[Override]
     public function getVehicleExpenses(User $user, array $filters): array
     {
@@ -81,6 +89,83 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
         ];
     }
 
+    #[Override]
+    public function createVehicleExpense(array $data, User $user): VehicleExpense
+    {
+        $vehicle = $this->resolveVehicle($user, (int) $data['vehicle_id']);
+
+        /** registered_by sale del usuario autenticado y no del cuerpo: mandarlo en el body no cambia nada. */
+        $expense = VehicleExpense::create([
+            'vehicle_id' => $vehicle->id,
+            'category' => $data['category'],
+            'nature' => $data['nature'],
+            'amount' => $data['amount'],
+            'expense_date' => $data['expense_date'],
+            'description' => $data['description'],
+            'registered_by' => $user->id,
+        ]);
+
+        return $expense->load('registeredBy');
+    }
+
+    #[Override]
+    public function getVehicleExpenseById(User $user, int $id): VehicleExpense
+    {
+        return $this->resolveVehicleExpense($user, $id);
+    }
+
+    #[Override]
+    public function updateVehicleExpense(array $data, int $id, User $user): VehicleExpense
+    {
+        $expense = $this->resolveVehicleExpense($user, $id);
+
+        $payload = array_intersect_key($data, array_flip(self::UPDATABLE_FIELDS));
+
+        /** Un cuerpo vacio es un no-op que igualmente responde 200. */
+        if ($payload !== []) {
+            $expense->update($payload);
+        }
+
+        return $expense->load('registeredBy');
+    }
+
+    #[Override]
+    public function deleteVehicleExpense(int $id, User $user): VehicleExpense
+    {
+        $expense = $this->resolveVehicleExpense($user, $id);
+
+        /** El borrado es real: la fila desaparece y un segundo DELETE del mismo id responde 404. */
+        $expense->delete();
+
+        return $expense;
+    }
+
+    /**
+     * Resolve the expense matching the given id, within the user's scope.
+     *
+     * The scope is decided by the expense's vehicle, which is the only thing
+     * that ties it to a company. A carrier reaching an expense of another
+     * company gets a 403 and not a 404, the same rule SPEC 04 already applies
+     * to the vehicle itself.
+     *
+     * @throws NotFoundError when the expense does not exist
+     * @throws ForbiddenError when a carrier reaches an expense of another company
+     */
+    private function resolveVehicleExpense(User $user, int $id): VehicleExpense
+    {
+        $expense = VehicleExpense::query()->with(['vehicle', 'registeredBy'])->find($id);
+
+        if ($expense === null) {
+            throw new NotFoundError('El gasto no existe');
+        }
+
+        if ($this->isVehicleOutOfScope($user, $expense->vehicle)) {
+            throw new ForbiddenError('No puedes acceder a un gasto que no pertenece a tu empresa transportista');
+        }
+
+        return $expense;
+    }
+
     /**
      * Resolve the vehicle an expense hangs from, within the user's scope.
      *
@@ -100,13 +185,27 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
             throw new NotFoundError('El vehículo no existe');
         }
 
-        $scopedCarrierId = $this->resolveScopedCarrierId($user);
-
-        if ($scopedCarrierId !== null && $vehicle->carrier_id !== $scopedCarrierId) {
+        if ($this->isVehicleOutOfScope($user, $vehicle)) {
             throw new ForbiddenError('No puedes acceder a un vehículo que no pertenece a tu empresa transportista');
         }
 
         return $vehicle;
+    }
+
+    /**
+     * Whether the given vehicle falls outside what the user is allowed to see.
+     *
+     * Returns a boolean instead of throwing so each caller raises its own
+     * message: the listing and the store talk about a vehicle, the rest of the
+     * endpoints talk about an expense.
+     *
+     * @throws ForbiddenError when a scoped user belongs to no company
+     */
+    private function isVehicleOutOfScope(User $user, Vehicle $vehicle): bool
+    {
+        $scopedCarrierId = $this->resolveScopedCarrierId($user);
+
+        return $scopedCarrierId !== null && $vehicle->carrier_id !== $scopedCarrierId;
     }
 
     /**
