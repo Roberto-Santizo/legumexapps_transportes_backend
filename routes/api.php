@@ -18,4 +18,5 @@ require __DIR__.'/pilots.php';
 require __DIR__.'/places.php';
 require __DIR__.'/products.php';
 require __DIR__.'/vehicles.php';
+require __DIR__.'/vehicle_expenses.php';
 require __DIR__.'/zones.php';
