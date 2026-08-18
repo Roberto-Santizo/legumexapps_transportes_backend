@@ -1,6 +1,6 @@
 # SPEC 13 — Ficha técnica y financiera del vehículo
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 04
 > **Fecha:** 2026-08-18
 > **Objetivo:** Ampliar el vehículo con seis campos nuevos — condición, rendimiento, valor de compra, costo mensual de seguro, kilometraje y número de motor —, obligatorios en el alta, editables en la edición salvo el kilometraje, que solo un administrador puede cambiar.
@@ -317,67 +317,67 @@ La redacción original de este paso decía que el controller no se tocaba, y era
 
 ### Migración y modelo
 
-- [ ] La migración corre sobre una tabla `vehicles` **con filas** sin error y sin backfill manual.
-- [ ] Un vehículo existente antes de la migración queda con `condition = 'used'`, `kilometers_per_gallon = 1.00`, `purchase_price = 1.00`, `monthly_insurance_cost = 1.00`, `mileage = 1` y `engine_number = null`.
-- [ ] El `down()` de la migración quita las seis columnas y deja la tabla como estaba.
-- [ ] `VehicleCondition` tiene exactamente dos casos: `new` y `used`.
-- [ ] `Vehicle::create()` con las seis columnas nuevas las persiste (están en el `#[Fillable]`).
-- [ ] Un `Vehicle` recuperado de base devuelve `condition` como instancia de `VehicleCondition`, `mileage` como `int` y los tres decimales como cadena de dos decimales.
+- [X] La migración corre sobre una tabla `vehicles` **con filas** sin error y sin backfill manual.
+- [X] Un vehículo existente antes de la migración queda con `condition = 'used'`, `kilometers_per_gallon = 1.00`, `purchase_price = 1.00`, `monthly_insurance_cost = 1.00`, `mileage = 1` y `engine_number = null`.
+- [X] El `down()` de la migración quita las seis columnas y deja la tabla como estaba.
+- [X] `VehicleCondition` tiene exactamente dos casos: `new` y `used`.
+- [X] `Vehicle::create()` con las seis columnas nuevas las persiste (están en el `#[Fillable]`).
+- [X] Un `Vehicle` recuperado de base devuelve `condition` como instancia de `VehicleCondition`, `mileage` como `int` y los tres decimales como cadena de dos decimales.
 
 ### Alta (`POST /api/vehicles`)
 
-- [ ] Un alta con los trece campos válidos responde **201** y persiste los seis nuevos.
-- [ ] Omitir cualquiera de los seis campos nuevos responde **422** con el mensaje en español de ese campo.
-- [ ] `condition` fuera del enum (`antiguo`) responde **422**.
-- [ ] `kilometers_per_gallon`, `purchase_price` o `monthly_insurance_cost` en `0` responden **422**; en `0.01` se aceptan.
-- [ ] `mileage` en `0` se **acepta**; en `-1` o en `120000.5` responde **422**.
-- [ ] `engine_number` de más de 50 caracteres responde **422**.
-- [ ] Un alta con `engine_number = 'abc123'` persiste `ABC123`.
-- [ ] Un alta con `condition = 'new'` y `mileage = 90000` responde **201**: no hay validación cruzada.
-- [ ] Dos vehículos activos de la misma empresa pueden registrarse con **el mismo `engine_number`**, los dos con 201.
-- [ ] El vehículo sigue naciendo con `status = active` y `condition` no influye en ello.
+- [X] Un alta con los trece campos válidos responde **201** y persiste los seis nuevos.
+- [X] Omitir cualquiera de los seis campos nuevos responde **422** con el mensaje en español de ese campo.
+- [X] `condition` fuera del enum (`antiguo`) responde **422**.
+- [X] `kilometers_per_gallon`, `purchase_price` o `monthly_insurance_cost` en `0` responden **422**; en `0.01` se aceptan.
+- [X] `mileage` en `0` se **acepta**; en `-1` o en `120000.5` responde **422**.
+- [X] `engine_number` de más de 50 caracteres responde **422**.
+- [X] Un alta con `engine_number = 'abc123'` persiste `ABC123`.
+- [X] Un alta con `condition = 'new'` y `mileage = 90000` responde **201**: no hay validación cruzada.
+- [X] Dos vehículos activos de la misma empresa pueden registrarse con **el mismo `engine_number`**, los dos con 201.
+- [X] El vehículo sigue naciendo con `status = active` y `condition` no influye en ello.
 
 ### Edición (`PATCH /api/vehicles/{vehicle}`)
 
-- [ ] Un `administrator` cambia los seis campos y responde **200** con los valores nuevos.
-- [ ] Un `carrier` cambia los **cinco** campos que no son el kilometraje y responde **200**.
-- [ ] Un `carrier` que envía `mileage` **igual** al actual responde **200** y el resto del cuerpo se aplica.
-- [ ] Un `carrier` que envía `mileage` **distinto** al actual responde **403** con `Solo un administrador puede modificar el kilometraje del vehículo`.
-- [ ] Tras ese 403, **ningún** campo del cuerpo quedó guardado (ni `brand`, ni la imagen: el vehículo está exactamente como antes).
-- [ ] Un `administrator` puede **bajar** el kilometraje y responde 200.
-- [ ] Enviar `mileage` como `"120000"` (cadena) sobre un vehículo que ya tiene `120000` no dispara el 403.
-- [ ] Omitir un campo no lo modifica; enviarlo vacío responde **422**.
-- [ ] `engine_number` en `null` responde **422**.
-- [ ] `engine_number = 'xyz789'` persiste `XYZ789`.
-- [ ] Cambiar `condition` no altera `status`, y cambiar `status` no altera `condition`.
-- [ ] Reactivar un vehículo `inactive` sigue revalidando **solo la placa**: un número de motor duplicado no bloquea la reactivación.
+- [X] Un `administrator` cambia los seis campos y responde **200** con los valores nuevos.
+- [X] Un `carrier` cambia los **cinco** campos que no son el kilometraje y responde **200**.
+- [X] Un `carrier` que envía `mileage` **igual** al actual responde **200** y el resto del cuerpo se aplica.
+- [X] Un `carrier` que envía `mileage` **distinto** al actual responde **403** con `Solo un administrador puede modificar el kilometraje del vehículo`.
+- [X] Tras ese 403, **ningún** campo del cuerpo quedó guardado (ni `brand`, ni la imagen: el vehículo está exactamente como antes).
+- [X] Un `administrator` puede **bajar** el kilometraje y responde 200.
+- [X] Enviar `mileage` como `"120000"` (cadena) sobre un vehículo que ya tiene `120000` no dispara el 403.
+- [X] Omitir un campo no lo modifica; enviarlo vacío responde **422**.
+- [X] `engine_number` en `null` responde **422**.
+- [X] `engine_number = 'xyz789'` persiste `XYZ789`.
+- [X] Cambiar `condition` no altera `status`, y cambiar `status` no altera `condition`.
+- [X] Reactivar un vehículo `inactive` sigue revalidando **solo la placa**: un número de motor duplicado no bloquea la reactivación.
 
 ### Listado (`GET /api/vehicles`)
 
-- [ ] `?condition=new` devuelve solo los vehículos nuevos; `?condition=used`, solo los usados.
-- [ ] `?condition=antiguo` devuelve el **listado completo**, no una lista vacía ni un 422.
-- [ ] `?engineNumber=abc` casa con un vehículo cuyo `engine_number` es `XABC123` (parcial y case-insensitive).
-- [ ] `?engineNumber=` (vacío) devuelve el listado completo.
-- [ ] Un vehículo con `engine_number = null` **no** aparece en ningún resultado de `?engineNumber=`.
-- [ ] Los filtros nuevos se combinan con `status`, `carrierId` y `limit` sin interferir entre ellos.
-- [ ] A un `carrier`, `?carrierId=` se le sigue ignorando y el ámbito de su empresa se mantiene con los filtros nuevos activos.
+- [X] `?condition=new` devuelve solo los vehículos nuevos; `?condition=used`, solo los usados.
+- [X] `?condition=antiguo` devuelve el **listado completo**, no una lista vacía ni un 422.
+- [X] `?engineNumber=abc` casa con un vehículo cuyo `engine_number` es `XABC123` (parcial y case-insensitive).
+- [X] `?engineNumber=` (vacío) devuelve el listado completo.
+- [X] Un vehículo con `engine_number = null` **no** aparece en ningún resultado de `?engineNumber=`.
+- [X] Los filtros nuevos se combinan con `status`, `carrierId` y `limit` sin interferir entre ellos.
+- [X] A un `carrier`, `?carrierId=` se le sigue ignorando y el ámbito de su empresa se mantiene con los filtros nuevos activos.
 
 ### Respuesta
 
-- [ ] `VehicleResource` devuelve `condition`, `kilometersPerGallon`, `purchasePrice`, `monthlyInsuranceCost`, `mileage` y `engineNumber`, en camelCase.
-- [ ] `mileage` viaja como **entero** y los tres decimales como **cadena** de dos decimales (`"185000.00"`).
-- [ ] `engineNumber` es `null` en un vehículo anterior a la migración y el cliente no revienta.
-- [ ] Los ocho campos que ya devolvía SPEC 04 siguen presentes y con el mismo nombre y tipo.
+- [X] `VehicleResource` devuelve `condition`, `kilometersPerGallon`, `purchasePrice`, `monthlyInsuranceCost`, `mileage` y `engineNumber`, en camelCase.
+- [X] `mileage` viaja como **entero** y los tres decimales como **cadena** de dos decimales (`"185000.00"`).
+- [X] `engineNumber` es `null` en un vehículo anterior a la migración y el cliente no revienta.
+- [X] Los ocho campos que ya devolvía SPEC 04 siguen presentes y con el mismo nombre y tipo.
 
 ### Alcance y no-regresión
 
-- [ ] `routes/vehicles.php` no tiene ni un cambio.
-- [ ] `VehicleController` solo cambia en `filters()` (dos claves y su array shape) y en sus atributos OpenAPI: las cinco acciones no tienen ni una línea nueva.
-- [ ] No existe `ensureEngineNumberIsAvailable()` ni índice único sobre `engine_number`.
-- [ ] No existe ninguna ruta `/{vehicle}/mileage` ni tabla de historial.
-- [ ] Ningún test de otra spec se rompe: `php artisan test --compact` pasa entero.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] Swagger regenerado: los seis campos aparecen en los tres schemas y los dos filtros nuevos en los parámetros de `index`.
+- [X] `routes/vehicles.php` no tiene ni un cambio.
+- [X] `VehicleController` solo cambia en `filters()` (dos claves y su array shape) y en sus atributos OpenAPI: las cinco acciones no tienen ni una línea nueva.
+- [X] No existe `ensureEngineNumberIsAvailable()` ni índice único sobre `engine_number`.
+- [X] No existe ninguna ruta `/{vehicle}/mileage` ni tabla de historial.
+- [X] Ningún test de otra spec se rompe: `php artisan test --compact` pasa entero.
+- [X] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [X] Swagger regenerado: los seis campos aparecen en los tres schemas y los dos filtros nuevos en los parámetros de `index`.
 
 ---
 
