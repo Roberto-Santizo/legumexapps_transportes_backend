@@ -1,6 +1,6 @@
 # SPEC 12 — Búsqueda de direcciones con Google Places
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-08-17
 > **Objetivo:** Exponer dos endpoints de solo lectura que consultan la API de Google Places para buscar direcciones por texto y resolver las coordenadas de la dirección elegida, detrás de un contrato sustituible por otro proveedor.
