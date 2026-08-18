@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Enums\VehicleCondition;
 use App\Enums\VehicleStatus;
 use App\Enums\VehicleType;
 use App\Errors\BadRequestError;
@@ -16,6 +17,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 function vehicleService(): VehicleServiceInterface
 {
@@ -41,6 +43,12 @@ function vehicleServicePayload(array $overrides = []): array
         'year' => 2020,
         'capacity' => 15000.5,
         'type' => VehicleType::Truck->value,
+        'condition' => VehicleCondition::Used->value,
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 120000,
+        'engine_number' => 'MOT12345',
         'image' => UploadedFile::fake()->image('camion.png'),
     ], $overrides);
 }
@@ -66,6 +74,12 @@ it('crea la tabla vehicles con sus columnas', function () {
             'year',
             'capacity',
             'type',
+            'condition',
+            'kilometers_per_gallon',
+            'purchase_price',
+            'monthly_insurance_cost',
+            'mileage',
+            'engine_number',
             'image',
             'status',
             'created_at',
@@ -504,4 +518,296 @@ it('lanza ForbiddenError cuando un carrier desactiva un vehículo ajeno', functi
 it('lanza NotFoundError al desactivar un vehículo inexistente', function () {
     expect(fn () => vehicleService()->deleteVehicle(99999, adminUser()))
         ->toThrow(NotFoundError::class, 'El vehículo no existe');
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 13 — Modelo y casts de la ficha
+|--------------------------------------------------------------------------
+*/
+
+it('castea la condición al enum, el kilometraje a entero y el dinero a cadena de dos decimales', function () {
+    $vehicle = Vehicle::factory()->create([
+        'condition' => VehicleCondition::New,
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 120000,
+    ])->fresh();
+
+    expect($vehicle->condition)->toBeInstanceOf(VehicleCondition::class)
+        ->and($vehicle->condition)->toBe(VehicleCondition::New)
+        ->and($vehicle->mileage)->toBeInt()->toBe(120000)
+        ->and($vehicle->kilometers_per_gallon)->toBeString()->toBe('12.50')
+        ->and($vehicle->purchase_price)->toBeString()->toBe('185000.00')
+        ->and($vehicle->monthly_insurance_cost)->toBeString()->toBe('1250.75');
+});
+
+it('persiste con Vehicle::create las seis columnas de la ficha, que están en el fillable', function () {
+    $carrier = Carrier::factory()->create();
+
+    $vehicle = Vehicle::create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'brand' => 'Kenworth',
+        'model' => 'T680',
+        'year' => 2020,
+        'capacity' => 15000.5,
+        'type' => VehicleType::Truck,
+        'condition' => VehicleCondition::New,
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 42000,
+        'engine_number' => 'MOT12345',
+    ])->fresh();
+
+    expect($vehicle->condition)->toBe(VehicleCondition::New)
+        ->and($vehicle->mileage)->toBe(42000)
+        ->and($vehicle->engine_number)->toBe('MOT12345');
+
+    $this->assertDatabaseHas('vehicles', [
+        'plate' => 'P123ABC',
+        'condition' => 'new',
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 42000,
+        'engine_number' => 'MOT12345',
+    ]);
+});
+
+it('tiene exactamente dos condiciones posibles', function () {
+    expect(array_column(VehicleCondition::cases(), 'value'))->toBe(['new', 'used']);
+});
+
+it('no impide en base dos vehículos con el mismo número de motor', function () {
+    Vehicle::factory()->create(['engine_number' => 'MOT12345']);
+    Vehicle::factory()->create(['engine_number' => 'MOT12345']);
+
+    expect(Vehicle::query()->where('engine_number', '=', 'MOT12345')->count())->toBe(2);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 13 — Filtros nuevos de getVehicles()
+|--------------------------------------------------------------------------
+*/
+
+it('aplica el filtro de condición solo cuando pertenece al enum', function (?string $condition, int $expected) {
+    $carrier = Carrier::factory()->create();
+
+    Vehicle::factory()->count(2)->create(['carrier_id' => $carrier->id, 'condition' => VehicleCondition::New]);
+    Vehicle::factory()->count(3)->create(['carrier_id' => $carrier->id, 'condition' => VehicleCondition::Used]);
+
+    expect(vehicleService()->getVehicles($carrier->owner, ['condition' => $condition]))->toHaveCount($expected);
+})->with([
+    'sin filtro' => [null, 5],
+    'nuevos' => ['new', 2],
+    'usados' => ['used', 3],
+    'valor fuera del enum' => ['antiguo', 5],
+]);
+
+it('filtra por coincidencia parcial del número de motor, normalizando el término', function (?string $term, int $expected) {
+    $carrier = Carrier::factory()->create();
+
+    Vehicle::factory()->create(['carrier_id' => $carrier->id, 'engine_number' => 'XABC123']);
+    Vehicle::factory()->create(['carrier_id' => $carrier->id, 'engine_number' => 'ZZZ999']);
+    Vehicle::factory()->create(['carrier_id' => $carrier->id, 'engine_number' => null]);
+
+    expect(vehicleService()->getVehicles($carrier->owner, ['engineNumber' => $term]))->toHaveCount($expected);
+})->with([
+    'sin filtro' => [null, 3],
+    'cadena vacía' => ['', 3],
+    'solo espacios' => ['   ', 3],
+    'parcial en minúsculas' => ['abc', 1],
+    'parcial en mayúsculas' => ['ABC', 1],
+    'con espacios alrededor' => [' abc ', 1],
+    'sin coincidencias' => ['nada', 0],
+]);
+
+it('combina los filtros de condición y número de motor con el de status', function () {
+    $carrier = Carrier::factory()->create();
+
+    $buscado = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::New,
+        'status' => VehicleStatus::Active,
+        'engine_number' => 'XABC123',
+    ]);
+    Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::Used,
+        'status' => VehicleStatus::Active,
+        'engine_number' => 'XABC123',
+    ]);
+    Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::New,
+        'status' => VehicleStatus::Inactive,
+        'engine_number' => 'XABC123',
+    ]);
+    Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::New,
+        'status' => VehicleStatus::Active,
+        'engine_number' => 'ZZZ999',
+    ]);
+
+    $vehicles = vehicleService()->getVehicles($carrier->owner, [
+        'condition' => 'new',
+        'engineNumber' => 'abc',
+        'status' => 'active',
+    ]);
+
+    expect($vehicles->pluck('id')->all())->toBe([$buscado->id]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 13 — createVehicle() con la ficha
+|--------------------------------------------------------------------------
+*/
+
+it('persiste los seis campos de la ficha y normaliza el número de motor al crear', function () {
+    $carrier = Carrier::factory()->create();
+
+    $vehicle = vehicleService()->createVehicle(vehicleServicePayload([
+        'condition' => VehicleCondition::New->value,
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 0,
+        'engine_number' => 'abc123',
+    ]), $carrier->owner)->fresh();
+
+    expect($vehicle->condition)->toBe(VehicleCondition::New)
+        ->and($vehicle->kilometers_per_gallon)->toBe('12.50')
+        ->and($vehicle->purchase_price)->toBe('185000.00')
+        ->and($vehicle->monthly_insurance_cost)->toBe('1250.75')
+        ->and($vehicle->mileage)->toBe(0)
+        ->and($vehicle->engine_number)->toBe('ABC123')
+        ->and($vehicle->status)->toBe(VehicleStatus::Active);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 13 — updateVehicle() y la autorización del kilometraje
+|--------------------------------------------------------------------------
+*/
+
+it('actualiza los cinco campos de la ficha que no son el kilometraje', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::Used,
+        'mileage' => 120000,
+    ]);
+
+    $updated = vehicleService()->updateVehicle([
+        'condition' => VehicleCondition::New->value,
+        'kilometers_per_gallon' => 9.75,
+        'purchase_price' => 250000,
+        'monthly_insurance_cost' => 900.5,
+        'engine_number' => 'xyz789',
+    ], $vehicle->id, $carrier->owner)->fresh();
+
+    expect($updated->condition)->toBe(VehicleCondition::New)
+        ->and($updated->kilometers_per_gallon)->toBe('9.75')
+        ->and($updated->purchase_price)->toBe('250000.00')
+        ->and($updated->monthly_insurance_cost)->toBe('900.50')
+        ->and($updated->engine_number)->toBe('XYZ789')
+        ->and($updated->mileage)->toBe(120000);
+});
+
+it('deja que un administrador suba y baje el kilometraje', function (int $mileage) {
+    $vehicle = Vehicle::factory()->create(['mileage' => 120000]);
+
+    expect(vehicleService()->updateVehicle(['mileage' => $mileage], $vehicle->id, adminUser())->mileage)
+        ->toBe($mileage);
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'mileage' => $mileage]);
+})->with([
+    'subiéndolo' => 150000,
+    'bajándolo' => 500,
+]);
+
+it('lanza ForbiddenError cuando un carrier mueve el kilometraje', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'mileage' => 120000]);
+
+    expect(fn () => vehicleService()->updateVehicle(['mileage' => 130000], $vehicle->id, $carrier->owner))
+        ->toThrow(ForbiddenError::class, 'Solo un administrador puede modificar el kilometraje del vehículo');
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'mileage' => 120000]);
+});
+
+it('no aplica ningún otro campo del cuerpo cuando el kilometraje corta la edición', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'brand' => 'Hino',
+        'mileage' => 120000,
+        'image' => null,
+    ]);
+
+    expect(fn () => vehicleService()->updateVehicle([
+        'brand' => 'Volvo',
+        'mileage' => 130000,
+        'image' => UploadedFile::fake()->image('nueva.jpg'),
+    ], $vehicle->id, $carrier->owner))->toThrow(ForbiddenError::class);
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'brand' => 'Hino', 'mileage' => 120000, 'image' => null]);
+
+    /** La comprobación va antes del storeImage(): nada llegó al bucket. */
+    expect(Storage::allFiles())->toBeEmpty();
+});
+
+it('no considera un cambio que el carrier reenvíe el kilometraje que ya tiene el vehículo', function (mixed $mileage) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'brand' => 'Hino',
+        'mileage' => 120000,
+    ]);
+
+    $updated = vehicleService()->updateVehicle(
+        ['mileage' => $mileage, 'brand' => 'Volvo'],
+        $vehicle->id,
+        $carrier->owner,
+    );
+
+    expect($updated->mileage)->toBe(120000)
+        ->and($updated->brand)->toBe('Volvo');
+})->with([
+    'como entero' => 120000,
+    'como cadena' => '120000',
+]);
+
+it('normaliza a mayúsculas el número de motor actualizado', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'engine_number' => 'MOT12345']);
+
+    expect(vehicleService()->updateVehicle(['engine_number' => 'xyz789'], $vehicle->id, $carrier->owner)->engine_number)
+        ->toBe('XYZ789');
+});
+
+it('no revalida el número de motor al reactivar un vehículo desactivado', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'engine_number' => 'MOT12345',
+        'status' => VehicleStatus::Inactive,
+    ]);
+    Vehicle::factory()->create([
+        'plate' => 'Z999XYZ',
+        'engine_number' => 'MOT12345',
+        'status' => VehicleStatus::Active,
+    ]);
+
+    $updated = vehicleService()->updateVehicle(['status' => 'active'], $vehicle->id, $carrier->owner);
+
+    expect($updated->status)->toBe(VehicleStatus::Active)
+        ->and($updated->engine_number)->toBe('MOT12345');
 });

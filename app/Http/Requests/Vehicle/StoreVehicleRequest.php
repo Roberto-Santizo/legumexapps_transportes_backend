@@ -13,13 +13,19 @@ use OpenApi\Attributes as OA;
     schema: 'StoreVehicleRequest',
     title: 'Alta de vehículo',
     description: <<<'TEXT'
-    Cuerpo multipart/form-data para registrar un vehículo. Los siete campos son obligatorios: omitir cualquiera devuelve 422.
+    Cuerpo multipart/form-data para registrar un vehículo. Los TRECE campos son obligatorios: omitir cualquiera devuelve 422.
 
-    El status NO se acepta: el vehículo nace siempre en active y enviarlo en el cuerpo no cambia nada, se descarta sin error. El carrier_id tampoco se envía: se resuelve desde la empresa del usuario autenticado.
+    CAMBIO INCOMPATIBLE respecto a la versión anterior de la API: el alta pedía siete campos (plate, brand, model, year, capacity, type e image) y ahora exige seis más (condition, kilometers_per_gallon, purchase_price, monthly_insurance_cost, mileage y engine_number). No hay periodo de gracia ni transición: cualquier cliente que siga enviando el cuerpo antiguo recibe 422 en TODAS las altas hasta que actualice su formulario. La edición y el listado sí siguen siendo compatibles, lo que puede dar la falsa impresión de que el alta también lo es.
 
-    La unicidad de la placa no es una regla de este FormRequest, vive en el servicio y depende del estado de las filas existentes, por lo que una placa ya tomada devuelve 400 y no 422.
+    condition NO es status: son dos ejes distintos y ninguno reemplaza al otro. status es el estado operativo (active, inactive, under_repair), gobierna la baja lógica del DELETE y la unicidad condicional de la placa, y NO se acepta en este cuerpo: el vehículo nace siempre en active y enviarlo no cambia nada, se descarta sin error. condition (new, used) es cómo se adquirió el vehículo y no gobierna nada: no influye en el status inicial ni en ninguna otra regla del dominio.
+
+    El carrier_id tampoco se envía: se resuelve desde la empresa del usuario autenticado.
+
+    No hay ninguna validación cruzada entre los campos nuevos: un vehículo con condition = new y mileage = 90000 es válido, y un purchase_price de 0.01 también.
+
+    La unicidad de la placa no es una regla de este FormRequest, vive en el servicio y depende del estado de las filas existentes, por lo que una placa ya tomada devuelve 400 y no 422. El número de motor, en cambio, NO es único: dos vehículos, de la misma empresa o de empresas distintas, pueden compartir engine_number y los dos se registran con 201.
     TEXT,
-    required: ['plate', 'brand', 'model', 'year', 'capacity', 'type', 'image'],
+    required: ['plate', 'brand', 'model', 'year', 'capacity', 'type', 'condition', 'kilometers_per_gallon', 'purchase_price', 'monthly_insurance_cost', 'mileage', 'engine_number', 'image'],
     properties: [
         new OA\Property(
             property: 'plate',
@@ -52,6 +58,51 @@ use OpenApi\Attributes as OA;
             type: 'string',
             enum: ['truck', 'van', 'trailer', 'pickup'],
             example: 'truck',
+        ),
+        new OA\Property(
+            property: 'condition',
+            description: 'Condición con la que se adquirió el vehículo. Un valor fuera del enum (por ejemplo antiguo) devuelve 422. NO CONFUNDIR CON status: status es el estado operativo (active, inactive, under_repair), gobierna la baja lógica y la unicidad de la placa, y no se acepta en el alta; condition solo dice si el vehículo se compró nuevo o usado y no gobierna nada, ni siquiera el status inicial, que siempre es active. Los valores viajan en inglés; traducirlos es responsabilidad del cliente.',
+            type: 'string',
+            enum: ['new', 'used'],
+            example: 'used',
+        ),
+        new OA\Property(
+            property: 'kilometers_per_gallon',
+            description: 'Rendimiento de combustible EN KILÓMETROS POR GALÓN. Numérico y mayor que cero: el mínimo aceptado es 0.01 y un 0 devuelve 422, porque un rendimiento nulo es captura errónea, no un dato. Se guarda como decimal(6,2), así que el máximo es 9999.99 y se redondea a dos decimales. La unidad es una convención del dominio: nada impide enviar millas por galón o litros y nada lo detectará. El backend no convierte unidades ni usa este valor para calcular nada: es un dato de ficha y no alimenta la cotización de fletes.',
+            type: 'number',
+            format: 'float',
+            minimum: 0.01,
+            example: 12.5,
+        ),
+        new OA\Property(
+            property: 'purchase_price',
+            description: 'Valor de compra del vehículo EN QUETZALES (GTQ). Numérico y mayor que cero: el mínimo aceptado es 0.01 y un 0 devuelve 422. Se guarda como decimal(12,2), así que el máximo es 9999999999.99 y se redondea a dos decimales. La moneda es una convención del dominio y no se guarda en base: nada valida que el importe sean quetzales. Es lo que costó el vehículo y no se recalcula nunca: no hay depreciación ni valor actual.',
+            type: 'number',
+            format: 'float',
+            minimum: 0.01,
+            example: 185000,
+        ),
+        new OA\Property(
+            property: 'monthly_insurance_cost',
+            description: 'Costo del seguro EN QUETZALES (GTQ) y POR MES. Las dos cosas son convención del dominio y no se guardan en base: la columna no dice ni la moneda ni la periodicidad, así que enviar la prima anual la registrará como si fuera mensual y nada lo detectará. Numérico y mayor que cero: el mínimo aceptado es 0.01 y un 0 devuelve 422. Se guarda como decimal(10,2), máximo 99999999.99. Del seguro solo se guarda este número: no hay aseguradora, número de póliza, vigencia, deducible ni cobertura.',
+            type: 'number',
+            format: 'float',
+            minimum: 0.01,
+            example: 1250,
+        ),
+        new OA\Property(
+            property: 'mileage',
+            description: 'Kilometraje del odómetro EN KILÓMETROS ENTEROS. A diferencia de los tres campos anteriores SÍ admite 0, porque un vehículo recién comprado con cero kilómetros es legítimo; un valor negativo devuelve 422 y uno con decimales también (120000.5 es 422, la regla es integer). Se guarda como entero sin signo, máximo 4294967295. En el alta lo captura sin restricción quien pueda registrar el vehículo; ATENCIÓN, en la edición este campo tiene autorización propia y solo un administrator puede cambiarlo (ver UpdateVehicleRequest). No hay bitácora: ningún cambio de kilometraje deja rastro.',
+            type: 'integer',
+            minimum: 0,
+            example: 120000,
+        ),
+        new OA\Property(
+            property: 'engine_number',
+            description: 'Número de motor del vehículo, obligatorio. Se normaliza a MAYÚSCULAS antes de persistir, así que abc123 se guarda y se devuelve como ABC123, y el filtro engineNumber del listado busca sobre ese valor ya en mayúsculas. NO ES ÚNICO: a diferencia de la placa, dos vehículos pueden compartir el mismo número de motor sin conflicto (no hay índice ni comprobación en el servicio) y reactivar un vehículo sigue revalidando solo la placa. Máximo 50 caracteres; más devuelve 422. La columna admite null en base, pero por la API nunca se llega a ese estado: aquí es obligatorio y en la edición no se puede vaciar, así que un engineNumber null solo aparece en vehículos anteriores a esta versión.',
+            type: 'string',
+            maxLength: 50,
+            example: 'ABC123456',
         ),
         new OA\Property(
             property: 'image',

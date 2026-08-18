@@ -29,7 +29,7 @@ class VehicleController extends Controller
 
         ATENCIÓN — el listado devuelve por defecto TODOS los estados, incluidos los inactive (los desactivados con DELETE) y los under_repair. Un cliente que pinte "mis vehículos" sin filtrar mostrará vehículos dados de baja como si estuvieran operativos: filtrar es responsabilidad del consumidor, y para eso está el parámetro status.
 
-        Los filtros son tolerantes: un status que no pertenece al enum, un carrierId no numérico o un limit no numérico se ignoran en silencio y la lectura devuelve 200, nunca 422. No hay búsqueda por texto ni ordenación.
+        Los filtros son tolerantes: un status o un condition que no pertenecen a su enum, un carrierId no numérico, un engineNumber vacío o un limit no numérico se ignoran en silencio y la lectura devuelve el listado completo del ámbito con 200, nunca una lista vacía ni un 422. Los cinco se combinan entre sí sin interferir. El único filtro por texto es engineNumber, que busca por coincidencia parcial; no hay ordenación.
 
         La forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros del ámbito y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos aplanados en la raíz.
         TEXT,
@@ -49,6 +49,20 @@ class VehicleController extends Controller
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', example: 1),
+            ),
+            new OA\Parameter(
+                name: 'condition',
+                description: 'Filtra por la condición con la que se adquirió el vehículo, por COINCIDENCIA EXACTA con el valor del enum. NO ES EL FILTRO status: son dos ejes distintos y se pueden combinar —status es el estado operativo (active, inactive, under_repair) y condition es cómo se compró el vehículo (new, used)—, así que ?status=active&condition=new devuelve los vehículos operativos comprados nuevos. ES TOLERANTE: solo se aplica si el valor pertenece al enum; cualquier otro (por ejemplo condition=antiguo, o el parámetro vacío) se ignora en silencio y se devuelve el listado COMPLETO del ámbito, nunca una lista vacía ni un 422. Si se omite, el listado incluye las dos condiciones.',
+                in: 'query',
+                required: false,
+                schema: new OA\Schema(type: 'string', enum: ['new', 'used'], example: 'new'),
+            ),
+            new OA\Parameter(
+                name: 'engineNumber',
+                description: 'Filtra por número de motor, por COINCIDENCIA PARCIAL (LIKE %término%): engineNumber=abc casa con un vehículo cuyo número es XABC123. Es CASE-INSENSITIVE porque la columna se guarda siempre en mayúsculas y el término se normaliza a mayúsculas antes de buscar, así que abc y ABC dan el mismo resultado. Los vehículos con engineNumber null —los registrados antes de esta versión— NO aparecen nunca en un resultado de este filtro: no tienen número que buscar. ES TOLERANTE: un valor que no sea texto, o que quede vacío tras recortar espacios, se ignora en silencio y se devuelve el listado COMPLETO del ámbito, nunca una lista vacía ni un 422. Recuerda que el número de motor no es único: la búsqueda puede devolver varios vehículos aunque el término coincida entero.',
+                in: 'query',
+                required: false,
+                schema: new OA\Schema(type: 'string', maxLength: 50, example: 'ABC123'),
             ),
             new OA\Parameter(
                 name: 'limit',
@@ -461,13 +475,15 @@ class VehicleController extends Controller
      * by the service; here they are only normalized to strings, since anything
      * else is not a valid value.
      *
-     * @return array{status: string|null, carrierId: string|null, limit: string|null}
+     * @return array{status: string|null, carrierId: string|null, condition: string|null, engineNumber: string|null, limit: string|null}
      */
     private function filters(Request $request): array
     {
         return [
             'status' => $this->queryString($request, 'status'),
             'carrierId' => $this->queryString($request, 'carrierId'),
+            'condition' => $this->queryString($request, 'condition'),
+            'engineNumber' => $this->queryString($request, 'engineNumber'),
             'limit' => $this->queryString($request, 'limit'),
         ];
     }

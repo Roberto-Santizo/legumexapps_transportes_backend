@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Enums\VehicleCondition;
 use App\Enums\VehicleStatus;
 use App\Enums\VehicleType;
 use App\Interfaces\Storage\FileStorageServiceInterface;
@@ -60,6 +61,9 @@ if (! function_exists('asUser')) {
 /**
  * A valid store payload, with the image as an uploaded file.
  *
+ * Desde la SPEC 13 el alta exige trece campos: los siete de la SPEC 04 y los
+ * seis de la ficha tecnica y financiera.
+ *
  * @return array<string, mixed>
  */
 function validVehiclePayload(array $overrides = []): array
@@ -71,6 +75,12 @@ function validVehiclePayload(array $overrides = []): array
         'year' => 2020,
         'capacity' => 15000.5,
         'type' => VehicleType::Truck->value,
+        'condition' => VehicleCondition::Used->value,
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 120000,
+        'engine_number' => 'MOT12345',
         'image' => UploadedFile::fake()->image('camion.png'),
     ], $overrides);
 }
@@ -690,6 +700,12 @@ it('devuelve a un carrier un vehículo de su empresa', function () {
                 'year' => $vehicle->year,
                 'capacity' => $vehicle->capacity,
                 'type' => $vehicle->type->value,
+                'condition' => $vehicle->condition->value,
+                'kilometersPerGallon' => $vehicle->kilometers_per_gallon,
+                'purchasePrice' => $vehicle->purchase_price,
+                'monthlyInsuranceCost' => $vehicle->monthly_insurance_cost,
+                'mileage' => $vehicle->mileage,
+                'engineNumber' => $vehicle->engine_number,
                 'image' => null,
                 'status' => 'active',
                 'carrierName' => 'Transportes del Norte',
@@ -1076,4 +1092,630 @@ it('devuelve 404 al desactivar un vehículo que no existe', function () {
         ->deleteJson('/api/vehicles/99999')
         ->assertNotFound()
         ->assertJson(['message' => 'El vehículo no existe']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 13 — Ficha técnica y financiera: alta
+|--------------------------------------------------------------------------
+*/
+
+it('registra los seis campos de la ficha y los devuelve en camelCase', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload([
+        'condition' => VehicleCondition::New->value,
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 42000,
+        'engine_number' => 'MOT12345',
+    ]))
+        ->assertCreated()
+        ->assertJson([
+            'statusCode' => 201,
+            'message' => 'Vehículo registrado correctamente',
+            'data' => [
+                'condition' => 'new',
+                'kilometersPerGallon' => '12.50',
+                'purchasePrice' => '185000.00',
+                'monthlyInsuranceCost' => '1250.75',
+                'mileage' => 42000,
+                'engineNumber' => 'MOT12345',
+            ],
+        ])
+        ->assertJsonStructure([
+            'data' => [
+                'condition', 'kilometersPerGallon', 'purchasePrice',
+                'monthlyInsuranceCost', 'mileage', 'engineNumber',
+            ],
+        ]);
+
+    $this->assertDatabaseHas('vehicles', [
+        'carrier_id' => $carrier->id,
+        'condition' => 'new',
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 42000,
+        'engine_number' => 'MOT12345',
+    ]);
+});
+
+it('exige los seis campos de la ficha al registrar un vehículo', function (string $field, string $message) {
+    $carrier = Carrier::factory()->create();
+
+    $payload = validVehiclePayload();
+    unset($payload[$field]);
+
+    asUser($carrier->owner)->post('/api/vehicles', $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([$field])
+        ->assertJsonPath("errors.{$field}.0", $message);
+
+    $this->assertDatabaseCount('vehicles', 0);
+})->with([
+    'condición' => ['condition', 'La condición del vehículo es obligatoria'],
+    'rendimiento' => ['kilometers_per_gallon', 'El rendimiento en kilómetros por galón es obligatorio'],
+    'valor de compra' => ['purchase_price', 'El valor de compra es obligatorio'],
+    'costo del seguro' => ['monthly_insurance_cost', 'El costo mensual del seguro es obligatorio'],
+    'kilometraje' => ['mileage', 'El kilometraje es obligatorio'],
+    'número de motor' => ['engine_number', 'El número de motor es obligatorio'],
+]);
+
+it('rechaza con 422 los valores inválidos de la ficha al registrar un vehículo', function (array $overrides, string $field) {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload($overrides))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([$field]);
+
+    $this->assertDatabaseCount('vehicles', 0);
+})->with([
+    'condición fuera del enum' => [['condition' => 'antiguo'], 'condition'],
+    'rendimiento en cero' => [['kilometers_per_gallon' => 0], 'kilometers_per_gallon'],
+    'valor de compra en cero' => [['purchase_price' => 0], 'purchase_price'],
+    'costo del seguro en cero' => [['monthly_insurance_cost' => 0], 'monthly_insurance_cost'],
+    'kilometraje negativo' => [['mileage' => -1], 'mileage'],
+    'kilometraje con decimales' => [['mileage' => 120000.5], 'mileage'],
+    'número de motor de 51 caracteres' => [['engine_number' => 'AAAAAAAAAABBBBBBBBBBCCCCCCCCCCDDDDDDDDDDEEEEEEEEEEF'], 'engine_number'],
+]);
+
+it('acepta 0.01 como mínimo en los campos decimales de la ficha', function (string $field) {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload([$field => 0.01]))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('vehicles', [$field => 0.01]);
+})->with(['kilometers_per_gallon', 'purchase_price', 'monthly_insurance_cost']);
+
+it('acepta un kilometraje de cero al registrar un vehículo', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload(['mileage' => 0]))
+        ->assertCreated()
+        ->assertJsonPath('data.mileage', 0);
+
+    $this->assertDatabaseHas('vehicles', ['plate' => 'P123ABC', 'mileage' => 0]);
+});
+
+it('persiste el número de motor en mayúsculas aunque llegue en minúsculas', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload(['engine_number' => 'abc123']))
+        ->assertCreated()
+        ->assertJsonPath('data.engineNumber', 'ABC123');
+
+    $this->assertDatabaseHas('vehicles', ['plate' => 'P123ABC', 'engine_number' => 'ABC123']);
+});
+
+it('registra un vehículo new con 90000 kilómetros porque no hay validación cruzada', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicles', validVehiclePayload([
+        'condition' => VehicleCondition::New->value,
+        'mileage' => 90000,
+    ]))
+        ->assertCreated()
+        ->assertJsonPath('data.condition', 'new')
+        ->assertJsonPath('data.mileage', 90000);
+
+    $this->assertDatabaseHas('vehicles', ['plate' => 'P123ABC', 'condition' => 'new', 'mileage' => 90000]);
+});
+
+it('permite registrar dos vehículos activos de la misma empresa con el mismo número de motor', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)
+        ->post('/api/vehicles', validVehiclePayload(['plate' => 'P111AAA', 'engine_number' => 'MOT12345']))
+        ->assertCreated()
+        ->assertJsonPath('data.engineNumber', 'MOT12345');
+
+    asUser($carrier->owner)
+        ->post('/api/vehicles', validVehiclePayload(['plate' => 'P222BBB', 'engine_number' => 'mot12345']))
+        ->assertCreated()
+        ->assertJsonPath('data.engineNumber', 'MOT12345');
+
+    expect(Vehicle::query()->where('engine_number', '=', 'MOT12345')->count())->toBe(2);
+});
+
+it('sigue naciendo en active un vehículo registrado con condición new', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser($carrier->owner)
+        ->post('/api/vehicles', validVehiclePayload(['condition' => VehicleCondition::New->value]))
+        ->assertCreated()
+        ->assertJsonPath('data.status', 'active')
+        ->assertJsonPath('data.condition', 'new');
+
+    $this->assertDatabaseHas('vehicles', ['plate' => 'P123ABC', 'status' => 'active', 'condition' => 'new']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 13 — Edición de la ficha y kilometraje por rol
+|--------------------------------------------------------------------------
+*/
+
+it('permite a un administrador cambiar los seis campos de la ficha', function () {
+    $vehicle = Vehicle::factory()->create([
+        'condition' => VehicleCondition::Used,
+        'mileage' => 120000,
+        'engine_number' => 'VIEJO01',
+    ]);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/vehicles/{$vehicle->id}", [
+        'condition' => VehicleCondition::New->value,
+        'kilometers_per_gallon' => 9.75,
+        'purchase_price' => 250000,
+        'monthly_insurance_cost' => 900.5,
+        'mileage' => 150000,
+        'engine_number' => 'NUEVO02',
+    ])
+        ->assertOk()
+        ->assertJson([
+            'statusCode' => 200,
+            'message' => 'Vehículo actualizado correctamente',
+            'data' => [
+                'condition' => 'new',
+                'kilometersPerGallon' => '9.75',
+                'purchasePrice' => '250000.00',
+                'monthlyInsuranceCost' => '900.50',
+                'mileage' => 150000,
+                'engineNumber' => 'NUEVO02',
+            ],
+        ]);
+
+    $this->assertDatabaseHas('vehicles', [
+        'id' => $vehicle->id,
+        'condition' => 'new',
+        'kilometers_per_gallon' => 9.75,
+        'purchase_price' => 250000,
+        'monthly_insurance_cost' => 900.5,
+        'mileage' => 150000,
+        'engine_number' => 'NUEVO02',
+    ]);
+});
+
+it('permite a un carrier cambiar los cinco campos de la ficha que no son el kilometraje', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::Used,
+        'mileage' => 120000,
+    ]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", [
+        'condition' => VehicleCondition::New->value,
+        'kilometers_per_gallon' => 9.75,
+        'purchase_price' => 250000,
+        'monthly_insurance_cost' => 900.5,
+        'engine_number' => 'NUEVO02',
+    ])
+        ->assertOk()
+        ->assertJson(['data' => [
+            'condition' => 'new',
+            'kilometersPerGallon' => '9.75',
+            'purchasePrice' => '250000.00',
+            'monthlyInsuranceCost' => '900.50',
+            'engineNumber' => 'NUEVO02',
+            'mileage' => 120000,
+        ]]);
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'condition' => 'new', 'mileage' => 120000]);
+});
+
+it('acepta que un carrier reenvíe el kilometraje que el vehículo ya tiene', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'brand' => 'Hino',
+        'mileage' => 120000,
+    ]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", [
+        'mileage' => 120000,
+        'brand' => 'Volvo',
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.mileage', 120000)
+        ->assertJsonPath('data.brand', 'Volvo');
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'brand' => 'Volvo', 'mileage' => 120000]);
+});
+
+it('no dispara el 403 cuando el kilometraje llega como cadena con el mismo valor', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'mileage' => 120000]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['mileage' => '120000'])
+        ->assertOk()
+        ->assertJsonPath('data.mileage', 120000);
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'mileage' => 120000]);
+});
+
+it('rechaza con 403 al carrier que cambia el kilometraje del vehículo', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'mileage' => 120000]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['mileage' => 130000])
+        ->assertForbidden()
+        ->assertExactJson([
+            'statusCode' => 403,
+            'message' => 'Solo un administrador puede modificar el kilometraje del vehículo',
+            'data' => null,
+        ]);
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'mileage' => 120000]);
+});
+
+it('no guarda ningún campo ni sube la imagen cuando el 403 del kilometraje corta el PATCH', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'brand' => 'Hino',
+        'mileage' => 120000,
+        'image' => null,
+    ]);
+
+    asUser($carrier->owner)->patch("/api/vehicles/{$vehicle->id}", [
+        'brand' => 'Volvo',
+        'mileage' => 130000,
+        'image' => UploadedFile::fake()->image('nuevo.jpg'),
+    ])
+        ->assertForbidden()
+        ->assertJson(['message' => 'Solo un administrador puede modificar el kilometraje del vehículo']);
+
+    $this->assertDatabaseHas('vehicles', [
+        'id' => $vehicle->id,
+        'brand' => 'Hino',
+        'mileage' => 120000,
+        'image' => null,
+    ]);
+
+    /** El 403 corta antes de subir: un PATCH condenado no deja archivos huérfanos en el bucket. */
+    expect(Storage::allFiles())->toBeEmpty();
+});
+
+it('permite a un administrador bajar el kilometraje del vehículo', function () {
+    $vehicle = Vehicle::factory()->create(['mileage' => 120000]);
+
+    asUser(userWithRole(UserRole::Administrator))
+        ->patchJson("/api/vehicles/{$vehicle->id}", ['mileage' => 500])
+        ->assertOk()
+        ->assertJsonPath('data.mileage', 500);
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'mileage' => 500]);
+});
+
+it('deja intactos los campos de la ficha que no se envían', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::Used,
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 120000,
+        'engine_number' => 'MOT12345',
+    ]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['brand' => 'Volvo'])
+        ->assertOk()
+        ->assertJson(['data' => [
+            'brand' => 'Volvo',
+            'condition' => 'used',
+            'kilometersPerGallon' => '12.50',
+            'purchasePrice' => '185000.00',
+            'monthlyInsuranceCost' => '1250.75',
+            'mileage' => 120000,
+            'engineNumber' => 'MOT12345',
+        ]]);
+});
+
+it('rechaza con 422 los campos de la ficha enviados vacíos o inválidos al actualizar', function (array $payload, string $field) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'brand' => 'Hino']);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([$field]);
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'brand' => 'Hino']);
+})->with([
+    'condición vacía' => [['condition' => ''], 'condition'],
+    'condición fuera del enum' => [['condition' => 'antiguo'], 'condition'],
+    'rendimiento vacío' => [['kilometers_per_gallon' => ''], 'kilometers_per_gallon'],
+    'rendimiento en cero' => [['kilometers_per_gallon' => 0], 'kilometers_per_gallon'],
+    'valor de compra vacío' => [['purchase_price' => ''], 'purchase_price'],
+    'valor de compra en cero' => [['purchase_price' => 0], 'purchase_price'],
+    'costo del seguro vacío' => [['monthly_insurance_cost' => ''], 'monthly_insurance_cost'],
+    'costo del seguro en cero' => [['monthly_insurance_cost' => 0], 'monthly_insurance_cost'],
+    'kilometraje vacío' => [['mileage' => ''], 'mileage'],
+    'kilometraje negativo' => [['mileage' => -1], 'mileage'],
+    'kilometraje con decimales' => [['mileage' => 120000.5], 'mileage'],
+    'número de motor en null' => [['engine_number' => null], 'engine_number'],
+    'número de motor vacío' => [['engine_number' => ''], 'engine_number'],
+]);
+
+it('persiste en mayúsculas el número de motor actualizado', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'engine_number' => 'MOT12345']);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['engine_number' => 'xyz789'])
+        ->assertOk()
+        ->assertJsonPath('data.engineNumber', 'XYZ789');
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'engine_number' => 'XYZ789']);
+});
+
+it('no altera el status al cambiar la condición ni la condición al cambiar el status', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::Used,
+        'status' => VehicleStatus::Active,
+    ]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['condition' => VehicleCondition::New->value])
+        ->assertOk()
+        ->assertJsonPath('data.condition', 'new')
+        ->assertJsonPath('data.status', 'active');
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['status' => VehicleStatus::UnderRepair->value])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'under_repair')
+        ->assertJsonPath('data.condition', 'new');
+
+    $this->assertDatabaseHas('vehicles', [
+        'id' => $vehicle->id,
+        'condition' => 'new',
+        'status' => 'under_repair',
+    ]);
+});
+
+it('reactiva un vehículo aunque su número de motor esté duplicado', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'plate' => 'P123ABC',
+        'engine_number' => 'MOT12345',
+        'status' => VehicleStatus::Inactive,
+    ]);
+
+    Vehicle::factory()->create([
+        'plate' => 'Z999XYZ',
+        'engine_number' => 'MOT12345',
+        'status' => VehicleStatus::Active,
+    ]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicles/{$vehicle->id}", ['status' => VehicleStatus::Active->value])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'active')
+        ->assertJsonPath('data.engineNumber', 'MOT12345');
+
+    $this->assertDatabaseHas('vehicles', ['id' => $vehicle->id, 'status' => 'active']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 13 — Filtros nuevos del listado
+|--------------------------------------------------------------------------
+*/
+
+it('filtra el listado por la condición del vehículo', function (string $condition, int $expected) {
+    $carrier = Carrier::factory()->create();
+
+    Vehicle::factory()->count(2)->create(['carrier_id' => $carrier->id, 'condition' => VehicleCondition::New]);
+    Vehicle::factory()->count(3)->create(['carrier_id' => $carrier->id, 'condition' => VehicleCondition::Used]);
+
+    $response = asUser($carrier->owner)->getJson("/api/vehicles?condition={$condition}");
+
+    $response->assertOk()->assertJsonCount($expected, 'data');
+
+    expect(collect($response->json('data'))->pluck('condition')->unique()->values()->all())->toBe([$condition]);
+})->with([
+    'nuevos' => ['new', 2],
+    'usados' => ['used', 3],
+]);
+
+it('ignora sin error una condición que no pertenece al enum', function () {
+    $carrier = Carrier::factory()->create();
+
+    Vehicle::factory()->count(2)->create(['carrier_id' => $carrier->id, 'condition' => VehicleCondition::New]);
+    Vehicle::factory()->count(3)->create(['carrier_id' => $carrier->id, 'condition' => VehicleCondition::Used]);
+
+    asUser($carrier->owner)->getJson('/api/vehicles?condition=antiguo')
+        ->assertOk()
+        ->assertJsonCount(5, 'data');
+});
+
+it('filtra el listado por coincidencia parcial e insensible a mayúsculas del número de motor', function (string $term) {
+    $carrier = Carrier::factory()->create();
+
+    $buscado = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'engine_number' => 'XABC123']);
+    Vehicle::factory()->count(2)->create(['carrier_id' => $carrier->id, 'engine_number' => 'ZZZ999']);
+
+    asUser($carrier->owner)->getJson('/api/vehicles?engineNumber='.urlencode($term))
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $buscado->id)
+        ->assertJsonPath('data.0.engineNumber', 'XABC123');
+})->with([
+    'en minúsculas' => 'abc',
+    'en mayúsculas' => 'ABC',
+    'con espacios alrededor' => ' abc ',
+]);
+
+it('devuelve el listado completo cuando el filtro de número de motor llega vacío', function () {
+    $carrier = Carrier::factory()->create();
+
+    Vehicle::factory()->count(3)->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->getJson('/api/vehicles?engineNumber=')
+        ->assertOk()
+        ->assertJsonCount(3, 'data');
+});
+
+it('nunca devuelve en el filtro de número de motor un vehículo sin número', function () {
+    $carrier = Carrier::factory()->create();
+
+    $conNumero = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'engine_number' => 'XABC123']);
+    Vehicle::factory()->count(2)->create(['carrier_id' => $carrier->id, 'engine_number' => null]);
+
+    $response = asUser($carrier->owner)->getJson('/api/vehicles?engineNumber=abc');
+
+    $response->assertOk()->assertJsonCount(1, 'data');
+
+    expect(listedVehicleIds($response->json('data')))->toBe([$conNumero->id]);
+});
+
+it('combina los filtros nuevos con el status y la paginación', function () {
+    $carrier = Carrier::factory()->create();
+
+    Vehicle::factory()->count(12)->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::New,
+        'status' => VehicleStatus::Active,
+        'engine_number' => 'XABC123',
+    ]);
+
+    /** Cada uno falla por un solo filtro, así que ninguno debería colarse. */
+    Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::Used,
+        'status' => VehicleStatus::Active,
+        'engine_number' => 'XABC123',
+    ]);
+    Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::New,
+        'status' => VehicleStatus::Inactive,
+        'engine_number' => 'XABC123',
+    ]);
+    Vehicle::factory()->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::New,
+        'status' => VehicleStatus::Active,
+        'engine_number' => 'ZZZ999',
+    ]);
+
+    asUser($carrier->owner)->getJson('/api/vehicles?condition=new&engineNumber=abc&status=active&limit=10')
+        ->assertOk()
+        ->assertJsonCount(10, 'data')
+        ->assertJsonPath('total', 12)
+        ->assertJsonPath('currentPage', 1)
+        ->assertJsonPath('lastPage', 2);
+});
+
+it('filtra por carrierId y condición a la vez cuando lo pide un administrador', function () {
+    $unaEmpresa = Carrier::factory()->create();
+    $otraEmpresa = Carrier::factory()->create();
+
+    $suyos = Vehicle::factory()->count(2)->create([
+        'carrier_id' => $unaEmpresa->id,
+        'condition' => VehicleCondition::New,
+    ]);
+    Vehicle::factory()->create(['carrier_id' => $unaEmpresa->id, 'condition' => VehicleCondition::Used]);
+    Vehicle::factory()->count(3)->create(['carrier_id' => $otraEmpresa->id, 'condition' => VehicleCondition::New]);
+
+    $response = asUser(userWithRole(UserRole::Administrator))
+        ->getJson("/api/vehicles?carrierId={$unaEmpresa->id}&condition=new");
+
+    $response->assertOk()->assertJsonCount(2, 'data');
+
+    expect(listedVehicleIds($response->json('data')))->toEqualCanonicalizing($suyos->pluck('id')->all());
+});
+
+it('sigue ignorando el carrierId de un carrier con los filtros nuevos activos', function () {
+    $carrier = Carrier::factory()->create();
+    $otra = Carrier::factory()->create();
+
+    $propios = Vehicle::factory()->count(2)->create([
+        'carrier_id' => $carrier->id,
+        'condition' => VehicleCondition::New,
+        'engine_number' => 'XABC123',
+    ]);
+    Vehicle::factory()->count(3)->create([
+        'carrier_id' => $otra->id,
+        'condition' => VehicleCondition::New,
+        'engine_number' => 'XABC123',
+    ]);
+
+    $response = asUser($carrier->owner)
+        ->getJson("/api/vehicles?carrierId={$otra->id}&condition=new&engineNumber=abc");
+
+    $response->assertOk()->assertJsonCount(2, 'data');
+
+    expect(listedVehicleIds($response->json('data')))->toEqualCanonicalizing($propios->pluck('id')->all());
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 13 — Forma de la respuesta
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve el kilometraje como entero y los tres decimales como cadena', function () {
+    $vehicle = Vehicle::factory()->create([
+        'kilometers_per_gallon' => 12.5,
+        'purchase_price' => 185000,
+        'monthly_insurance_cost' => 1250.75,
+        'mileage' => 120000,
+    ]);
+
+    $data = asUser(userWithRole(UserRole::Administrator))
+        ->getJson("/api/vehicles/{$vehicle->id}")
+        ->assertOk()
+        ->json('data');
+
+    expect($data['mileage'])->toBeInt()->toBe(120000)
+        ->and($data['kilometersPerGallon'])->toBeString()->toBe('12.50')
+        ->and($data['purchasePrice'])->toBeString()->toBe('185000.00')
+        ->and($data['monthlyInsuranceCost'])->toBeString()->toBe('1250.75');
+});
+
+it('devuelve engineNumber en null en un vehículo anterior a la migración', function () {
+    $vehicle = Vehicle::factory()->create(['engine_number' => null]);
+
+    asUser(userWithRole(UserRole::Administrator))
+        ->getJson("/api/vehicles/{$vehicle->id}")
+        ->assertOk()
+        ->assertJsonPath('data.engineNumber', null);
+});
+
+it('sigue devolviendo los ocho campos de la SPEC 04 junto a los seis nuevos', function () {
+    $vehicle = Vehicle::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))
+        ->getJson("/api/vehicles/{$vehicle->id}")
+        ->assertOk()
+        ->assertJsonStructure([
+            'data' => [
+                'id', 'plate', 'brand', 'model', 'year', 'capacity', 'type', 'image', 'status', 'carrierName',
+                'condition', 'kilometersPerGallon', 'purchasePrice', 'monthlyInsuranceCost', 'mileage', 'engineNumber',
+            ],
+        ]);
 });

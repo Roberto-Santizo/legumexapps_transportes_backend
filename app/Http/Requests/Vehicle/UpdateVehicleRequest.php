@@ -14,7 +14,13 @@ use OpenApi\Attributes as OA;
     schema: 'UpdateVehicleRequest',
     title: 'Actualización de vehículo',
     description: <<<'TEXT'
-    Actualización parcial: los ocho campos son opcionales y solo se modifica lo que llega. Un campo enviado vacío sí es error (422). A diferencia del alta, aquí sí se acepta status.
+    Actualización parcial: los catorce campos son opcionales y solo se modifica lo que llega. Un campo enviado vacío sí es error (422). A diferencia del alta, aquí sí se acepta status.
+
+    A diferencia del alta, este cuerpo NO es un cambio incompatible: los seis campos nuevos de la ficha (condition, kilometers_per_gallon, purchase_price, monthly_insurance_cost, mileage y engine_number) se suman como opcionales y un cliente que siga enviando el cuerpo antiguo sigue funcionando igual.
+
+    condition NO es status, y aquí conviven los dos en el mismo cuerpo: status es el estado operativo (active, inactive, under_repair), gobierna la baja lógica del DELETE y la unicidad condicional de la placa —cambiarlo puede revalidar la placa y devolver 400—; condition (new, used) es cómo se adquirió el vehículo y no gobierna nada. Son ejes independientes: cambiar condition no altera status y cambiar status no altera condition.
+
+    ATENCIÓN — mileage tiene AUTORIZACIÓN PROPIA, la única del proyecto a nivel de campo: el endpoint es alcanzable por carrier y administrator, pero solo un administrator puede enviar un mileage DISTINTO al almacenado. Un carrier que lo intente recibe 403 con el mensaje "Solo un administrador puede modificar el kilometraje del vehículo" y NINGÚN otro campo del cuerpo se aplica: la petición se aborta entera, incluida la imagen, que ni siquiera llega a subirse. Enviar el mismo valor que el vehículo ya tiene no es un cambio y pasa con 200 para cualquier rol, que es el caso del front que reenvía el formulario completo con el campo oculto. La regla vive en el servicio, no en un middleware, así que no se ve mirando las rutas.
 
     La empresa dueña del vehículo no se puede cambiar: no existe campo para ello.
     TEXT,
@@ -50,6 +56,51 @@ use OpenApi\Attributes as OA;
             type: 'string',
             enum: ['truck', 'van', 'trailer', 'pickup'],
             example: 'trailer',
+        ),
+        new OA\Property(
+            property: 'condition',
+            description: 'Nueva condición de adquisición. Si se envía, no puede estar vacía y un valor fuera del enum devuelve 422; si se omite, no se toca. NO CONFUNDIR CON status, que también viaja en este cuerpo: status es el estado operativo y gobierna la baja lógica y la unicidad de la placa; condition solo dice si el vehículo se compró nuevo o usado y no gobierna nada. Son independientes: cambiar condition no altera status, y cambiar status no altera condition.',
+            type: 'string',
+            enum: ['new', 'used'],
+            example: 'new',
+        ),
+        new OA\Property(
+            property: 'kilometers_per_gallon',
+            description: 'Nuevo rendimiento EN KILÓMETROS POR GALÓN. Si se envía, debe ser numérico y mayor que cero: el mínimo es 0.01 y un 0 devuelve 422. Se guarda como decimal(6,2), máximo 9999.99. Si se omite, no se toca. La unidad no se valida y el valor no alimenta ningún cálculo.',
+            type: 'number',
+            format: 'float',
+            minimum: 0.01,
+            example: 14.75,
+        ),
+        new OA\Property(
+            property: 'purchase_price',
+            description: 'Nuevo valor de compra EN QUETZALES (GTQ). Si se envía, debe ser numérico y mayor que cero: el mínimo es 0.01 y un 0 devuelve 422. Se guarda como decimal(12,2), máximo 9999999999.99. Si se omite, no se toca. La moneda es convención del dominio y no se valida; el importe no se recalcula ni se deprecia nunca, solo se corrige a mano por aquí.',
+            type: 'number',
+            format: 'float',
+            minimum: 0.01,
+            example: 190000,
+        ),
+        new OA\Property(
+            property: 'monthly_insurance_cost',
+            description: 'Nuevo costo del seguro EN QUETZALES (GTQ) y POR MES. Las dos cosas son convención del dominio y no se validan: mandar la prima anual la guardará como si fuera mensual. Si se envía, debe ser numérico y mayor que cero: el mínimo es 0.01 y un 0 devuelve 422. Se guarda como decimal(10,2), máximo 99999999.99. Si se omite, no se toca.',
+            type: 'number',
+            format: 'float',
+            minimum: 0.01,
+            example: 1400,
+        ),
+        new OA\Property(
+            property: 'mileage',
+            description: 'Nuevo kilometraje EN KILÓMETROS ENTEROS. ATENCIÓN, ES EL ÚNICO CAMPO DEL PROYECTO CON AUTORIZACIÓN PROPIA: aunque el endpoint lo alcanzan carrier y administrator, solo un administrator puede enviarlo con un valor DISTINTO al que ya tiene el vehículo. Un carrier que lo intente recibe 403 con el mensaje "Solo un administrador puede modificar el kilometraje del vehículo", y entonces NINGÚN otro campo del cuerpo se aplica: el PATCH se aborta entero y ni siquiera se sube la imagen, para no dejar archivos huérfanos. Enviar EL MISMO valor que el vehículo ya tiene NO es un cambio: pasa con 200 sea cual sea el rol y el resto del cuerpo se aplica con normalidad; es el caso del front que reenvía el formulario completo con el campo oculto. La comparación es sobre enteros, así que la cadena "120000" y el número 120000 son el mismo kilometraje y no disparan el 403. Un administrator puede subirlo Y BAJARLO sin restricción, sin bitácora y sin forma de recuperar el valor anterior. Validación normal: entero, mínimo 0 (se admite), negativo o con decimales es 422. La regla vive en el servicio, no en un middleware: no se ve mirando las rutas.',
+            type: 'integer',
+            minimum: 0,
+            example: 135000,
+        ),
+        new OA\Property(
+            property: 'engine_number',
+            description: 'Nuevo número de motor. Se normaliza a MAYÚSCULAS antes de persistir: xyz789 se guarda como XYZ789. NO SE PUEDE VACIAR: si se envía, tiene que traer valor, y un null (igual que una cadena vacía) devuelve 422; para dejarlo sin tocar hay que omitir la clave. La columna admite null en base solo por los vehículos anteriores a esta versión, pero por la API no hay forma de volver a ese estado. NO ES ÚNICO: dos vehículos pueden compartirlo sin conflicto, no se comprueba en el alta ni aquí, y reactivar un vehículo desactivado sigue revalidando solo la placa, nunca el número de motor. Máximo 50 caracteres.',
+            type: 'string',
+            maxLength: 50,
+            example: 'XYZ789012',
         ),
         new OA\Property(
             property: 'image',
