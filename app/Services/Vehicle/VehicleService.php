@@ -3,6 +3,7 @@
 namespace App\Services\Vehicle;
 
 use App\Enums\UserRole;
+use App\Enums\VehicleCondition;
 use App\Enums\VehicleStatus;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
@@ -59,6 +60,18 @@ class VehicleService implements VehicleServiceInterface
             $query->where('status', '=', $status->value);
         }
 
+        $condition = isset($filters['condition']) ? VehicleCondition::tryFrom($filters['condition']) : null;
+
+        if ($condition !== null) {
+            $query->where('condition', '=', $condition->value);
+        }
+
+        $engineNumber = $this->normalizeEngineNumber($filters['engineNumber'] ?? null);
+
+        if ($engineNumber !== null) {
+            $query->where('engine_number', 'like', "%{$engineNumber}%");
+        }
+
         $perPage = $this->resolvePerPage($filters['limit'] ?? null);
 
         return $perPage === null ? $query->get() : $query->paginate($perPage);
@@ -104,6 +117,12 @@ class VehicleService implements VehicleServiceInterface
             'year' => $data['year'],
             'capacity' => $data['capacity'],
             'type' => $data['type'],
+            'condition' => $data['condition'],
+            'kilometers_per_gallon' => $data['kilometers_per_gallon'],
+            'purchase_price' => $data['purchase_price'],
+            'monthly_insurance_cost' => $data['monthly_insurance_cost'],
+            'mileage' => $data['mileage'],
+            'engine_number' => $this->normalizeEngineNumber($data['engine_number']),
             'image' => $this->storeImage($data['image']),
             'status' => VehicleStatus::Active,
         ]);
@@ -113,6 +132,20 @@ class VehicleService implements VehicleServiceInterface
     public function updateVehicle(array $data, int $id, User $user): Vehicle
     {
         $vehicle = $this->getVehicleById($user, $id);
+
+        /**
+         * El kilometraje es el único campo con autorización propia, y se comprueba
+         * antes de subir la imagen: un PATCH condenado no puede dejar un archivo
+         * huérfano en el bucket. Reenviar el valor que el vehículo ya tiene no es
+         * un cambio y no dispara nada.
+         */
+        if (array_key_exists('mileage', $data) && (int) $data['mileage'] !== $vehicle->mileage) {
+            if ($user->role !== UserRole::Administrator) {
+                throw new ForbiddenError('Solo un administrador puede modificar el kilometraje del vehículo');
+            }
+
+            $vehicle->mileage = (int) $data['mileage'];
+        }
 
         $plate = array_key_exists('plate', $data) ? Str::upper($data['plate']) : $vehicle->plate;
 
@@ -135,10 +168,15 @@ class VehicleService implements VehicleServiceInterface
         $vehicle->plate = $plate;
         $vehicle->status = $status;
 
-        foreach (['brand', 'model', 'year', 'capacity', 'type'] as $field) {
+        foreach (['brand', 'model', 'year', 'capacity', 'type', 'condition',
+            'kilometers_per_gallon', 'purchase_price', 'monthly_insurance_cost'] as $field) {
             if (array_key_exists($field, $data)) {
                 $vehicle->{$field} = $data[$field];
             }
+        }
+
+        if (array_key_exists('engine_number', $data)) {
+            $vehicle->engine_number = $this->normalizeEngineNumber($data['engine_number']);
         }
 
         $previousImage = null;
@@ -170,6 +208,24 @@ class VehicleService implements VehicleServiceInterface
         $vehicle->save();
 
         return $vehicle;
+    }
+
+    /**
+     * Normalize an engine number the same way the column stores it.
+     *
+     * Trims and uppercases the value, returning null when it is not a string or
+     * when nothing is left. Storing it uppercased is what makes the LIKE filter
+     * case insensitive without reaching for ILIKE.
+     */
+    private function normalizeEngineNumber(mixed $engineNumber): ?string
+    {
+        if (! is_string($engineNumber)) {
+            return null;
+        }
+
+        $normalized = Str::upper(trim($engineNumber));
+
+        return $normalized === '' ? null : $normalized;
     }
 
     /**
