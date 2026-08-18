@@ -14,7 +14,7 @@ use OpenApi\Attributes as OA;
 
 #[OA\Tag(
     name: 'Vehicles',
-    description: 'Inventario de vehículos de las empresas transportistas. Todos los endpoints requieren token JWT (Authorization: Bearer {token}), llevan el middleware carrier.required y están filtrados por rol: solo carrier y administrator entran, y el alta es exclusiva del carrier. Los roles pilot y manager reciben 403 en los cinco endpoints. El ámbito se resuelve en el servicio: un carrier solo alcanza los vehículos de su propia empresa y un administrator los de todas; el administrator está exento de carrier.required, así que opera aunque no esté vinculado a ninguna empresa. La capacidad va siempre EN LIBRAS y la imagen se valida pero no se almacena.',
+    description: 'Inventario de vehículos de las empresas transportistas. Todos los endpoints requieren token JWT (Authorization: Bearer {token}), llevan el middleware carrier.required y están filtrados por rol: solo carrier y administrator entran, y el alta es exclusiva del carrier. Los roles pilot y manager reciben 403 en los cinco endpoints. El ámbito se resuelve en el servicio: un carrier solo alcanza los vehículos de su propia empresa y un administrator los de todas; el administrator está exento de carrier.required, así que opera aunque no esté vinculado a ninguna empresa. La capacidad va siempre EN LIBRAS. La imagen se procesa y se almacena: se recorta a un cuadrado centrado de 800x800 px, se sube al almacenamiento y el recurso devuelve su URL pública permanente. El kilometraje tiene autorización propia, comprobada en el servicio y no en un middleware: solo un administrator puede enviarlo con un valor distinto al almacenado.',
 )]
 class VehicleController extends Controller
 {
@@ -29,7 +29,7 @@ class VehicleController extends Controller
 
         ATENCIÓN — el listado devuelve por defecto TODOS los estados, incluidos los inactive (los desactivados con DELETE) y los under_repair. Un cliente que pinte "mis vehículos" sin filtrar mostrará vehículos dados de baja como si estuvieran operativos: filtrar es responsabilidad del consumidor, y para eso está el parámetro status.
 
-        Los filtros son tolerantes: un status que no pertenece al enum, un carrierId no numérico o un limit no numérico se ignoran en silencio y la lectura devuelve 200, nunca 422. No hay búsqueda por texto ni ordenación.
+        Los filtros son tolerantes: un status o un condition que no pertenecen a su enum, un carrierId no numérico, un engineNumber vacío o un limit no numérico se ignoran en silencio y la lectura devuelve el listado completo del ámbito con 200, nunca una lista vacía ni un 422. Los cinco se combinan entre sí sin interferir. El único filtro por texto es engineNumber, que busca por coincidencia parcial; no hay ordenación.
 
         La forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros del ámbito y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos aplanados en la raíz.
         TEXT,
@@ -51,8 +51,22 @@ class VehicleController extends Controller
                 schema: new OA\Schema(type: 'integer', example: 1),
             ),
             new OA\Parameter(
+                name: 'condition',
+                description: 'Filtra por la condición con la que se adquirió el vehículo, por COINCIDENCIA EXACTA con el valor del enum. NO ES EL FILTRO status: son dos ejes distintos y se pueden combinar —status es el estado operativo (active, inactive, under_repair) y condition es cómo se compró el vehículo (new, used)—, así que ?status=active&condition=new devuelve los vehículos operativos comprados nuevos. ES TOLERANTE: solo se aplica si el valor pertenece al enum; cualquier otro (por ejemplo condition=antiguo, o el parámetro vacío) se ignora en silencio y se devuelve el listado COMPLETO del ámbito, nunca una lista vacía ni un 422. Si se omite, el listado incluye las dos condiciones.',
+                in: 'query',
+                required: false,
+                schema: new OA\Schema(type: 'string', enum: ['new', 'used'], example: 'new'),
+            ),
+            new OA\Parameter(
+                name: 'engineNumber',
+                description: 'Filtra por número de motor, por COINCIDENCIA PARCIAL (LIKE %término%): engineNumber=abc casa con un vehículo cuyo número es XABC123. Es CASE-INSENSITIVE porque la columna se guarda siempre en mayúsculas y el término se normaliza a mayúsculas antes de buscar, así que abc y ABC dan el mismo resultado. Los vehículos con engineNumber null —los registrados antes de esta versión— NO aparecen nunca en un resultado de este filtro: no tienen número que buscar. ES TOLERANTE: un valor que no sea texto, o que quede vacío tras recortar espacios, se ignora en silencio y se devuelve el listado COMPLETO del ámbito, nunca una lista vacía ni un 422. Recuerda que el número de motor no es único: la búsqueda puede devolver varios vehículos aunque el término coincida entero.',
+                in: 'query',
+                required: false,
+                schema: new OA\Schema(type: 'string', maxLength: 50, example: 'ABC123'),
+            ),
+            new OA\Parameter(
                 name: 'limit',
-                description: 'Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=3 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status y con carrierId.',
+                description: 'Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=3 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status, carrierId, condition y engineNumber.',
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', maximum: 100, minimum: 10, example: 10),
@@ -157,7 +171,7 @@ class VehicleController extends Controller
             ),
             new OA\Response(
                 response: 422,
-                description: 'Datos inválidos: falta alguno de los siete campos obligatorios, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, o la imagen no es un archivo jpg, jpeg ni png',
+                description: 'Datos inválidos: falta alguno de los TRECE campos obligatorios, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, la condición no pertenece al enum, el rendimiento, el valor de compra o el costo mensual del seguro no son numéricos o no llegan a 0.01, el kilometraje no es entero o es negativo, el número de motor supera los 50 caracteres, o la imagen no es un archivo jpg, jpeg ni png',
                 content: new OA\JsonContent(ref: '#/components/schemas/ValidationError'),
             ),
         ],
@@ -241,13 +255,15 @@ class VehicleController extends Controller
         operationId: 'updateVehicle',
         summary: 'Actualizar un vehículo',
         description: <<<'TEXT'
-        Actualiza plate, brand, model, year, capacity, type, image y status de un vehículo. La ruta acepta PATCH y PUT indistintamente: en ambos casos la actualización es parcial, solo se modifican los campos presentes en el cuerpo y ninguno es obligatorio. La empresa dueña no se puede cambiar.
+        Actualiza plate, brand, model, year, capacity, type, condition, kilometers_per_gallon, purchase_price, monthly_insurance_cost, mileage, engine_number, image y status de un vehículo. La ruta acepta PATCH y PUT indistintamente: en ambos casos la actualización es parcial, solo se modifican los campos presentes en el cuerpo y ninguno es obligatorio. La empresa dueña no se puede cambiar.
 
         Pueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required). Un carrier solo puede actualizar vehículos de su propia empresa: si intenta uno ajeno recibe 403. Un administrator puede actualizar el de cualquier empresa.
 
         A diferencia del alta, aquí sí se acepta status, con los tres valores del enum. La placa se normaliza a mayúsculas y su unicidad se revalida cuando cambia respecto a la que ya tiene el vehículo, excluyéndolo a él mismo: reenviar la placa que ya se tiene devuelve 200 y nunca colisiona consigo mismo. Cambiarla a una que usa un vehículo no desactivado de cualquier empresa devuelve 400.
 
         ATENCIÓN — sacar un vehículo de inactive (a active o a under_repair) también revalida su placa, aunque el cuerpo no la envíe: un vehículo que vuelve al servicio no puede compartir placa con otro que ya la usa. Si otra empresa registró esa placa mientras el vehículo estaba desactivado, la reactivación devuelve 400 con el mensaje "No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado" y el vehículo se queda desactivado. Resolver ese conflicto (liberar la placa ajena o asignarle otra en la misma operación) está fuera del alcance de la SPEC 04. Mientras el vehículo siga en inactive su placa duplicada no molesta: el resto de campos se actualizan con normalidad.
+
+        ATENCIÓN — el kilometraje tiene AUTORIZACIÓN PROPIA, la única del proyecto que vive en un campo y no en una ruta: se comprueba en el servicio, no en un middleware, así que no se ve leyendo routes/vehicles.php. Enviar mileage con un valor DISTINTO al almacenado solo lo puede hacer un administrator, que puede subirlo y bajarlo sin restricción; un carrier recibe 403 con el mensaje "Solo un administrador puede modificar el kilometraje del vehículo" y NO se aplica ningún otro cambio del cuerpo, ni siquiera se sube la imagen. Enviar el valor que el vehículo ya tiene NO es un cambio: devuelve 200 sea cual sea el rol, que es lo que ocurre cuando el formulario reenvía el campo oculto. La comparación es sobre enteros, así que "120000" y 120000 son el mismo kilometraje. No hay bitácora: el valor anterior se pierde.
 
         Si se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, la imagen se recorta a un cuadrado centrado de 800x800 px antes de subirla y no puede pasar de 3 MB. Al reemplazarla se borra la anterior del almacenamiento, de forma irreversible y solo después de que la fila quede guardada. Si no se toca la imagen, basta con application/json y la que hubiera se queda como está. La capacidad sigue siendo EN LIBRAS.
         TEXT,
@@ -297,7 +313,7 @@ class VehicleController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol no es carrier ni administrator —un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso), el carrier autenticado todavía no tiene empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso) o el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista)',
+                description: 'El rol no es carrier ni administrator —un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso), el carrier autenticado todavía no tiene empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso), el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista) o un carrier envía mileage con un valor distinto al almacenado (mensaje: Solo un administrador puede modificar el kilometraje del vehículo), en cuyo caso no se aplica ningún otro cambio del cuerpo',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -307,7 +323,7 @@ class VehicleController extends Controller
             ),
             new OA\Response(
                 response: 422,
-                description: 'Datos inválidos: algún campo enviado va vacío, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, la imagen no es un archivo jpg, jpeg ni png, o el estado no pertenece al enum',
+                description: 'Datos inválidos: algún campo enviado va vacío —incluido el número de motor, que no se puede vaciar mandando null—, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, la condición no pertenece al enum, el rendimiento, el valor de compra o el costo mensual del seguro no son numéricos o no llegan a 0.01, el kilometraje no es entero o es negativo, el número de motor supera los 50 caracteres, la imagen no es un archivo jpg, jpeg ni png, o el estado no pertenece al enum',
                 content: new OA\JsonContent(ref: '#/components/schemas/ValidationError'),
             ),
         ],
@@ -363,7 +379,7 @@ class VehicleController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol no es carrier ni administrator, el carrier autenticado todavía no tiene empresa, o el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista)',
+                description: 'El rol no es carrier ni administrator, el carrier autenticado todavía no tiene empresa, el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista) o un carrier envía mileage con un valor distinto al almacenado (mensaje: Solo un administrador puede modificar el kilometraje del vehículo)',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -461,13 +477,15 @@ class VehicleController extends Controller
      * by the service; here they are only normalized to strings, since anything
      * else is not a valid value.
      *
-     * @return array{status: string|null, carrierId: string|null, limit: string|null}
+     * @return array{status: string|null, carrierId: string|null, condition: string|null, engineNumber: string|null, limit: string|null}
      */
     private function filters(Request $request): array
     {
         return [
             'status' => $this->queryString($request, 'status'),
             'carrierId' => $this->queryString($request, 'carrierId'),
+            'condition' => $this->queryString($request, 'condition'),
+            'engineNumber' => $this->queryString($request, 'engineNumber'),
             'limit' => $this->queryString($request, 'limit'),
         ];
     }

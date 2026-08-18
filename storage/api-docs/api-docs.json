@@ -3430,7 +3430,7 @@
                     "Vehicles"
                 ],
                 "summary": "Listar vehículos",
-                "description": "Devuelve los vehículos visibles para el usuario autenticado. Pueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required; el administrator está exento del segundo).\n\nEl ámbito lo fija el rol, no la petición: un carrier recibe únicamente los vehículos de su empresa y nunca los de otra; un administrator recibe los de todas las empresas.\n\nATENCIÓN — el listado devuelve por defecto TODOS los estados, incluidos los inactive (los desactivados con DELETE) y los under_repair. Un cliente que pinte \"mis vehículos\" sin filtrar mostrará vehículos dados de baja como si estuvieran operativos: filtrar es responsabilidad del consumidor, y para eso está el parámetro status.\n\nLos filtros son tolerantes: un status que no pertenece al enum, un carrierId no numérico o un limit no numérico se ignoran en silencio y la lectura devuelve 200, nunca 422. No hay búsqueda por texto ni ordenación.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros del ámbito y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos aplanados en la raíz.",
+                "description": "Devuelve los vehículos visibles para el usuario autenticado. Pueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required; el administrator está exento del segundo).\n\nEl ámbito lo fija el rol, no la petición: un carrier recibe únicamente los vehículos de su empresa y nunca los de otra; un administrator recibe los de todas las empresas.\n\nATENCIÓN — el listado devuelve por defecto TODOS los estados, incluidos los inactive (los desactivados con DELETE) y los under_repair. Un cliente que pinte \"mis vehículos\" sin filtrar mostrará vehículos dados de baja como si estuvieran operativos: filtrar es responsabilidad del consumidor, y para eso está el parámetro status.\n\nLos filtros son tolerantes: un status o un condition que no pertenecen a su enum, un carrierId no numérico, un engineNumber vacío o un limit no numérico se ignoran en silencio y la lectura devuelve el listado completo del ámbito con 200, nunca una lista vacía ni un 422. Los cinco se combinan entre sí sin interferir. El único filtro por texto es engineNumber, que busca por coincidencia parcial; no hay ordenación.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros del ámbito y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos aplanados en la raíz.",
                 "operationId": "indexVehicles",
                 "parameters": [
                     {
@@ -3459,9 +3459,34 @@
                         }
                     },
                     {
+                        "name": "condition",
+                        "in": "query",
+                        "description": "Filtra por la condición con la que se adquirió el vehículo, por COINCIDENCIA EXACTA con el valor del enum. NO ES EL FILTRO status: son dos ejes distintos y se pueden combinar —status es el estado operativo (active, inactive, under_repair) y condition es cómo se compró el vehículo (new, used)—, así que ?status=active&condition=new devuelve los vehículos operativos comprados nuevos. ES TOLERANTE: solo se aplica si el valor pertenece al enum; cualquier otro (por ejemplo condition=antiguo, o el parámetro vacío) se ignora en silencio y se devuelve el listado COMPLETO del ámbito, nunca una lista vacía ni un 422. Si se omite, el listado incluye las dos condiciones.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "new",
+                            "enum": [
+                                "new",
+                                "used"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "engineNumber",
+                        "in": "query",
+                        "description": "Filtra por número de motor, por COINCIDENCIA PARCIAL (LIKE %término%): engineNumber=abc casa con un vehículo cuyo número es XABC123. Es CASE-INSENSITIVE porque la columna se guarda siempre en mayúsculas y el término se normaliza a mayúsculas antes de buscar, así que abc y ABC dan el mismo resultado. Los vehículos con engineNumber null —los registrados antes de esta versión— NO aparecen nunca en un resultado de este filtro: no tienen número que buscar. ES TOLERANTE: un valor que no sea texto, o que quede vacío tras recortar espacios, se ignora en silencio y se devuelve el listado COMPLETO del ámbito, nunca una lista vacía ni un 422. Recuerda que el número de motor no es único: la búsqueda puede devolver varios vehículos aunque el término coincida entero.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "ABC123",
+                            "maxLength": 50
+                        }
+                    },
+                    {
                         "name": "limit",
                         "in": "query",
-                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=3 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status y con carrierId.",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=3 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status, carrierId, condition y engineNumber.",
                         "required": false,
                         "schema": {
                             "type": "integer",
@@ -3599,7 +3624,7 @@
                         }
                     },
                     "422": {
-                        "description": "Datos inválidos: falta alguno de los siete campos obligatorios, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, o la imagen no es un archivo jpg, jpeg ni png",
+                        "description": "Datos inválidos: falta alguno de los TRECE campos obligatorios, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, la condición no pertenece al enum, el rendimiento, el valor de compra o el costo mensual del seguro no son numéricos o no llegan a 0.01, el kilometraje no es entero o es negativo, el número de motor supera los 50 caracteres, o la imagen no es un archivo jpg, jpeg ni png",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3776,7 +3801,7 @@
                         }
                     },
                     "403": {
-                        "description": "El rol no es carrier ni administrator, el carrier autenticado todavía no tiene empresa, o el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista)",
+                        "description": "El rol no es carrier ni administrator, el carrier autenticado todavía no tiene empresa, el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista) o un carrier envía mileage con un valor distinto al almacenado (mensaje: Solo un administrador puede modificar el kilometraje del vehículo)",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3897,7 +3922,7 @@
                     "Vehicles"
                 ],
                 "summary": "Actualizar un vehículo",
-                "description": "Actualiza plate, brand, model, year, capacity, type, image y status de un vehículo. La ruta acepta PATCH y PUT indistintamente: en ambos casos la actualización es parcial, solo se modifican los campos presentes en el cuerpo y ninguno es obligatorio. La empresa dueña no se puede cambiar.\n\nPueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required). Un carrier solo puede actualizar vehículos de su propia empresa: si intenta uno ajeno recibe 403. Un administrator puede actualizar el de cualquier empresa.\n\nA diferencia del alta, aquí sí se acepta status, con los tres valores del enum. La placa se normaliza a mayúsculas y su unicidad se revalida cuando cambia respecto a la que ya tiene el vehículo, excluyéndolo a él mismo: reenviar la placa que ya se tiene devuelve 200 y nunca colisiona consigo mismo. Cambiarla a una que usa un vehículo no desactivado de cualquier empresa devuelve 400.\n\nATENCIÓN — sacar un vehículo de inactive (a active o a under_repair) también revalida su placa, aunque el cuerpo no la envíe: un vehículo que vuelve al servicio no puede compartir placa con otro que ya la usa. Si otra empresa registró esa placa mientras el vehículo estaba desactivado, la reactivación devuelve 400 con el mensaje \"No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado\" y el vehículo se queda desactivado. Resolver ese conflicto (liberar la placa ajena o asignarle otra en la misma operación) está fuera del alcance de la SPEC 04. Mientras el vehículo siga en inactive su placa duplicada no molesta: el resto de campos se actualizan con normalidad.\n\nSi se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, la imagen se recorta a un cuadrado centrado de 800x800 px antes de subirla y no puede pasar de 3 MB. Al reemplazarla se borra la anterior del almacenamiento, de forma irreversible y solo después de que la fila quede guardada. Si no se toca la imagen, basta con application/json y la que hubiera se queda como está. La capacidad sigue siendo EN LIBRAS.",
+                "description": "Actualiza plate, brand, model, year, capacity, type, condition, kilometers_per_gallon, purchase_price, monthly_insurance_cost, mileage, engine_number, image y status de un vehículo. La ruta acepta PATCH y PUT indistintamente: en ambos casos la actualización es parcial, solo se modifican los campos presentes en el cuerpo y ninguno es obligatorio. La empresa dueña no se puede cambiar.\n\nPueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required). Un carrier solo puede actualizar vehículos de su propia empresa: si intenta uno ajeno recibe 403. Un administrator puede actualizar el de cualquier empresa.\n\nA diferencia del alta, aquí sí se acepta status, con los tres valores del enum. La placa se normaliza a mayúsculas y su unicidad se revalida cuando cambia respecto a la que ya tiene el vehículo, excluyéndolo a él mismo: reenviar la placa que ya se tiene devuelve 200 y nunca colisiona consigo mismo. Cambiarla a una que usa un vehículo no desactivado de cualquier empresa devuelve 400.\n\nATENCIÓN — sacar un vehículo de inactive (a active o a under_repair) también revalida su placa, aunque el cuerpo no la envíe: un vehículo que vuelve al servicio no puede compartir placa con otro que ya la usa. Si otra empresa registró esa placa mientras el vehículo estaba desactivado, la reactivación devuelve 400 con el mensaje \"No puedes reactivar este vehículo: su placa ya está registrada en otro vehículo que no está desactivado\" y el vehículo se queda desactivado. Resolver ese conflicto (liberar la placa ajena o asignarle otra en la misma operación) está fuera del alcance de la SPEC 04. Mientras el vehículo siga en inactive su placa duplicada no molesta: el resto de campos se actualizan con normalidad.\n\nATENCIÓN — el kilometraje tiene AUTORIZACIÓN PROPIA, la única del proyecto que vive en un campo y no en una ruta: se comprueba en el servicio, no en un middleware, así que no se ve leyendo routes/vehicles.php. Enviar mileage con un valor DISTINTO al almacenado solo lo puede hacer un administrator, que puede subirlo y bajarlo sin restricción; un carrier recibe 403 con el mensaje \"Solo un administrador puede modificar el kilometraje del vehículo\" y NO se aplica ningún otro cambio del cuerpo, ni siquiera se sube la imagen. Enviar el valor que el vehículo ya tiene NO es un cambio: devuelve 200 sea cual sea el rol, que es lo que ocurre cuando el formulario reenvía el campo oculto. La comparación es sobre enteros, así que \"120000\" y 120000 son el mismo kilometraje. No hay bitácora: el valor anterior se pierde.\n\nSi se envía image, el cuerpo debe ir como multipart/form-data. Igual que en el alta, la imagen se recorta a un cuadrado centrado de 800x800 px antes de subirla y no puede pasar de 3 MB. Al reemplazarla se borra la anterior del almacenamiento, de forma irreversible y solo después de que la fila quede guardada. Si no se toca la imagen, basta con application/json y la que hubiera se queda como está. La capacidad sigue siendo EN LIBRAS.",
                 "operationId": "updateVehicle",
                 "parameters": [
                     {
@@ -3971,7 +3996,7 @@
                         }
                     },
                     "403": {
-                        "description": "El rol no es carrier ni administrator —un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso), el carrier autenticado todavía no tiene empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso) o el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista)",
+                        "description": "El rol no es carrier ni administrator —un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso), el carrier autenticado todavía no tiene empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso), el carrier intenta actualizar un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista) o un carrier envía mileage con un valor distinto al almacenado (mensaje: Solo un administrador puede modificar el kilometraje del vehículo), en cuyo caso no se aplica ningún otro cambio del cuerpo",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3991,7 +4016,7 @@
                         }
                     },
                     "422": {
-                        "description": "Datos inválidos: algún campo enviado va vacío, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, la imagen no es un archivo jpg, jpeg ni png, o el estado no pertenece al enum",
+                        "description": "Datos inválidos: algún campo enviado va vacío —incluido el número de motor, que no se puede vaciar mandando null—, la placa supera los 15 caracteres, la marca o el modelo superan los 100, el año no es entero o queda fuera de [1900, año actual + 1], la capacidad no es numérica o es negativa, el tipo no pertenece al enum, la condición no pertenece al enum, el rendimiento, el valor de compra o el costo mensual del seguro no son numéricos o no llegan a 0.01, el kilometraje no es entero o es negativo, el número de motor supera los 50 caracteres, la imagen no es un archivo jpg, jpeg ni png, o el estado no pertenece al enum",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4976,7 +5001,7 @@
             },
             "StoreVehicleRequest": {
                 "title": "Alta de vehículo",
-                "description": "Cuerpo multipart/form-data para registrar un vehículo. Los siete campos son obligatorios: omitir cualquiera devuelve 422.\n\nEl status NO se acepta: el vehículo nace siempre en active y enviarlo en el cuerpo no cambia nada, se descarta sin error. El carrier_id tampoco se envía: se resuelve desde la empresa del usuario autenticado.\n\nLa unicidad de la placa no es una regla de este FormRequest, vive en el servicio y depende del estado de las filas existentes, por lo que una placa ya tomada devuelve 400 y no 422.",
+                "description": "Cuerpo multipart/form-data para registrar un vehículo. Los TRECE campos son obligatorios: omitir cualquiera devuelve 422.\n\nCAMBIO INCOMPATIBLE respecto a la versión anterior de la API: el alta pedía siete campos (plate, brand, model, year, capacity, type e image) y ahora exige seis más (condition, kilometers_per_gallon, purchase_price, monthly_insurance_cost, mileage y engine_number). No hay periodo de gracia ni transición: cualquier cliente que siga enviando el cuerpo antiguo recibe 422 en TODAS las altas hasta que actualice su formulario. La edición y el listado sí siguen siendo compatibles, lo que puede dar la falsa impresión de que el alta también lo es.\n\ncondition NO es status: son dos ejes distintos y ninguno reemplaza al otro. status es el estado operativo (active, inactive, under_repair), gobierna la baja lógica del DELETE y la unicidad condicional de la placa, y NO se acepta en este cuerpo: el vehículo nace siempre en active y enviarlo no cambia nada, se descarta sin error. condition (new, used) es cómo se adquirió el vehículo y no gobierna nada: no influye en el status inicial ni en ninguna otra regla del dominio.\n\nEl carrier_id tampoco se envía: se resuelve desde la empresa del usuario autenticado.\n\nNo hay ninguna validación cruzada entre los campos nuevos: un vehículo con condition = new y mileage = 90000 es válido, y un purchase_price de 0.01 también.\n\nLa unicidad de la placa no es una regla de este FormRequest, vive en el servicio y depende del estado de las filas existentes, por lo que una placa ya tomada devuelve 400 y no 422. El número de motor, en cambio, NO es único: dos vehículos, de la misma empresa o de empresas distintas, pueden compartir engine_number y los dos se registran con 201.",
                 "required": [
                     "plate",
                     "brand",
@@ -4984,6 +5009,12 @@
                     "year",
                     "capacity",
                     "type",
+                    "condition",
+                    "kilometers_per_gallon",
+                    "purchase_price",
+                    "monthly_insurance_cost",
+                    "mileage",
+                    "engine_number",
                     "image"
                 ],
                 "properties": {
@@ -5030,6 +5061,48 @@
                             "pickup"
                         ]
                     },
+                    "condition": {
+                        "description": "Condición con la que se adquirió el vehículo. Un valor fuera del enum (por ejemplo antiguo) devuelve 422. NO CONFUNDIR CON status: status es el estado operativo (active, inactive, under_repair), gobierna la baja lógica y la unicidad de la placa, y no se acepta en el alta; condition solo dice si el vehículo se compró nuevo o usado y no gobierna nada, ni siquiera el status inicial, que siempre es active. Los valores viajan en inglés; traducirlos es responsabilidad del cliente.",
+                        "type": "string",
+                        "example": "used",
+                        "enum": [
+                            "new",
+                            "used"
+                        ]
+                    },
+                    "kilometers_per_gallon": {
+                        "description": "Rendimiento de combustible EN KILÓMETROS POR GALÓN. Numérico y mayor que cero: el mínimo aceptado es 0.01 y un 0 devuelve 422, porque un rendimiento nulo es captura errónea, no un dato. Se guarda como decimal(6,2), así que el máximo es 9999.99 y se redondea a dos decimales. La unidad es una convención del dominio: nada impide enviar millas por galón o litros y nada lo detectará. El backend no convierte unidades ni usa este valor para calcular nada: es un dato de ficha y no alimenta la cotización de fletes.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 12.5,
+                        "minimum": 0.01
+                    },
+                    "purchase_price": {
+                        "description": "Valor de compra del vehículo EN QUETZALES (GTQ). Numérico y mayor que cero: el mínimo aceptado es 0.01 y un 0 devuelve 422. Se guarda como decimal(12,2), así que el máximo es 9999999999.99 y se redondea a dos decimales. La moneda es una convención del dominio y no se guarda en base: nada valida que el importe sean quetzales. Es lo que costó el vehículo y no se recalcula nunca: no hay depreciación ni valor actual.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 185000,
+                        "minimum": 0.01
+                    },
+                    "monthly_insurance_cost": {
+                        "description": "Costo del seguro EN QUETZALES (GTQ) y POR MES. Las dos cosas son convención del dominio y no se guardan en base: la columna no dice ni la moneda ni la periodicidad, así que enviar la prima anual la registrará como si fuera mensual y nada lo detectará. Numérico y mayor que cero: el mínimo aceptado es 0.01 y un 0 devuelve 422. Se guarda como decimal(10,2), máximo 99999999.99. Del seguro solo se guarda este número: no hay aseguradora, número de póliza, vigencia, deducible ni cobertura.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 1250,
+                        "minimum": 0.01
+                    },
+                    "mileage": {
+                        "description": "Kilometraje del odómetro EN KILÓMETROS ENTEROS. A diferencia de los tres campos anteriores SÍ admite 0, porque un vehículo recién comprado con cero kilómetros es legítimo; un valor negativo devuelve 422 y uno con decimales también (120000.5 es 422, la regla es integer). Se guarda como entero sin signo, máximo 4294967295. En el alta lo captura sin restricción quien pueda registrar el vehículo; ATENCIÓN, en la edición este campo tiene autorización propia y solo un administrator puede cambiarlo (ver UpdateVehicleRequest). No hay bitácora: ningún cambio de kilometraje deja rastro.",
+                        "type": "integer",
+                        "example": 120000,
+                        "minimum": 0
+                    },
+                    "engine_number": {
+                        "description": "Número de motor del vehículo, obligatorio. Se normaliza a MAYÚSCULAS antes de persistir, así que abc123 se guarda y se devuelve como ABC123, y el filtro engineNumber del listado busca sobre ese valor ya en mayúsculas. NO ES ÚNICO: a diferencia de la placa, dos vehículos pueden compartir el mismo número de motor sin conflicto (no hay índice ni comprobación en el servicio) y reactivar un vehículo sigue revalidando solo la placa. Máximo 50 caracteres; más devuelve 422. La columna admite null en base, pero por la API nunca se llega a ese estado: aquí es obligatorio y en la edición no se puede vaciar, así que un engineNumber null solo aparece en vehículos anteriores a esta versión.",
+                        "type": "string",
+                        "example": "ABC123456",
+                        "maxLength": 50
+                    },
                     "image": {
                         "description": "Archivo de imagen, obligatorio. Solo se aceptan jpg, jpeg y png; cualquier otro tipo devuelve 422. No puede pesar más de 3 MB (3072 KB, límite inclusivo). El archivo se almacena, pero NO tal cual: antes de subirlo se recorta a un cuadrado centrado y se reescala a 800x800 px, conservando el formato de entrada. Se pierden los bordes del lado largo y el original no se guarda en ningún sitio. Si la imagen no se puede procesar o el almacenamiento falla, la respuesta es 400 y el vehículo no se crea.",
                         "type": "string",
@@ -5040,7 +5113,7 @@
             },
             "UpdateVehicleRequest": {
                 "title": "Actualización de vehículo",
-                "description": "Actualización parcial: los ocho campos son opcionales y solo se modifica lo que llega. Un campo enviado vacío sí es error (422). A diferencia del alta, aquí sí se acepta status.\n\nLa empresa dueña del vehículo no se puede cambiar: no existe campo para ello.",
+                "description": "Actualización parcial: los catorce campos son opcionales y solo se modifica lo que llega. Un campo enviado vacío sí es error (422). A diferencia del alta, aquí sí se acepta status.\n\nA diferencia del alta, este cuerpo NO es un cambio incompatible: los seis campos nuevos de la ficha (condition, kilometers_per_gallon, purchase_price, monthly_insurance_cost, mileage y engine_number) se suman como opcionales y un cliente que siga enviando el cuerpo antiguo sigue funcionando igual.\n\ncondition NO es status, y aquí conviven los dos en el mismo cuerpo: status es el estado operativo (active, inactive, under_repair), gobierna la baja lógica del DELETE y la unicidad condicional de la placa —cambiarlo puede revalidar la placa y devolver 400—; condition (new, used) es cómo se adquirió el vehículo y no gobierna nada. Son ejes independientes: cambiar condition no altera status y cambiar status no altera condition.\n\nATENCIÓN — mileage tiene AUTORIZACIÓN PROPIA, la única del proyecto a nivel de campo: el endpoint es alcanzable por carrier y administrator, pero solo un administrator puede enviar un mileage DISTINTO al almacenado. Un carrier que lo intente recibe 403 con el mensaje \"Solo un administrador puede modificar el kilometraje del vehículo\" y NINGÚN otro campo del cuerpo se aplica: la petición se aborta entera, incluida la imagen, que ni siquiera llega a subirse. Enviar el mismo valor que el vehículo ya tiene no es un cambio y pasa con 200 para cualquier rol, que es el caso del front que reenvía el formulario completo con el campo oculto. La regla vive en el servicio, no en un middleware, así que no se ve mirando las rutas.\n\nLa empresa dueña del vehículo no se puede cambiar: no existe campo para ello.",
                 "properties": {
                     "plate": {
                         "description": "Nueva placa. Se normaliza a mayúsculas. Solo se revalida la unicidad cuando cambia respecto a la que ya tiene el vehículo, así que reenviar la misma placa nunca es un conflicto consigo mismo. Si la placa nueva la usa un vehículo de cualquier empresa cuyo status no sea inactive, la respuesta es 400.",
@@ -5084,6 +5157,48 @@
                             "trailer",
                             "pickup"
                         ]
+                    },
+                    "condition": {
+                        "description": "Nueva condición de adquisición. Si se envía, no puede estar vacía y un valor fuera del enum devuelve 422; si se omite, no se toca. NO CONFUNDIR CON status, que también viaja en este cuerpo: status es el estado operativo y gobierna la baja lógica y la unicidad de la placa; condition solo dice si el vehículo se compró nuevo o usado y no gobierna nada. Son independientes: cambiar condition no altera status, y cambiar status no altera condition.",
+                        "type": "string",
+                        "example": "new",
+                        "enum": [
+                            "new",
+                            "used"
+                        ]
+                    },
+                    "kilometers_per_gallon": {
+                        "description": "Nuevo rendimiento EN KILÓMETROS POR GALÓN. Si se envía, debe ser numérico y mayor que cero: el mínimo es 0.01 y un 0 devuelve 422. Se guarda como decimal(6,2), máximo 9999.99. Si se omite, no se toca. La unidad no se valida y el valor no alimenta ningún cálculo.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 14.75,
+                        "minimum": 0.01
+                    },
+                    "purchase_price": {
+                        "description": "Nuevo valor de compra EN QUETZALES (GTQ). Si se envía, debe ser numérico y mayor que cero: el mínimo es 0.01 y un 0 devuelve 422. Se guarda como decimal(12,2), máximo 9999999999.99. Si se omite, no se toca. La moneda es convención del dominio y no se valida; el importe no se recalcula ni se deprecia nunca, solo se corrige a mano por aquí.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 190000,
+                        "minimum": 0.01
+                    },
+                    "monthly_insurance_cost": {
+                        "description": "Nuevo costo del seguro EN QUETZALES (GTQ) y POR MES. Las dos cosas son convención del dominio y no se validan: mandar la prima anual la guardará como si fuera mensual. Si se envía, debe ser numérico y mayor que cero: el mínimo es 0.01 y un 0 devuelve 422. Se guarda como decimal(10,2), máximo 99999999.99. Si se omite, no se toca.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 1400,
+                        "minimum": 0.01
+                    },
+                    "mileage": {
+                        "description": "Nuevo kilometraje EN KILÓMETROS ENTEROS. ATENCIÓN, ES EL ÚNICO CAMPO DEL PROYECTO CON AUTORIZACIÓN PROPIA: aunque el endpoint lo alcanzan carrier y administrator, solo un administrator puede enviarlo con un valor DISTINTO al que ya tiene el vehículo. Un carrier que lo intente recibe 403 con el mensaje \"Solo un administrador puede modificar el kilometraje del vehículo\", y entonces NINGÚN otro campo del cuerpo se aplica: el PATCH se aborta entero y ni siquiera se sube la imagen, para no dejar archivos huérfanos. Enviar EL MISMO valor que el vehículo ya tiene NO es un cambio: pasa con 200 sea cual sea el rol y el resto del cuerpo se aplica con normalidad; es el caso del front que reenvía el formulario completo con el campo oculto. La comparación es sobre enteros, así que la cadena \"120000\" y el número 120000 son el mismo kilometraje y no disparan el 403. Un administrator puede subirlo Y BAJARLO sin restricción, sin bitácora y sin forma de recuperar el valor anterior. Validación normal: entero, mínimo 0 (se admite), negativo o con decimales es 422. La regla vive en el servicio, no en un middleware: no se ve mirando las rutas.",
+                        "type": "integer",
+                        "example": 135000,
+                        "minimum": 0
+                    },
+                    "engine_number": {
+                        "description": "Nuevo número de motor. Se normaliza a MAYÚSCULAS antes de persistir: xyz789 se guarda como XYZ789. NO SE PUEDE VACIAR: si se envía, tiene que traer valor, y un null (igual que una cadena vacía) devuelve 422; para dejarlo sin tocar hay que omitir la clave. La columna admite null en base solo por los vehículos anteriores a esta versión, pero por la API no hay forma de volver a ese estado. NO ES ÚNICO: dos vehículos pueden compartirlo sin conflicto, no se comprueba en el alta ni aquí, y reactivar un vehículo desactivado sigue revalidando solo la placa, nunca el número de motor. Máximo 50 caracteres.",
+                        "type": "string",
+                        "example": "XYZ789012",
+                        "maxLength": 50
                     },
                     "image": {
                         "description": "Nuevo archivo de imagen. Solo jpg, jpeg y png, y no más de 3 MB (3072 KB, límite inclusivo). Igual que en el alta, se recorta a un cuadrado centrado de 800x800 px antes de subirla, conservando el formato. Al reemplazarla se borra la imagen anterior del almacenamiento, de forma irreversible. Requiere enviar el cuerpo como multipart/form-data.",
@@ -5978,6 +6093,42 @@
                             "pickup"
                         ]
                     },
+                    "condition": {
+                        "description": "Condición con la que se adquirió el vehículo. NO ES status: son dos ejes distintos y este recurso devuelve los dos. status es el estado operativo (active, inactive, under_repair), gobierna la baja lógica del DELETE y la unicidad condicional de la placa; condition (new, used) solo dice cómo se compró el vehículo y no gobierna nada. Un vehículo puede estar under_repair y ser new a la vez. Los valores viajan en inglés; traducirlos es responsabilidad del cliente. En vehículos registrados antes de esta versión vale used, que es el valor de relleno de la migración y no un dato capturado.",
+                        "type": "string",
+                        "example": "used",
+                        "enum": [
+                            "new",
+                            "used"
+                        ]
+                    },
+                    "kilometersPerGallon": {
+                        "description": "Rendimiento de combustible EN KILÓMETROS POR GALÓN. Viaja como CADENA decimal con dos decimales, por el casting decimal:2 del modelo, no como número: igual que capacity. La unidad es una convención del dominio y no se guarda en base. El backend no lo usa para calcular nada: no alimenta la cotización de fletes ni ningún costo por kilómetro. En vehículos anteriores a esta versión vale \"1.00\", que es relleno de la migración y no un dato real.",
+                        "type": "string",
+                        "example": "12.50"
+                    },
+                    "purchasePrice": {
+                        "description": "Valor de compra del vehículo EN QUETZALES (GTQ). Viaja como CADENA decimal con dos decimales (casting decimal:2), no como número. La moneda es una convención del dominio: no se guarda en base ni se valida. Es lo que costó el vehículo y no se recalcula nunca — no hay depreciación ni valor actual. ATENCIÓN: en vehículos anteriores a esta versión vale \"1.00\" por el default de relleno de la migración, indistinguible de un vehículo que de verdad costó un quetzal; la única marca fiable de ficha sin capturar es engineNumber a null. No se oculta por rol: quien alcanza el listado lo ve en todos los vehículos de su ámbito.",
+                        "type": "string",
+                        "example": "185000.00"
+                    },
+                    "monthlyInsuranceCost": {
+                        "description": "Costo del seguro EN QUETZALES (GTQ) y POR MES. Las dos cosas son convención del dominio: la columna no guarda ni moneda ni periodicidad. Viaja como CADENA decimal con dos decimales (casting decimal:2), no como número. Es el único dato del seguro que se guarda: no hay aseguradora, póliza, vigencia, deducible ni cobertura. En vehículos anteriores a esta versión vale \"1.00\" por el default de relleno. Tampoco se oculta por rol.",
+                        "type": "string",
+                        "example": "1250.00"
+                    },
+                    "mileage": {
+                        "description": "Kilometraje del odómetro EN KILÓMETROS ENTEROS. A diferencia de los tres campos anteriores viaja como ENTERO, no como cadena. 0 es un valor legítimo (vehículo recién comprado). En la edición este campo tiene autorización propia: solo un administrator puede cambiarlo, y puede tanto subirlo como bajarlo. No hay bitácora: el valor anterior no se conserva en ninguna parte. En vehículos anteriores a esta versión vale 1, que es relleno de la migración.",
+                        "type": "integer",
+                        "example": 120000
+                    },
+                    "engineNumber": {
+                        "description": "Número de motor, siempre normalizado a MAYÚSCULAS: si se envía abc123 se persiste y se devuelve ABC123. Es NULL en los vehículos registrados antes de esta versión, que no tienen el dato capturado, y el cliente tiene que tolerarlo; por la API no se llega nunca a ese estado, porque el campo es obligatorio en el alta y no se puede vaciar en la edición. Ese null es, de hecho, la única marca fiable de ficha heredada. NO ES ÚNICO: a diferencia de la placa, varios vehículos pueden devolver el mismo engineNumber, así que no sirve como identificador. El filtro engineNumber del listado busca por coincidencia parcial sobre este valor y las filas con null nunca casan con él.",
+                        "type": "string",
+                        "example": "ABC123456",
+                        "nullable": true,
+                        "maxLength": 50
+                    },
                     "image": {
                         "description": "URL pública y permanente de la imagen del vehículo, lista para usar como src. La imagen almacenada es siempre un cuadrado de 800x800 px recortado desde el centro del archivo que se subió, en el formato original (jpg o png). Es null cuando el vehículo no tiene imagen. No es la clave interna del objeto: el cliente no debe derivarla ni componerla a mano.",
                         "type": "string",
@@ -6285,7 +6436,7 @@
         },
         {
             "name": "Vehicles",
-            "description": "Inventario de vehículos de las empresas transportistas. Todos los endpoints requieren token JWT (Authorization: Bearer {token}), llevan el middleware carrier.required y están filtrados por rol: solo carrier y administrator entran, y el alta es exclusiva del carrier. Los roles pilot y manager reciben 403 en los cinco endpoints. El ámbito se resuelve en el servicio: un carrier solo alcanza los vehículos de su propia empresa y un administrator los de todas; el administrator está exento de carrier.required, así que opera aunque no esté vinculado a ninguna empresa. La capacidad va siempre EN LIBRAS y la imagen se valida pero no se almacena."
+            "description": "Inventario de vehículos de las empresas transportistas. Todos los endpoints requieren token JWT (Authorization: Bearer {token}), llevan el middleware carrier.required y están filtrados por rol: solo carrier y administrator entran, y el alta es exclusiva del carrier. Los roles pilot y manager reciben 403 en los cinco endpoints. El ámbito se resuelve en el servicio: un carrier solo alcanza los vehículos de su propia empresa y un administrator los de todas; el administrator está exento de carrier.required, así que opera aunque no esté vinculado a ninguna empresa. La capacidad va siempre EN LIBRAS. La imagen se procesa y se almacena: se recorta a un cuadrado centrado de 800x800 px, se sube al almacenamiento y el recurso devuelve su URL pública permanente. El kilometraje tiene autorización propia, comprobada en el servicio y no en un middleware: solo un administrator puede enviarlo con un valor distinto al almacenado."
         },
         {
             "name": "Zones",
