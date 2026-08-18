@@ -1,6 +1,6 @@
 # SPEC 14 — Gastos de mantenimiento de vehículos
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 04
 > **Fecha:** 2026-08-18
 > **Objetivo:** Registrar los gastos de mantenimiento de un vehículo —categoría, naturaleza preventiva o correctiva, monto, fecha y descripción— en un dominio propio cuyo listado siempre va acotado a un único vehículo.
@@ -226,61 +226,61 @@ Cada paso deja el sistema funcionando y es commiteable por sí solo.
 
 **Migración y modelo**
 
-- [ ] `php artisan migrate` crea `vehicle_expenses` con las nueve columnas y el índice `(vehicle_id, expense_date)`.
-- [ ] Ninguna columna de `vehicles` cambia y ninguna otra tabla se toca.
-- [ ] `VehicleExpense::factory()->create()` produce una fila válida sin argumentos.
+- [x] `php artisan migrate` crea `vehicle_expenses` con las nueve columnas y el índice `(vehicle_id, expense_date)`.
+- [x] Ninguna columna de `vehicles` cambia y ninguna otra tabla se toca.
+- [x] `VehicleExpense::factory()->create()` produce una fila válida sin argumentos.
 
 **Alta**
 
-- [ ] `POST /api/vehicle-expenses` con los seis campos devuelve 201 y el gasto creado.
-- [ ] Omitir cualquiera de los seis campos devuelve 422 con el mensaje en español.
-- [ ] `category` o `nature` fuera del enum devuelve 422.
-- [ ] `amount = 0` devuelve 422; `amount = 0.01` se acepta.
-- [ ] `expense_date` de mañana devuelve 422; la de hoy se acepta.
-- [ ] `registered_by` queda con el id del usuario autenticado aunque el body mande otro.
-- [ ] Registrar un gasto sobre un vehículo con `status = inactive` devuelve 201.
-- [ ] `brakes` + `preventive` se acepta, igual que `brakes` + `corrective`.
+- [x] `POST /api/vehicle-expenses` con los seis campos devuelve 201 y el gasto creado.
+- [x] Omitir cualquiera de los seis campos devuelve 422 con el mensaje en español.
+- [x] `category` o `nature` fuera del enum devuelve 422.
+- [x] `amount = 0` devuelve 422; `amount = 0.01` se acepta.
+- [x] `expense_date` de mañana devuelve 422; la de hoy se acepta.
+- [x] `registered_by` queda con el id del usuario autenticado aunque el body mande otro.
+- [x] Registrar un gasto sobre un vehículo con `status = inactive` devuelve 201.
+- [x] `brakes` + `preventive` se acepta, igual que `brakes` + `corrective`.
 
 **Listado**
 
-- [ ] `GET /api/vehicle-expenses` sin `vehicleId` devuelve 422.
-- [ ] `GET /api/vehicle-expenses?vehicleId=7` devuelve solo los gastos del vehículo 7.
-- [ ] Los resultados vienen ordenados por `expense_date` descendente, y dos gastos del mismo día por `id` descendente.
-- [ ] `totalAmount` es la suma de `amount` de todos los gastos filtrados, no solo los de la página.
-- [ ] Sin `limit` la respuesta trae `totalAmount` pero no `total`, `currentPage` ni `lastPage`.
-- [ ] Con `limit=10` la respuesta trae `totalAmount`, `total`, `currentPage` y `lastPage` en la raíz del sobre.
-- [ ] `limit=5` pagina de 10 en 10 y `limit=500` de 100 en 100.
-- [ ] `category=tires` devuelve solo esa categoría; `category=inexistente` devuelve el listado completo sin error.
-- [ ] `nature=preventive` devuelve solo los preventivos; un valor inválido se ignora.
-- [ ] `dateFrom` y `dateTo` acotan por `expense_date`, ambos inclusive; una fecha malformada se ignora.
-- [ ] Un `vehicleId` inexistente devuelve 404, no un listado vacío.
+- [x] `GET /api/vehicle-expenses` sin `vehicleId` devuelve 422.
+- [x] `GET /api/vehicle-expenses?vehicleId=7` devuelve solo los gastos del vehículo 7.
+- [x] Los resultados vienen ordenados por `expense_date` descendente, y dos gastos del mismo día por `id` descendente.
+- [x] `totalAmount` es la suma de `amount` de todos los gastos filtrados, no solo los de la página.
+- [x] Sin `limit` la respuesta trae `totalAmount` pero no `total`, `currentPage` ni `lastPage`.
+- [x] Con `limit=10` la respuesta trae `totalAmount`, `total`, `currentPage` y `lastPage` en la raíz del sobre.
+- [x] `limit=5` pagina de 10 en 10 y `limit=500` de 100 en 100.
+- [x] `category=tires` devuelve solo esa categoría; `category=inexistente` devuelve el listado completo sin error.
+- [x] `nature=preventive` devuelve solo los preventivos; un valor inválido se ignora.
+- [x] `dateFrom` y `dateTo` acotan por `expense_date`, ambos inclusive; una fecha malformada se ignora.
+- [x] Un `vehicleId` inexistente devuelve 404, no un listado vacío.
 
 **Detalle, edición y borrado**
 
-- [ ] `GET /api/vehicle-expenses/{id}` devuelve el gasto; un id inexistente devuelve 404.
-- [ ] `PATCH` con un solo campo cambia solo ese campo y deja los demás intactos.
-- [ ] `PATCH` con `vehicleId` en el body **no** mueve el gasto de vehículo.
-- [ ] `PATCH` hecho por un `administrator` deja `registered_by` con el usuario original.
-- [ ] `PATCH` con body vacío devuelve 200 y no cambia nada.
-- [ ] `DELETE` devuelve 200 y la fila desaparece de la base; un segundo `DELETE` devuelve 404.
+- [x] `GET /api/vehicle-expenses/{id}` devuelve el gasto; un id inexistente devuelve 404.
+- [x] `PATCH` con un solo campo cambia solo ese campo y deja los demás intactos.
+- [x] `PATCH` con `vehicleId` en el body **no** mueve el gasto de vehículo.
+- [x] `PATCH` hecho por un `administrator` deja `registered_by` con el usuario original.
+- [x] `PATCH` con body vacío devuelve 200 y no cambia nada.
+- [x] `DELETE` devuelve 200 y la fila desaparece de la base; un segundo `DELETE` devuelve 404.
 
 **Roles y ámbito**
 
-- [ ] Sin token, los cinco endpoints devuelven 401.
-- [ ] Un `pilot` recibe 403 en los cinco endpoints.
-- [ ] Un `manager` lee (`index`, `show`) gastos de cualquier empresa y recibe 403 en `store`, `update` y `destroy`.
-- [ ] Un `administrator` hace las cinco operaciones sobre vehículos de cualquier empresa.
-- [ ] Un `carrier` opera solo sobre vehículos de su empresa; con un vehículo ajeno recibe 403 en las cinco.
-- [ ] Un `carrier` que intenta leer o editar un gasto de un vehículo ajeno recibe 403, no 404.
+- [x] Sin token, los cinco endpoints devuelven 401.
+- [x] Un `pilot` recibe 403 en los cinco endpoints.
+- [x] Un `manager` lee (`index`, `show`) gastos de cualquier empresa y recibe 403 en `store`, `update` y `destroy`.
+- [x] Un `administrator` hace las cinco operaciones sobre vehículos de cualquier empresa.
+- [x] Un `carrier` opera solo sobre vehículos de su empresa; con un vehículo ajeno recibe 403 en las cinco.
+- [x] Un `carrier` que intenta leer o editar un gasto de un vehículo ajeno recibe 403, no 404.
 
 **Integración y calidad**
 
-- [ ] `GET /api/vehicles/{vehicle}` responde exactamente igual que antes de esta spec: sin `expenses` y sin campos nuevos.
-- [ ] Ningún test de SPEC 04 ni de SPEC 13 cambia ni falla.
-- [ ] `php artisan test --compact` pasa completo.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `/api/documentation` muestra los cinco endpoints con sus schemas de request y response.
-- [ ] Existe `references/vehicle-expenses-api.md` con el contrato para el frontend.
+- [x] `GET /api/vehicles/{vehicle}` responde exactamente igual que antes de esta spec: sin `expenses` y sin campos nuevos.
+- [x] Ningún test de SPEC 04 ni de SPEC 13 cambia ni falla.
+- [x] `php artisan test --compact` pasa completo.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `/api/documentation` muestra los cinco endpoints con sus schemas de request y response.
+- [x] Existe `references/vehicle-expenses-api.md` con el contrato para el frontend.
 
 ---
 
