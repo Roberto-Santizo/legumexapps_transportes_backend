@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Vehicle;
 
+use App\Enums\VehicleCondition;
 use App\Enums\VehicleType;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -80,6 +81,12 @@ class StoreVehicleRequest extends FormRequest
             'year' => ['required', 'integer', 'min:1900', 'max:'.(date('Y') + 1)],
             'capacity' => ['required', 'numeric', 'min:0'],
             'type' => ['required', Rule::enum(VehicleType::class)],
+            'condition' => ['required', Rule::enum(VehicleCondition::class)],
+            'kilometers_per_gallon' => ['required', 'numeric', 'min:0.01'],
+            'purchase_price' => ['required', 'numeric', 'min:0.01'],
+            'monthly_insurance_cost' => ['required', 'numeric', 'min:0.01'],
+            'mileage' => ['required', 'integer', 'min:0'],
+            'engine_number' => ['required', 'string', 'max:50'],
             'image' => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:3072'],
         ];
     }
@@ -108,6 +115,23 @@ class StoreVehicleRequest extends FormRequest
             'capacity.min' => 'La capacidad no puede ser negativa',
             'type.required' => 'El tipo de vehículo es obligatorio',
             'type.enum' => 'El tipo de vehículo no es válido',
+            'condition.required' => 'La condición del vehículo es obligatoria',
+            'condition.enum' => 'La condición del vehículo no es válida',
+            'kilometers_per_gallon.required' => 'El rendimiento en kilómetros por galón es obligatorio',
+            'kilometers_per_gallon.numeric' => 'El rendimiento debe ser un número en kilómetros por galón',
+            'kilometers_per_gallon.min' => 'El rendimiento debe ser mayor que cero',
+            'purchase_price.required' => 'El valor de compra es obligatorio',
+            'purchase_price.numeric' => 'El valor de compra debe ser un número',
+            'purchase_price.min' => 'El valor de compra debe ser mayor que cero',
+            'monthly_insurance_cost.required' => 'El costo mensual del seguro es obligatorio',
+            'monthly_insurance_cost.numeric' => 'El costo mensual del seguro debe ser un número',
+            'monthly_insurance_cost.min' => 'El costo mensual del seguro debe ser mayor que cero',
+            'mileage.required' => 'El kilometraje es obligatorio',
+            'mileage.integer' => 'El kilometraje debe ser un número entero de kilómetros',
+            'mileage.min' => 'El kilometraje no puede ser negativo',
+            'engine_number.required' => 'El número de motor es obligatorio',
+            'engine_number.string' => 'El número de motor debe ser texto',
+            'engine_number.max' => 'El número de motor no puede superar los 50 caracteres',
             'image.required' => 'La imagen es obligatoria',
             'image.file' => 'La imagen debe ser un archivo',
             'image.mimes' => 'La imagen debe ser un archivo jpg, jpeg o png',
