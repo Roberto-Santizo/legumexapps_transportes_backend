@@ -285,7 +285,24 @@ if (array_key_exists('engine_number', $data)) {
 
 ### 8. Lo que no cambia en absoluto
 
-`VehicleController` y `routes/vehicles.php` **no se tocan**: no hay endpoint nuevo, no hay ruta nueva y no cambia ningún middleware. El `manager` sigue sin alcanzar el dominio y el `pilot` tampoco.
+`routes/vehicles.php` **no se toca**: no hay endpoint nuevo, no hay ruta nueva y no cambia ningún middleware. El `manager` sigue sin alcanzar el dominio y el `pilot` tampoco.
+
+`VehicleController` **cambia lo mínimo imprescindible**, corregido durante la implementación: sus cinco acciones quedan intactas, pero el método privado `filters()` tiene que sumar las dos claves nuevas al array que le pasa al service.
+
+```php
+private function filters(Request $request): array
+{
+    return [
+        'status' => $this->queryString($request, 'status'),
+        'carrierId' => $this->queryString($request, 'carrierId'),
+        'condition' => $this->queryString($request, 'condition'),
+        'engineNumber' => $this->queryString($request, 'engineNumber'),
+        'limit' => $this->queryString($request, 'limit'),
+    ];
+}
+```
+
+La redacción original de este paso decía que el controller no se tocaba, y era **incorrecta**: `filters()` compone el array a mano, así que sin estas dos líneas `$filters['condition']` y `$filters['engineNumber']` no llegan nunca al service y los dos filtros del paso 7.1 son código muerto — `?condition=new` devolvería el listado completo, no por tolerancia sino porque el `where` no se ejecuta. Su `@return` array shape se actualiza igual que el de la interfaz.
 
 ### 9. Formato, tests y documentación
 
@@ -354,7 +371,8 @@ if (array_key_exists('engine_number', $data)) {
 
 ### Alcance y no-regresión
 
-- [ ] `VehicleController` y `routes/vehicles.php` no tienen ni un cambio.
+- [ ] `routes/vehicles.php` no tiene ni un cambio.
+- [ ] `VehicleController` solo cambia en `filters()` (dos claves y su array shape) y en sus atributos OpenAPI: las cinco acciones no tienen ni una línea nueva.
 - [ ] No existe `ensureEngineNumberIsAvailable()` ni índice único sobre `engine_number`.
 - [ ] No existe ninguna ruta `/{vehicle}/mileage` ni tabla de historial.
 - [ ] Ningún test de otra spec se rompe: `php artisan test --compact` pasa entero.
