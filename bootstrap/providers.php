@@ -10,6 +10,7 @@ use App\Providers\Place\PlaceProvider;
 use App\Providers\Product\ProductProvider;
 use App\Providers\Storage\StorageProvider;
 use App\Providers\Vehicle\VehicleProvider;
+use App\Providers\VehicleExpense\VehicleExpenseProvider;
 use App\Providers\Zone\ZoneProvider;
 
 return [
@@ -23,5 +24,6 @@ return [
     ProductProvider::class,
     StorageProvider::class,
     VehicleProvider::class,
+    VehicleExpenseProvider::class,
     ZoneProvider::class,
 ];
