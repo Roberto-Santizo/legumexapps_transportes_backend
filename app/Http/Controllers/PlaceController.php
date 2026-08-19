@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Helpers\ResponseHandler;
+use App\Http\Requests\Place\GetDirectionsRequest;
 use App\Http\Requests\Place\SearchPlacesRequest;
+use App\Http\Resources\Place\DirectionsResource;
 use App\Http\Resources\Place\PlacePredictionResource;
 use App\Http\Resources\Place\PlaceResource;
+use App\Interfaces\Location\LocationServiceInterface;
 use App\Interfaces\Place\PlaceServiceInterface;
 use OpenApi\Attributes as OA;
 
@@ -145,6 +148,39 @@ class PlaceController extends Controller
             $found = $placeService->getPlaceById($place);
 
             return ResponseHandler::success(new PlaceResource($found), 'Dirección obtenida correctamente', 200);
+        } catch (\Throwable $th) {
+            return ResponseHandler::error($th);
+        }
+    }
+
+    /**
+     * Two contracts by method parameter, chained.
+     *
+     * Resolving the destination, delegating the route and answering is orchestration,
+     * not business logic, which is why it still fits in a controller of this project.
+     * The order is the contract: the destination is resolved FIRST, so an inactive one
+     * answers 400 without ever reaching —or billing— the provider.
+     */
+    public function directions(
+        GetDirectionsRequest $request,
+        PlaceServiceInterface $placeService,
+        LocationServiceInterface $locationService,
+    ) {
+        try {
+            $location = $locationService->getActiveLocationById((int) $request->validated('locationId'));
+
+            $directions = $placeService->getDirections(
+                (float) $request->validated('lat'),
+                (float) $request->validated('lng'),
+                (float) $location->latitude,
+                (float) $location->longitude,
+            );
+
+            return ResponseHandler::success(
+                new DirectionsResource(['location' => $location, 'directions' => $directions]),
+                'Ruta obtenida correctamente',
+                200,
+            );
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }
