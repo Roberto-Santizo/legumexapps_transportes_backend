@@ -73,7 +73,7 @@ class LocationService implements LocationServiceInterface
         $this->ensureNameIsAvailable($name);
 
         /** El id de Google no se normaliza: es opaco y sensible a mayúsculas. */
-        $googlePlaceId = $data['google_place_id'];
+        $googlePlaceId = $data['googlePlaceId'];
 
         $this->ensureGooglePlaceIdIsAvailable($googlePlaceId);
 
@@ -110,15 +110,15 @@ class LocationService implements LocationServiceInterface
             $location->description = $data['description'];
         }
 
-        if (isset($data['google_place_id'])) {
+        if (isset($data['googlePlaceId'])) {
             /**
              * Reapuntar el destino a otro lugar conserva la fila, su id y sus tarifas. No hay
              * validación cruzada con las coordenadas: cambiar solo el lugar es válido y deja
              * el pin anterior, que es el riesgo asumido a cambio de no perder el historial.
              */
-            $this->ensureGooglePlaceIdIsAvailable($data['google_place_id'], $location->id);
+            $this->ensureGooglePlaceIdIsAvailable($data['googlePlaceId'], $location->id);
 
-            $location->google_place_id = $data['google_place_id'];
+            $location->google_place_id = $data['googlePlaceId'];
         }
 
         if (isset($data['latitude'])) {

@@ -44,8 +44,9 @@ interface LocationServiceInterface
      * This service never calls Google: the coordinates arrive already resolved by the
      * client, and the google place id is validated against nobody.
      *
-     * @param  array{name: string, description?: string|null, google_place_id: string, latitude: float|string, longitude: float|string}  $data
-     *                                                                                                                                          registered_by comes from the given user, never from the body.
+     * @param  array{name: string, description?: string|null, googlePlaceId: string, latitude: float|string, longitude: float|string}  $data
+     *                                                                                                                                        the keys arrive in camelCase, straight from the validated request;
+     *                                                                                                                                        registered_by comes from the given user, never from the body.
      */
     public function create(User $user, array $data): Location;
 
@@ -61,7 +62,7 @@ interface LocationServiceInterface
      * error. Throws a NotFoundError when the row does not exist and a BadRequestError
      * when the name or the google place id is already taken.
      *
-     * @param  array{name?: string, description?: string|null, google_place_id?: string, latitude?: float|string, longitude?: float|string, status?: bool}  $data
+     * @param  array{name?: string, description?: string|null, googlePlaceId?: string, latitude?: float|string, longitude?: float|string, status?: bool}  $data
      */
     public function update(int $id, array $data): Location;
 
