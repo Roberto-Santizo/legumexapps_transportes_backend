@@ -6,7 +6,66 @@ use App\Models\Location;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: 'StoreLocationRequest',
+    title: 'Alta de destino',
+    description: <<<'TEXT'
+    Cuerpo JSON para dar de alta un destino nacional. Los campos aceptados son name, description, googlePlaceId, latitude y longitude; todos son obligatorios salvo description.
+
+    El status NO se acepta: el destino nace siempre activo (true) y enviarlo se descarta sin error, así que no hay forma de crear un destino ya dado de baja. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador; mandarlo en el cuerpo no cambia nada.
+
+    ATENCIÓN — ASIMETRÍA DELIBERADA ENTRE LOS DOS DUPLICADOS POSIBLES. El name duplicado es 422 (regla unique del FormRequest, mensaje "Ya existe un destino con ese nombre"); el googlePlaceId duplicado es 400 (regla de negocio del service, mensaje "El lugar seleccionado ya está registrado en el destino {NOMBRE}"). El googlePlaceId se deja SIN regla unique a propósito: un 422 cortaría antes y el cliente nunca vería el nombre del destino que ya ocupa ese lugar, que es justo lo que hace útil el error. La columna sí tiene índice único en base, pero es el último cortafuegos, no la vía por la que se responde.
+
+    ATENCIÓN — el name se NORMALIZA antes de validarse y antes de guardarse: se recorta, se colapsan los espacios internos y se pasa a mayúsculas. Enviar "bodega central" crea el destino "BODEGA CENTRAL". Como la normalización ocurre ANTES de la regla de unicidad, enviar "bodega central" existiendo ya "BODEGA CENTRAL" devuelve 422, no 500 ni una fila duplicada. El googlePlaceId, en cambio, NO se toca: es opaco y sensible a mayúsculas, y pasarlo a mayúsculas apuntaría a otro lugar.
+
+    ATENCIÓN — NO HAY VALIDACIÓN CRUZADA entre el googlePlaceId y las coordenadas: nadie comprueba contra Google que latitude y longitude correspondan al lugar. Se pueden dar de alta unas coordenadas de un sitio con el place id de otro y el alta responde 201 sin ningún aviso. Las coordenadas, además, NO INFLUYEN EN EL PRECIO: la tarifa depende del destino elegido, no de dónde esté.
+    TEXT,
+    required: ['name', 'googlePlaceId', 'latitude', 'longitude'],
+    properties: [
+        new OA\Property(
+            property: 'name',
+            description: 'Nombre del destino. Se guarda normalizado y en mayúsculas, así que se puede enviar en minúsculas. Debe ser único en todo el país, comparado ya normalizado: la unicidad es global e insensible a mayúsculas. Ausente, vacío, no textual o de más de 255 caracteres devuelve 422 (mensajes: El nombre del destino es obligatorio / El nombre del destino debe ser texto / El nombre del destino no puede superar los 255 caracteres / Ya existe un destino con ese nombre). El límite de 255 es el de la columna, no una regla de negocio.',
+            type: 'string',
+            maxLength: 255,
+            example: 'bodega central escuintla',
+        ),
+        new OA\Property(
+            property: 'description',
+            description: 'Descripción libre del destino: referencias de acceso, portón de carga, horarios. ÚNICO CAMPO OPCIONAL y nullable: omitirlo o enviar null guarda null. No tiene longitud máxima —la columna es text—; solo se valida que sea texto (mensaje: La descripción debe ser texto). No se indexa ni participa en el filtro search del listado.',
+            type: 'string',
+            nullable: true,
+            example: 'Entrada por el km 58, portón de carga 2',
+        ),
+        new OA\Property(
+            property: 'googlePlaceId',
+            description: 'Place id del lugar en Google Places, obtenido de GET /api/places. OBLIGATORIO. Se guarda TAL CUAL LLEGA: no se recorta ni se pasa a mayúsculas, y es SENSIBLE A MAYÚSCULAS, así que dos cadenas que solo difieran en el case son dos lugares distintos y ambas se aceptarían. Ausente, no textual o de más de 255 caracteres devuelve 422 (mensajes: El lugar de Google es obligatorio / El lugar de Google debe ser texto / El lugar de Google no puede superar los 255 caracteres). ATENCIÓN — si otro destino ya lo usa, la respuesta es 400 y NO 422, con el mensaje "El lugar seleccionado ya está registrado en el destino {NOMBRE}", que nombra al ocupante para que el usuario sepa dónde mirar. No se valida contra Google: un place id inventado con el formato correcto se acepta.',
+            type: 'string',
+            maxLength: 255,
+            example: 'ChIJd8BlQ2BZwokRAFUEcm_qrcA',
+        ),
+        new OA\Property(
+            property: 'latitude',
+            description: 'Latitud del destino en grados decimales. OBLIGATORIA, numérica y en [-90, 90]; fuera de ese rango, ausente o no numérica devuelve 422 (mensajes: La latitud es obligatoria / La latitud debe ser numérica / La latitud debe estar entre -90 y 90). Se guarda con OCHO decimales y VUELVE COMO CADENA en el recurso. No se cruza con el googlePlaceId ni influye en el precio: no se deriva de ella distancia, kilometraje ni ruta.',
+            type: 'number',
+            format: 'float',
+            maximum: 90,
+            minimum: -90,
+            example: 14.6349,
+        ),
+        new OA\Property(
+            property: 'longitude',
+            description: 'Longitud del destino en grados decimales. OBLIGATORIA, numérica y en [-180, 180]; fuera de ese rango, ausente o no numérica devuelve 422 (mensajes: La longitud es obligatoria / La longitud debe ser numérica / La longitud debe estar entre -180 y 180). Se guarda con OCHO decimales y vuelve como cadena. A diferencia del area de Zones, aquí no hay pares ni orden ambiguo: latitude y longitude son dos campos con nombre propio, así que no hay forma de invertirlos por descuido.',
+            type: 'number',
+            format: 'float',
+            maximum: 180,
+            minimum: -180,
+            example: -90.5069,
+        ),
+    ],
+    type: 'object',
+)]
 class StoreLocationRequest extends FormRequest
 {
     public function authorize(): bool
