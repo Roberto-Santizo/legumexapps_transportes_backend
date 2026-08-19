@@ -101,6 +101,17 @@ final class GooglePlacesService implements PlaceServiceInterface
         return $this->toPlace($this->decode($response));
     }
 
+    #[Override]
+    public function getDirections(
+        float $originLatitude,
+        float $originLongitude,
+        float $destinationLatitude,
+        float $destinationLongitude,
+    ): array {
+        /** Stub del Paso 3: la llamada real a la Routes API llega en el paso siguiente. */
+        throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+    }
+
     /**
      * Build the request shared by both calls.
      *
