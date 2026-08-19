@@ -5,8 +5,11 @@
 # Cuando el prompt empieza por /spec-impl:
 #   1. Deja una marca de entrega pendiente en .claude/tmp/ con la spec y el
 #      nombre del documento esperado (la lee el hook Stop de comprobacion).
-#   2. Inyecta en el contexto del turno el contrato del documento, tomando
-#      references/zones-api.md como plantilla de tono y profundidad.
+#   2. Inyecta un aviso corto de aplazamiento: el documento es la ULTIMA entrega,
+#      asi que aqui solo se anuncia. El contrato completo (estructura, plantilla
+#      y reglas) lo entrega el hook Stop cuando la spec ya esta implementada;
+#      volcarlo al inicio hacia que el resumen se escribiera antes de tiempo,
+#      contra codigo aun a medias.
 #
 # Si el prompt no es /spec-impl, sale en silencio sin tocar nada.
 
@@ -68,43 +71,21 @@ mkdir -p "$MARKER_DIR"
 } >"$MARKER"
 
 context="$(cat <<EOF
-## Entrega obligatoria de /spec-impl: resumen de la feature en references/
+## Entrega final de /spec-impl (aviso, no la hagas todavia)
 
-Ademas de implementar la spec, este comando tiene una entrega mas, y es la
-ultima: un documento de referencia de integracion para el frontend en
-\`$doc_rel\`.
+Este comando tiene una entrega mas alla de implementar la spec: un documento de
+referencia de integracion para el frontend en \`$doc_rel\`. Es la **ultima**
+entrega, no una de las intermedias.
 
-Cuando ocurre: despues del ultimo paso del plan y de verificar los criterios de
-aceptacion, antes del commit final. No lo escribas a medias durante los pasos
-intermedios.
+Cuando escribirlo: despues del ultimo paso del plan y de verificar los criterios
+de aceptacion, antes del commit final. Hasta entonces **no lo empieces, ni
+siquiera en borrador**: documentarias rutas, validaciones y mensajes que todavia
+van a cambiar.
 
-Plantilla: \`references/zones-api.md\` (y \`references/freight-rates-api.md\`).
-Copia su estructura, su tono y su nivel de detalle:
+El contrato completo del documento (plantilla, secciones y reglas) te llega solo
+al terminar, cuando la spec ya este marcada como Implementado. Aqui basta con
+que lo tengas en el plan como paso final.
 
-1. Titulo + intro: que dominio es, cuantos endpoints, bajo que prefijo.
-2. "Lo minimo que hay que saber antes de escribir codigo": las trampas reales
-   del dominio numeradas, no generalidades.
-3. Autenticacion y permisos: tabla accion x rol (administrator, carrier, pilot,
-   manager) y si aplica \`carrier.required\`.
-4. El objeto del recurso: JSON de ejemplo + tabla campo/tipo/notas + tipos
-   TypeScript sugeridos.
-5. Formato de las respuestas: sobre \`{ statusCode, message, data }\`, listado
-   sin paginar, listado paginado (metadatos en la raiz) y el 422 de Laravel
-   \`{ message, errors }\`, que es un formato distinto.
-6. Endpoints uno por uno: query params, body, reglas por campo, codigos de
-   respuesta y mensajes de exito literales.
-7. Tabla de mensajes de error literales, copiados de los \`messages()\` de los
-   FormRequests y de los errores de \`App\Errors\` del service.
-8. Checklist de implementacion en el frontend.
-9. "Lo que este dominio no hace", para que el front no lo diseñe.
-
-Reglas del documento:
-
-- Todo verificado contra el codigo real de esta rama: rutas, FormRequests,
-  Resources, Service y tests. Si no lo has comprobado, no lo escribas.
-- Los mensajes de error van literales, en español, listos para mostrarse.
-- Salida en camelCase y fechas en \`d-m-Y h:i:s A\` (no ISO 8601): dilo explicito.
-- Prosa en español; nombres de codigo en ingles.
 - Spec de referencia: ${spec_rel:-la que resuelvas en la Fase 1}.
 EOF
 )"
