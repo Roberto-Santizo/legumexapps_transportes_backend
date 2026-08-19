@@ -1,6 +1,6 @@
 # SPEC 16 — Ruta por carretera hacia un destino registrado
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 12, SPEC 15
 > **Fecha:** 2026-08-19
 > **Objetivo:** Añadir al dominio `Place` un tercer endpoint de solo lectura que calcula la ruta por carretera desde un punto `lat,lng` hasta un destino registrado (`Location`) y devuelve distancia en kilómetros, duración en horas y la polilínea, codificada y decodificada en pares `[lat, lng]`.
@@ -275,81 +275,81 @@ Cerrar añadiendo el endpoint a `references/places-api.md`.
 
 **`PolylineDecoder`**
 
-- [ ] Una polilínea codificada conocida decodifica a los pares `[lat, lng]` esperados con 5 decimales.
-- [ ] Una cadena vacía devuelve `[]` y no lanza.
-- [ ] Las longitudes negativas salen con su signo, no en valor absoluto.
-- [ ] Los pares salen en orden `[lat, lng]`, no `[lng, lat]`.
-- [ ] El test unitario pasa **sin red y sin base de datos**.
+- [x] Una polilínea codificada conocida decodifica a los pares `[lat, lng]` esperados con 5 decimales.
+- [x] Una cadena vacía devuelve `[]` y no lanza.
+- [x] Las longitudes negativas salen con su signo, no en valor absoluto.
+- [x] Los pares salen en orden `[lat, lng]`, no `[lng, lat]`.
+- [x] El test unitario pasa **sin red y sin base de datos**.
 
 **Contrato**
 
-- [ ] `PlaceServiceInterface` declara `getDirections()` con las cuatro coordenadas como `float`.
-- [ ] El contrato **no recibe ni devuelve** `locationId`, `Location` ni nada de Eloquent.
-- [ ] `GooglePlacesService` e `InMemoryPlaceService` implementan los **tres** métodos.
-- [ ] Bindeando `InMemoryPlaceService`, `tests/Feature/PlaceTest.php` pasa entero sin una sola petición HTTP.
+- [x] `PlaceServiceInterface` declara `getDirections()` con las cuatro coordenadas como `float`.
+- [x] El contrato **no recibe ni devuelve** `locationId`, `Location` ni nada de Eloquent.
+- [x] `GooglePlacesService` e `InMemoryPlaceService` implementan los **tres** métodos.
+- [x] Bindeando `InMemoryPlaceService`, `tests/Feature/PlaceTest.php` pasa entero sin una sola petición HTTP.
 
 **`getActiveLocationById()`**
 
-- [ ] Un destino activo se devuelve.
-- [ ] Un destino inactivo lanza `BadRequestError` → **400**.
-- [ ] Un id inexistente lanza `NotFoundError` → **404**.
-- [ ] Los demás métodos de `LocationService` responden igual que antes de esta spec.
+- [x] Un destino activo se devuelve.
+- [x] Un destino inactivo lanza `BadRequestError` → **400**.
+- [x] Un id inexistente lanza `NotFoundError` → **404**.
+- [x] Los demás métodos de `LocationService` responden igual que antes de esta spec.
 
 **`GET /api/places/directions`**
 
-- [ ] Con `locationId`, `lat` y `lng` válidos responde **200** con exactamente `locationId`, `locationName`, `distanceKilometers`, `durationHours`, `polyline` y `points`.
-- [ ] `distanceKilometers` y `durationHours` son **números** en el JSON, no cadenas, con 2 decimales.
-- [ ] `104321` metros salen como `104.32`; `"6300s"` sale como `1.75`.
-- [ ] `points` es una lista de pares `[lat, lng]` y **nunca** viene vacía en un 200.
-- [ ] `polyline` es la cadena codificada de Google, sin modificar.
-- [ ] `locationId` y `locationName` corresponden al destino de la base, no a nada que devuelva el proveedor.
-- [ ] Se manda **un solo** `POST` a `https://routes.googleapis.com/directions/v2:computeRoutes`.
-- [ ] El cuerpo enviado lleva `origin` y `destination` anidados como `location.latLng`, `travelMode: DRIVE`, `routingPreference: TRAFFIC_UNAWARE`, `polylineQuality: OVERVIEW`, `computeAlternativeRoutes: false`, `units: METRIC`, `languageCode: es` y `regionCode: GT`.
-- [ ] La cabecera `X-Goog-FieldMask` vale `routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline`; **nunca `*`** ni `routes.*`.
-- [ ] La clave viaja en `X-Goog-Api-Key` y **no aparece en la URL**.
-- [ ] El `destination` que se manda son las coordenadas del `Location`, no las del origen ni al revés.
+- [x] Con `locationId`, `lat` y `lng` válidos responde **200** con exactamente `locationId`, `locationName`, `distanceKilometers`, `durationHours`, `polyline` y `points`.
+- [x] `distanceKilometers` y `durationHours` son **números** en el JSON, no cadenas, con 2 decimales.
+- [x] `104321` metros salen como `104.32`; `"6300s"` sale como `1.75`.
+- [x] `points` es una lista de pares `[lat, lng]` y **nunca** viene vacía en un 200.
+- [x] `polyline` es la cadena codificada de Google, sin modificar.
+- [x] `locationId` y `locationName` corresponden al destino de la base, no a nada que devuelva el proveedor.
+- [x] Se manda **un solo** `POST` a `https://routes.googleapis.com/directions/v2:computeRoutes`.
+- [x] El cuerpo enviado lleva `origin` y `destination` anidados como `location.latLng`, `travelMode: DRIVE`, `routingPreference: TRAFFIC_UNAWARE`, `polylineQuality: OVERVIEW`, `computeAlternativeRoutes: false`, `units: METRIC`, `languageCode: es` y `regionCode: GT`.
+- [x] La cabecera `X-Goog-FieldMask` vale `routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline`; **nunca `*`** ni `routes.*`.
+- [x] La clave viaja en `X-Goog-Api-Key` y **no aparece en la URL**.
+- [x] El `destination` que se manda son las coordenadas del `Location`, no las del origen ni al revés.
 
 **Validación**
 
-- [ ] `locationId`, `lat` o `lng` ausentes responden **422** y **no se hace ninguna petición a Google**.
-- [ ] `locationId` inexistente responde **422** por `exists:locations,id`, no 404.
-- [ ] `lat` fuera de `[-90, 90]` y `lng` fuera de `[-180, 180]` responden **422**.
-- [ ] `lat=0&lng=0` es válido y llega a Google: cero no es «ausente».
-- [ ] Los mensajes del 422 están en español.
-- [ ] Parámetros adicionales (`travelMode`, `polylineQuality`, `limit`) se **ignoran** y no alteran la petición al proveedor.
+- [x] `locationId`, `lat` o `lng` ausentes responden **422** y **no se hace ninguna petición a Google**.
+- [x] `locationId` inexistente responde **422** por `exists:locations,id`, no 404.
+- [x] `lat` fuera de `[-90, 90]` y `lng` fuera de `[-180, 180]` responden **422**.
+- [x] `lat=0&lng=0` es válido y llega a Google: cero no es «ausente».
+- [x] Los mensajes del 422 están en español.
+- [x] Parámetros adicionales (`travelMode`, `polylineQuality`, `limit`) se **ignoran** y no alteran la petición al proveedor.
 
 **Fallos, en orden**
 
-- [ ] Destino **inactivo** responde **400** con mensaje propio, y **no se llama a Google**.
-- [ ] Google responde 200 sin la clave `routes` → **404** «No se encontró una ruta hacia el destino».
-- [ ] Google responde 200 con `routes: []` → el **mismo 404**.
-- [ ] Timeout, error de conexión, `401`/`403`, `429` y `500` de Google → **503** con el mensaje genérico de SPEC 12.
-- [ ] Una `duration` sin sufijo `s`, no numérica o ausente → **503**, no una duración en `0`.
-- [ ] Un `distanceMeters` ausente o no numérico → **503**.
-- [ ] Una `polyline` ausente o vacía → **503**, no un `points: []` en un 200.
-- [ ] Ningún 503 filtra el cuerpo de error de Google, la URL ni la clave.
-- [ ] Ninguna excepción de Guzzle escapa al `catch` genérico del controller: el cliente nunca ve un 500 por un fallo del proveedor.
-- [ ] Un fallo genera **exactamente una** petición saliente: no hay reintentos.
+- [x] Destino **inactivo** responde **400** con mensaje propio, y **no se llama a Google**.
+- [x] Google responde 200 sin la clave `routes` → **404** «No se encontró una ruta hacia el destino».
+- [x] Google responde 200 con `routes: []` → el **mismo 404**.
+- [x] Timeout, error de conexión, `401`/`403`, `429` y `500` de Google → **503** con el mensaje genérico de SPEC 12.
+- [x] Una `duration` sin sufijo `s`, no numérica o ausente → **503**, no una duración en `0`.
+- [x] Un `distanceMeters` ausente o no numérico → **503**.
+- [x] Una `polyline` ausente o vacía → **503**, no un `points: []` en un 200.
+- [x] Ningún 503 filtra el cuerpo de error de Google, la URL ni la clave.
+- [x] Ninguna excepción de Guzzle escapa al `catch` genérico del controller: el cliente nunca ve un 500 por un fallo del proveedor.
+- [x] Un fallo genera **exactamente una** petición saliente: no hay reintentos.
 
 **Autorización**
 
-- [ ] Sin token responde **401** con el sobre estándar.
-- [ ] Responde 200 con token de `administrator`, `carrier`, `pilot` y `manager`.
-- [ ] Un `carrier` **sin empresa registrada** lo alcanza: la ruta no lleva `carrier.required`.
+- [x] Sin token responde **401** con el sobre estándar.
+- [x] Responde 200 con token de `administrator`, `carrier`, `pilot` y `manager`.
+- [x] Un `carrier` **sin empresa registrada** lo alcanza: la ruta no lleva `carrier.required`.
 
 **Aislamiento del proveedor**
 
-- [ ] Ningún archivo fuera de `app/Services/Place/` menciona `Http::`, `googleapis.com`, `X-Goog-`, `computeRoutes` ni `encodedPolyline`.
-- [ ] `PlaceController`, `DirectionsResource`, `GetDirectionsRequest` y `routes/places.php` no nombran a Google.
-- [ ] `.env.example` **no cambia**: no hay credencial nueva.
+- [x] Ningún archivo fuera de `app/Services/Place/` menciona `Http::`, `googleapis.com`, `X-Goog-`, `computeRoutes` ni `encodedPolyline`.
+- [x] `PlaceController`, `DirectionsResource`, `GetDirectionsRequest` y `routes/places.php` no nombran a Google.
+- [x] `.env.example` **no cambia**: no hay credencial nueva.
 
 **Cierre**
 
-- [ ] `php artisan route:list --path=places` muestra **tres** rutas, y `/api/places/directions` resuelve a `directions`, no a `places.show`.
-- [ ] `php artisan test --compact` pasa la suite entera, incluidas las quince specs anteriores.
-- [ ] Con `Http::preventStrayRequests()` activo, la suite sigue verde: ningún test sale a la red.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `/api/documentation` muestra los tres endpoints del dominio, con el 404, el 400 y el 503 documentados y distinguidos.
+- [x] `php artisan route:list --path=places` muestra **tres** rutas, y `/api/places/directions` resuelve a `directions`, no a `places.show`.
+- [x] `php artisan test --compact` pasa la suite entera, incluidas las quince specs anteriores.
+- [x] Con `Http::preventStrayRequests()` activo, la suite sigue verde: ningún test sale a la red.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `/api/documentation` muestra los tres endpoints del dominio, con el 404, el 400 y el 503 documentados y distinguidos.
 
 ---
 
