@@ -20,7 +20,7 @@ El service se inyecta **por parámetro del método del controller** (`public fun
 
 En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`, `/{pilot}/salary`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
 
-Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`, `Zone`, `FreightRate`, `Pilot`, `Place` (SPEC 01–13).
+Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `VehicleExpense`, `FuelPrice`, `Product`, `Zone`, `Location`, `FreightRate`, `Pilot`, `Place` (SPEC 01–15).
 
 ## Respuestas y errores
 
@@ -69,6 +69,19 @@ Primera spec que **amplía un dominio ya publicado**: ni tabla, ni controller, n
 - `engine_number` se normaliza en `normalizeEngineNumber()` (trim + mayúsculas, vacío → `null`) y **no es único**: dos vehículos pueden compartirlo, incluso de la misma empresa.
 - **`mileage` es el único campo del proyecto con autorización propia**: el `PATCH` sigue siendo alcanzable por `carrier` y `administrator`, pero solo el `administrator` puede mandar un valor **distinto** al almacenado; reenviar el mismo no es cambio y pasa con 200 para cualquier rol. La regla vive en el service —no se ve mirando las rutas— y se comprueba **antes** de subir la imagen, así que el 403 aborta la petición entera sin dejar archivos huérfanos.
 
+## Dominio Vehicle Expenses (SPEC 14)
+
+Gastos de mantenimiento imputados a un vehículo. Enums `App\Enums\VehicleExpenseCategory` (22 casos, `tires`…`other`) y `VehicleExpenseNature` (preventive, corrective), **ejes independientes**: no hay validación cruzada, igual que `condition` vs `status` en SPEC 13.
+
+- **Cuelga de un vehículo pero la ruta no está anidada**: no existe `/api/vehicles/{vehicle}/expenses`. El vínculo viaja en `vehicle_id` del body y en el query param `vehicleId` del listado.
+- **`vehicleId` es el único filtro obligatorio del proyecto**: `GET /api/vehicle-expenses` sin él es **422** (formato de validación de Laravel, no el sobre habitual), no un listado global. Un `vehicleId` inexistente es 404, no lista vacía. Tiene FormRequest propio para el índice (`IndexVehicleExpenseRequest`), el único del proyecto.
+- **Ninguna ruta lleva `carrier.required`**: el ámbito lo resuelve el service desde el vehículo (`resolveVehicle()` / `resolveVehicleExpense()`). Un `carrier` solo alcanza los vehículos de su empresa —ajeno es **403**, no 404—; `administrator` y `manager` alcanzan todos. Leer es `carrier,administrator,manager`; escribir solo `carrier,administrator` (el `manager` recibe 403 en `store/update/destroy`); el `pilot`, 403 en los cinco.
+- El `status` del vehículo no importa: uno `inactive` acepta y lista gastos igual (el mantenimiento pudo ocurrir antes de la baja).
+- **`totalAmount` en la raíz del sobre**: suma de `amount` de **todos** los gastos filtrados, calculada con `sum()` sobre la consulta clonada **antes** de paginar, y sale también sin `limit` — es dato de negocio, no metadata. No confundir con `total`, que es el conteo del paginador. El controller lo inyecta a mano en el array de `data`.
+- Filtros tolerantes (`category`, `nature`, `dateFrom`, `dateTo`): un valor inválido se ignora. Orden fijo `expense_date desc, id desc`.
+- `vehicle_id` es **inmutable** (`UPDATABLE_FIELDS` no lo incluye) y `registered_by` sale del usuario autenticado y no se reescribe en el `update`. `DELETE` es **borrado real**: un gasto mal tecleado es basura, no historial. No hay bitácora de ediciones.
+- `Vehicle` **no gana** una relación `expenses()` y `GET /api/vehicles/{vehicle}` no cambió de forma.
+
 ## Dominio Pilots (salarios)
 
 Primer dominio publicado **sobre una tabla pivote existente**: `carrier_pilots` gana la columna `salary` (`decimal(10,2)` nullable, mensual y en GTQ por convención — la columna no lo dice) y la bitácora `carrier_pilot_salary_histories`.
@@ -83,15 +96,15 @@ Primer dominio publicado **sobre una tabla pivote existente**: `carrier_pilots` 
 - El UPDATE y la fila de bitácora corren en la **misma transacción**, con `lockForUpdate` sobre el pivote; `changed_by` sale del usuario autenticado, nunca del body. La bitácora es de solo escritura y solo lectura: `created_at` es la fecha de vigencia y no hay `reason`, `notes` ni `effective_from`. Se ordena por `id desc`, no por `created_at`, que empataría entre dos cambios del mismo segundo.
 - Listado e historial paginan opt-in con `limit`, como el resto del proyecto.
 
-## Catálogos nacionales (fuel prices, products, zones, freight rates)
+## Catálogos nacionales (fuel prices, products, zones, locations, freight rates)
 
-Cuatro dominios que no pertenecen a ninguna empresa y comparten reglas:
+Cinco dominios que no pertenecen a ninguna empresa y comparten reglas:
 
 - **Ninguna ruta lleva `carrier.required`**: son datos nacionales. La lectura queda abierta a cualquier autenticado (`jwt.auth` a secas) y toda escritura es `role:administrator`. Única excepción: `GET /api/freight-rates/{id}` también es admin — quien no administra tarifas cotiza con `/quote`.
 - Las rutas fijas (`/current`, `/quote`, `/{id}/toggle-status`, `/{id}/deactivate`) van **antes** del `apiResource`, que se declara sobre `'/'` con `->parameters(['' => 'fuelPrice'])`.
 - `registered_by` sale siempre del usuario autenticado, nunca del body, y **no se reescribe** en `update`.
-- Los filtros de listado son tolerantes: un `status`/`zoneId`/`lat,lng` inválido se **ignora** en vez de vaciar el listado (`filter_var(..., FILTER_NULL_ON_FAILURE)`).
-- El nombre único (`Product`, `Zone`) se normaliza con `Model::normalizeName()` (trim + colapsar espacios + mayúsculas), compartido por FormRequest y service; el service revalida con `ensureNameIsAvailable($name, $ignoreId)` **aunque haya índice único**, para que una llamada directa dé 400 y no 500.
+- Los filtros de listado son tolerantes: un `status`/`locationId`/`lat,lng` inválido se **ignora** en vez de vaciar el listado (`filter_var(..., FILTER_NULL_ON_FAILURE)`).
+- El nombre único (`Product`, `Zone`, `Location`) se normaliza con `Model::normalizeName()` (trim + colapsar espacios + mayúsculas), compartido por FormRequest y service; el service revalida con `ensureNameIsAvailable($name, $ignoreId)` **aunque haya índice único**, para que una llamada directa dé 400 y no 500.
 
 ### Fuel Prices
 
@@ -110,18 +123,28 @@ Cuatro dominios que no pertenecen a ninguna empresa y comparten reglas:
 - Polígonos en PostGIS: columna `area` `geography(Polygon,4326)`, **fuera del `#[Fillable]`** (entra como expresión, sale como GeoJSON).
 - `Zone::SRID`, `pairsToWkt()` y `geoJsonToPairs()` son el único sitio que conoce las dos reglas del formato: la API habla en pares `[lat, lng]` con anillo **abierto**, PostGIS en `lng lat` con anillo **cerrado**.
 - Toda lectura pasa por `readQuery()`, que añade `ST_AsGeoJSON(area) as area_geojson` — leer la geometría cruda daría WKB hexadecimal ilegible desde PHP. El polígono se escribe con `DB::statement('UPDATE zones SET area = ST_GeogFromText(?) ...')`, siempre por binding.
-- `whereContainsPoint()` es el único sitio con el predicado espacial (`ST_Contains(area::geometry, ...)` — `ST_Contains` no acepta `geography`, y el cast conserva el índice GiST). Lo usan el filtro `?lat=&lng=` del listado y `getZoneContainingPoint()`, del que cuelgan las tarifas.
-- Solape permitido: `getZoneContainingPoint()` gana el `id` más bajo y **solo mira zonas activas**; el filtro del listado no filtra por estado. `color` por defecto `#3388FF` (el azul de Leaflet), en mayúsculas. `description` se borra mandando `null` (por eso `array_key_exists`, no `isset`).
+- `whereContainsPoint()` es el único sitio con el predicado espacial (`ST_Contains(area::geometry, ...)` — `ST_Contains` no acepta `geography`, y el cast conserva el índice GiST). Su **único consumidor** es el filtro `?lat=&lng=` del listado, que no filtra por estado.
+- **Desde SPEC 15 las zonas no cotizan nada**: se dibujan en el mapa y ya. `getZoneContainingPoint()` se eliminó del contrato y del service al perder su consumidor; `whereContainsPoint()` se quedó. El resto del dominio (tabla, rutas, polígono, índice GiST) sigue exactamente como lo dejó SPEC 08, y **PostGIS sigue siendo requisito** del proyecto y de la suite.
+- Solape permitido. `color` por defecto `#3388FF` (el azul de Leaflet), en mayúsculas. `description` se borra mandando `null` (por eso `array_key_exists`, no `isset`).
+
+### Locations (SPEC 15)
+
+Destinos puntuales identificados por `google_place_id` y coordenadas. **Sustituyeron a la zona como eje de las tarifas**: primera spec que retira una capacidad publicada — cotizar por punto geográfico ya no existe.
+
+- Tabla **plana, sin PostGIS**: `name` (único, en mayúsculas), `description` nullable, `google_place_id` (único), `latitude` `decimal(10,8)`, `longitude` `decimal(11,8)`, `status` booleano y `registered_by`. Los ocho decimales dan precisión milimétrica; nada de flotantes en una coordenada que decide un precio. Salen como **string** en el Resource, no como float.
+- Forma idéntica a `Product`/`Zone`: escritura solo `administrator`, lectura para cualquier autenticado, filtros `status` y `search`, orden `id ASC`, paginación opt-in, `DELETE` como baja lógica **idempotente** y `/{location}/toggle-status` declarada antes del `apiResource`.
+- **La API nunca llama a Google**: el front busca en `GET /api/places`, elige, y manda `name`, `googlePlaceId`, `latitude` y `longitude` ya resueltos. `LocationService` no conoce `PlaceServiceInterface`.
+- `ensureGooglePlaceIdIsAvailable($googlePlaceId, $ignoreId)` es hermano de `ensureNameIsAvailable()`: 400 si otro destino ya ocupa ese lugar. El `google_place_id` se guarda **tal cual** (identificador opaco, sensible a mayúsculas) y **es editable**: reapuntar el destino conserva su `id` y sus tarifas. Coordenadas también editables; **no hay validación cruzada** entre `googlePlaceId` y el pin.
 
 ### Freight Rates
 
-- `FreightRate` = banda **abierta** por (`zone_id`, `product_id`, `fuel_type`): rige desde `fuel_min` hacia arriba hasta que exista una banda mayor. `price_per_pound` es `decimal:6`.
+- `FreightRate` = banda **abierta** por (`location_id`, `product_id`, `fuel_type`): rige desde `fuel_min` hacia arriba hasta que exista una banda mayor. `price_per_pound` es `decimal:6`. Desde SPEC 15 el eje es el **destino**, no la zona: la migración vació la tabla, cambió `zone_id` por `location_id` y rehizo el índice compuesto; el renombrado llegó hasta los Resources (`locationId`/`locationName`) **sin periodo de gracia**.
 - Usa `SoftDeletes`. `getFreightRateById()` lee `withTrashed()` a propósito: una tarifa borrada da **400 "ya fue eliminada"**, no 404, así que el segundo DELETE se distingue de un id inexistente.
 - Unicidad de banda en `ensureFuelMinIsAvailable()` y **deliberadamente sin índice único**: con soft deletes, un índice bloquearía un `fuel_min` ya borrado. `fuelMinValue()` formatea a 2 decimales antes de comparar, porque si no un `30.005` que Postgres redondea a `30.01` se colaría.
-- Crear o editar exige zona **y** producto activos (`ensureZoneAndProductAreActive`), incluso si el PATCH solo mueve el precio; borrar nunca se bloquea.
-- `GET /api/freight-rates/quote?lat=&lng=&productId=&fuelType=[&pounds=]`: resuelve zona por punto → producto activo → precio de combustible vigente (**de la BD, jamás de la petición**) → bandas del trío → `resolveBand()` toma la mayor que no supere el precio vigente (si el combustible está por debajo de todas, aplica la más barata, no es error). El orden de los pasos es contrato: cada uno falla con su mensaje. `total = round(pounds * pricePerPound, 2)`, redondeando **después** del producto; sin `pounds`, `total` es `null`. Sale por `FreightQuoteResource`.
-- El listado **no pagina nunca**: devuelve `Collection` ordenada por `fuel_type, fuel_min` (la tabla de precios se lee entera).
-- El PostGIS no se toca aquí: `ZoneServiceInterface` se inyecta **por constructor** en `FreightRateService`, como los contratos de almacenamiento.
+- Crear o editar exige destino **y** producto activos (`ensureLocationAndProductAreActive`), incluso si el PATCH solo mueve el precio; borrar nunca se bloquea.
+- `GET /api/freight-rates/quote?locationId=&productId=&fuelType=[&pounds=]`: cinco pasos, destino activo → producto activo → precio de combustible vigente (**de la BD, jamás de la petición**) → bandas del trío → `resolveBand()` toma la mayor que no supere el precio vigente (si el combustible está por debajo de todas, aplica la más barata, no es error). El orden de los pasos es contrato: cada uno falla con su **400** y su mensaje; un `locationId` inexistente lo atrapa antes el `exists:` del FormRequest con 422, así que **la cotización ya no tiene ningún 404**. `total = round(pounds * pricePerPound, 2)`, redondeando **después** del producto; sin `pounds`, `total` es `null`. Sale por `FreightQuoteResource`, que no devuelve coordenadas (quien manda el `locationId` ya las tiene).
+- El listado **no pagina nunca**: devuelve `Collection` ordenada por `fuel_type, fuel_min` (la tabla de precios se lee entera), filtrable por `locationId`.
+- Tras SPEC 15 el dominio **no conoce ni zonas ni PostGIS**: `FreightRateService` dejó de inyectar `ZoneServiceInterface` y se quedó sin constructor.
 
 ## Dominio Places (Google Places)
 
@@ -131,7 +154,7 @@ Primer dominio **sin tabla, sin modelo y sin migración** — un proxy de lectur
 - Credencial en `services.google_places.key` (`GOOGLE_PLACES_API_KEY`), enviada en la cabecera `X-Goog-Api-Key` y **nunca en la query string**, que acabaría en los logs de cada proxy intermedio. Field masks siempre explícitas (`*` factura en el tramo más caro), `pageSize` 10, `languageCode=es`, `regionCode=GT` (sesga, no excluye), timeout de 10 s y **sin reintentos**: cada llamada se paga.
 - Error nuevo `App\Errors\ServiceUnavailableError` (503). Cualquier fallo del proveedor —timeout, DNS, credencial rechazada, cuerpo con forma inesperada— sale con **un único mensaje genérico**, para no filtrar el estado de la cuenta. Una lista parcialmente válida no se filtra ni se devuelve corta: invalida la llamada entera.
 - Búsqueda sin resultados es lista vacía, no error. En el detalle, id inexistente e id malformado (404 y 400 del proveedor) son ambos `NotFoundError`; el `location` anidado se aplana a `latitude`/`longitude`, y un 200 sin coordenadas es 503, no coordenadas nulas.
-- Su consumidor es el front: buscar dirección → elegir → llamar a `GET /api/freight-rates/quote` con las coordenadas. Este dominio no cotiza nada.
+- Su consumidor es el front: buscar dirección → elegir → dar de alta el destino con `POST /api/locations` (`googlePlaceId` + coordenadas) → cotizar con `GET /api/freight-rates/quote?locationId=`. Este dominio no cotiza nada ni persiste nada.
 
 ## Almacenamiento de archivos
 
