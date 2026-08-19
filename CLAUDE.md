@@ -20,12 +20,12 @@ El service se inyecta **por parámetro del método del controller** (`public fun
 
 En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`, `/{pilot}/salary`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
 
-Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`, `Zone`, `FreightRate`, `Pilot` (SPEC 01–11).
+Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`, `Zone`, `FreightRate`, `Pilot`, `Place` (SPEC 01–13).
 
 ## Respuestas y errores
 
 - Todo pasa por `App\Helpers\ResponseHandler`: sobre `{ statusCode, message, data }`. `success($data, $message, $statusCode)` resuelve `JsonResource` automáticamente y aplana metadata de paginación.
-- Los errores de negocio son subclases de `App\Errors\ApiException` (`BadRequestError`, `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `NotAcceptable`); el controller los captura y `ResponseHandler::error()` mapea el status. Cualquier otro `Throwable` cae a 500.
+- Los errores de negocio son subclases de `App\Errors\ApiException` (`BadRequestError`, `UnauthorizedError`, `ForbiddenError`, `NotFoundError`, `NotAcceptable`, `ServiceUnavailableError`); el controller los captura y `ResponseHandler::error()` mapea el status. Cualquier otro `Throwable` cae a 500.
 - `bootstrap/app.php` renderiza JSON para `api/*` y traduce el `UnauthorizedHttpException` del middleware `jwt.auth` al mismo sobre.
 - Mensajes de cara al usuario en español; nombres de código y PHPDoc en inglés.
 
@@ -54,10 +54,20 @@ Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `FuelPrice`, `Product`,
 
 ## Dominio Vehicles
 
-- `Vehicle` pertenece a un `Carrier`. Enums `App\Enums\VehicleType` (truck, van, trailer, pickup) y `VehicleStatus` (active, inactive, under_repair).
-- Ámbito: el `administrator` ve todos y puede filtrar por `carrierId`; cualquier otro rol queda acotado a su propia empresa (`resolveScopedCarrierId()`), y tocar un vehículo ajeno es 403. Filtro opcional `status`.
+- `Vehicle` pertenece a un `Carrier`. Enums `App\Enums\VehicleType` (truck, van, trailer, pickup), `VehicleStatus` (active, inactive, under_repair) y `VehicleCondition` (new, used).
+- Ámbito: el `administrator` ve todos y puede filtrar por `carrierId`; cualquier otro rol queda acotado a su propia empresa (`resolveScopedCarrierId()`), y tocar un vehículo ajeno es 403. Filtros opcionales: `status`, `condition` y `engineNumber` (`LIKE %term%` sobre el valor ya guardado en mayúsculas).
 - La placa se normaliza a mayúsculas y es única **solo entre vehículos no desactivados** — un `inactive` la libera —, así que la unicidad no vive en un índice sino en `ensurePlateIsAvailable()`. Reactivar un vehículo revalida su placa.
 - `DELETE` es una baja lógica: pasa el `status` a `inactive`; la fila sigue viva y sigue apareciendo en los listados.
+
+### Ficha técnica y financiera (SPEC 13)
+
+Primera spec que **amplía un dominio ya publicado**: ni tabla, ni controller, ni ruta nuevos — una migración aditiva sobre `vehicles` y seis columnas propagadas por las capas existentes.
+
+- Columnas nuevas: `condition`, `kilometers_per_gallon`, `purchase_price`, `monthly_insurance_cost` (dinero en GTQ, `decimal`), `mileage` (entero, km) y `engine_number`. Todas nacen con `default` o `nullable` para que las filas viejas sobrevivan sin backfill; esos defaults (`1`, `used`) son relleno, no negocio: por la API los seis son obligatorios en el alta.
+- `POST` es **cambio incompatible** (de 7 a 13 campos, sin periodo de gracia); el `PATCH` no lo es: los seis entran como `sometimes`.
+- `condition` **no es `status`**: ejes independientes. `status` es el estado operativo, gobierna la baja lógica y la unicidad de la placa, y no se acepta en el alta (el vehículo nace `active`); `condition` es cómo se adquirió y no gobierna nada. No hay validación cruzada: `new` con 90 000 km es válido.
+- `engine_number` se normaliza en `normalizeEngineNumber()` (trim + mayúsculas, vacío → `null`) y **no es único**: dos vehículos pueden compartirlo, incluso de la misma empresa.
+- **`mileage` es el único campo del proyecto con autorización propia**: el `PATCH` sigue siendo alcanzable por `carrier` y `administrator`, pero solo el `administrator` puede mandar un valor **distinto** al almacenado; reenviar el mismo no es cambio y pasa con 200 para cualquier rol. La regla vive en el service —no se ve mirando las rutas— y se comprueba **antes** de subir la imagen, así que el 403 aborta la petición entera sin dejar archivos huérfanos.
 
 ## Dominio Pilots (salarios)
 
@@ -113,6 +123,16 @@ Cuatro dominios que no pertenecen a ninguna empresa y comparten reglas:
 - El listado **no pagina nunca**: devuelve `Collection` ordenada por `fuel_type, fuel_min` (la tabla de precios se lee entera).
 - El PostGIS no se toca aquí: `ZoneServiceInterface` se inyecta **por constructor** en `FreightRateService`, como los contratos de almacenamiento.
 
+## Dominio Places (Google Places)
+
+Primer dominio **sin tabla, sin modelo y sin migración** — un proxy de lectura — y el primero que sale por su cuenta a una API de terceros. Dos rutas con `jwt.auth` a secas, sin `role:` ni `carrier.required`: `GET /api/places?search=` (texto de 3 a 200 caracteres) y `GET /api/places/{place}`, declaradas con el mismo `apiResource('/')->parameters(['' => 'place'])->only(['index', 'show'])` de los catálogos.
+
+- Contrato por capacidad, como en almacenamiento: `PlaceServiceInterface` (`searchPlaces`, `getPlaceById`) → `GooglePlacesService`, bindeado en `PlaceProvider`. El nombre del proveedor no aparece fuera de `app/Services/Place/`.
+- Credencial en `services.google_places.key` (`GOOGLE_PLACES_API_KEY`), enviada en la cabecera `X-Goog-Api-Key` y **nunca en la query string**, que acabaría en los logs de cada proxy intermedio. Field masks siempre explícitas (`*` factura en el tramo más caro), `pageSize` 10, `languageCode=es`, `regionCode=GT` (sesga, no excluye), timeout de 10 s y **sin reintentos**: cada llamada se paga.
+- Error nuevo `App\Errors\ServiceUnavailableError` (503). Cualquier fallo del proveedor —timeout, DNS, credencial rechazada, cuerpo con forma inesperada— sale con **un único mensaje genérico**, para no filtrar el estado de la cuenta. Una lista parcialmente válida no se filtra ni se devuelve corta: invalida la llamada entera.
+- Búsqueda sin resultados es lista vacía, no error. En el detalle, id inexistente e id malformado (404 y 400 del proveedor) son ambos `NotFoundError`; el `location` anidado se aplana a `latitude`/`longitude`, y un 200 sin coordenadas es 503, no coordenadas nulas.
+- Su consumidor es el front: buscar dirección → elegir → llamar a `GET /api/freight-rates/quote` con las coordenadas. Este dominio no cotiza nada.
+
 ## Almacenamiento de archivos
 
 - Dos contratos en `app/Interfaces/Storage/`, con sus reglas de sustitución escritas en el PHPDoc (qué lanza, qué acepta `null`, qué garantiza la salida), implementados en `app/Services/Storage/` y bindeados por `StorageProvider`:
@@ -131,12 +151,12 @@ Cuatro dominios que no pertenecen a ninguna empresa y comparten reglas:
 
 ## Tests
 
-- Pest 5, **PostgreSQL con PostGIS** (base `legumexapps_transportes_testing`, fijada en `phpunit.xml`), `RefreshDatabase`, `Mail::fake()` y `fakeDefaultDisk()` aplicados globalmente desde `tests/Pest.php`: ningún test manda correo ni sale a la red.
+- Pest 5, **PostgreSQL con PostGIS** (base `legumexapps_transportes_testing`, fijada en `phpunit.xml`), `RefreshDatabase`, `Mail::fake()`, `fakeDefaultDisk()` y `Http::preventStrayRequests()` aplicados globalmente desde `tests/Pest.php`: ningún test manda correo ni sale a la red. `preventStrayRequests()` va **solo, sin un `Http::fake()` global** que lo acompañe: uno global sin argumentos taparía cualquier petición no prevista, que es justo lo que se quiere ver fallar — cada test declara su propio `Http::fake([...])`.
 - **La suite no corre sin Postgres levantado.** Desde SPEC 08 las zonas usan `geography(Polygon,4326)` y `ST_Contains`, que SQLite no tiene. La extensión se habilita **por base de datos** (`CREATE EXTENSION IF NOT EXISTS postgis;` dentro de la base de tests), no por servidor; ver README.
 - Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash), `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test) y `fakeDefaultDisk()` (sustituye el disco por defecto por un fake **con `url`**, porque uno pelado devolvería rutas relativas y la API promete URLs absolutas).
-- Dobles de los contratos de almacenamiento en `tests/Doubles/` (`InMemoryFileStorageService`, `StaticImageProcessorService`): se bindean en el contenedor para probar sustituibilidad y los caminos de error sin decodificar imágenes de verdad.
+- Dobles de los contratos sustituibles en `tests/Doubles/` (`InMemoryFileStorageService`, `StaticImageProcessorService`, `InMemoryPlaceService`): se bindean en el contenedor para probar sustituibilidad y los caminos de error sin decodificar imágenes de verdad ni llamar a Google.
 - Helpers locales por archivo de test (ver `tests/Feature/CarrierTest.php`): `userWithRole()`, `asUser()` (llama a `resetAuthState()` y adjunta el token) y un `<recurso>Endpoints()` que alimenta los datasets de middleware.
-- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service. Lo que no es service tiene su propio Unit test: `ZoneGeometryTest` (WKT ↔ GeoJSON), `ZoneResourceTest`, `FreightRateModelTest`.
+- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service. Lo que no es service tiene su propio Unit test: `ZoneGeometryTest` (WKT ↔ GeoJSON), `ZoneResourceTest`, `FreightRateModelTest`. El proveedor externo se prueba en `GooglePlacesServiceTest` con `Http::fake()`.
 - Ejecutar: `php artisan test --compact` (o `--filter=`).
 
 ## Flujo de trabajo

@@ -4033,6 +4033,635 @@
                 ]
             }
         },
+        "/api/vehicle-expenses": {
+            "get": {
+                "tags": [
+                    "VehicleExpenses"
+                ],
+                "summary": "Listar los gastos de un vehículo",
+                "description": "Devuelve los gastos de UN vehículo concreto. Pueden llamarlo los roles carrier, administrator y manager (middlewares jwt.auth y role:carrier,administrator,manager); un pilot recibe 403.\n\nATENCIÓN — vehicleId ES OBLIGATORIO. Es el único filtro obligatorio de todo el proyecto: sin él la petición NO devuelve un listado de toda la flota ni una lista vacía, devuelve 422. Y ese 422 NO usa el sobre habitual {statusCode, message, data}: al venir de un FormRequest sale con el formato de validación de Laravel {message, errors: {vehicleId: [...]}}, con el mensaje El vehículo es obligatorio dentro de errors.vehicleId. Un cliente que lea siempre response.statusCode o response.data en los errores se encontrará undefined justo en este caso. Un vehicleId que no sea entero da el mismo formato con el mensaje El vehículo debe ser un número entero.\n\nUn vehicleId que no corresponde a ningún vehículo es 404 (El vehículo no existe), NO un listado vacío: recibir data: [] siempre significa que el vehículo existe y no tiene gastos que cumplan los filtros. Si el vehículo es de otra empresa y quien pregunta es un carrier, la respuesta es 403.\n\nLos cuatro filtros opcionales —category, nature, dateFrom y dateTo— son TOLERANTES: un valor fuera del enum, una fecha malformada o un parámetro vacío se IGNORAN EN SILENCIO y se devuelve el listado COMPLETO del vehículo con 200, nunca un 422 ni una lista vacía. Se combinan entre sí sin interferir. No hay filtro por descripción, ni por monto, ni por el usuario que registró el gasto.\n\nEl orden es FIJO y no configurable: expense_date descendente y, para dos gastos del mismo día, id descendente. No existen parámetros sortBy ni order.\n\nLa forma de la respuesta depende de limit: sin limit —o con un limit no numérico— se devuelven todos los gastos y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelven esos tres campos aplanados en la raíz. En LAS DOS FORMAS viaja totalAmount.\n\nATENCIÓN — totalAmount NO ES total. totalAmount es la SUMA EN QUETZALES del campo amount de TODOS los gastos que cumplen los filtros, calculada antes de paginar, y sale como cadena con dos decimales; total es el CONTEO de registros que aporta el paginador y solo aparece al paginar. Con 12 gastos de 100.50 y limit=10 la respuesta trae 10 elementos en data, total = 12 y totalAmount = \"1206.00\".",
+                "operationId": "indexVehicleExpenses",
+                "parameters": [
+                    {
+                        "name": "vehicleId",
+                        "in": "query",
+                        "description": "OBLIGATORIO. Identificador del vehículo cuyos gastos se piden (vehicles.id). Omitirlo devuelve 422 con el formato de validación de Laravel {message, errors} y el mensaje El vehículo es obligatorio; no hay valor por defecto ni listado global. Debe ser un entero: vehicleId=abc devuelve 422 con el mensaje El vehículo debe ser un número entero. Un id inexistente devuelve 404 (El vehículo no existe) y uno de otra empresa, para un carrier, 403. No hay filtro carrierId en este listado: el vehículo ya determina la empresa.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    },
+                    {
+                        "name": "category",
+                        "in": "query",
+                        "description": "Filtra por categoría, por COINCIDENCIA EXACTA con el valor del enum. ES TOLERANTE: solo se aplica si el valor pertenece a los 22 casos; cualquier otro (category=inexistente, o el parámetro vacío) se ignora en silencio y se devuelve el listado COMPLETO del vehículo, nunca una lista vacía ni un 422. Se combina con nature: los dos ejes son independientes y ?category=tires&nature=corrective es una consulta válida. Solo admite un valor: no se pueden pedir varias categorías a la vez.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "tires",
+                            "enum": [
+                                "tires",
+                                "oil_change",
+                                "brakes",
+                                "spare_part",
+                                "battery",
+                                "suspension",
+                                "engine",
+                                "transmission",
+                                "electrical_system",
+                                "cooling_system",
+                                "filters",
+                                "alignment_balancing",
+                                "clutch",
+                                "exhaust",
+                                "air_conditioning",
+                                "bodywork_paint",
+                                "glass_mirrors",
+                                "inspection",
+                                "washing",
+                                "towing",
+                                "labor",
+                                "other"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "nature",
+                        "in": "query",
+                        "description": "Filtra por naturaleza preventiva o correctiva. ES TOLERANTE igual que category: un valor fuera del enum se ignora en silencio y devuelve el listado completo con 200. No depende de la categoría elegida.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "preventive",
+                            "enum": [
+                                "preventive",
+                                "corrective"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "dateFrom",
+                        "in": "query",
+                        "description": "Cota INFERIOR sobre expense_date —la fecha del gasto, no la de captura—, en formato Y-m-d e INCLUSIVE: dateFrom=2026-01-15 incluye los gastos del propio 15 de enero. ES TOLERANTE: una fecha malformada (2026-13-45), en otro formato (15/01/2026) o vacía se ignora en silencio y se devuelve el listado completo, nunca un 422 ni una lista vacía. Se combina con dateTo para un rango cerrado. Si el rango deja fuera todos los gastos, la respuesta es 200 con data vacío y totalAmount \"0.00\".",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-01-01"
+                        }
+                    },
+                    {
+                        "name": "dateTo",
+                        "in": "query",
+                        "description": "Cota SUPERIOR sobre expense_date, en formato Y-m-d y también INCLUSIVE: dateTo=2026-01-15 incluye los gastos del propio 15 de enero. Igual de tolerante que dateFrom. No se valida que dateTo sea posterior a dateFrom: un rango invertido es válido y simplemente no devuelve resultados.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-01-31"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (limit=abc), se devuelven todos los gastos sin error y sin metadatos de paginación. Si es numérico se acota al rango [10, 100]: limit=5 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Paginar NO cambia totalAmount, que se calcula sobre todos los gastos filtrados y no sobre la página.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Gastos obtenidos correctamente. Sin limit se devuelve VehicleExpenseListResponse; con limit numérico, PaginatedVehicleExpenseListResponse. Las dos formas incluyen totalAmount en la raíz.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/VehicleExpenseListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedVehicleExpenseListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es carrier, administrator ni manager —un pilot cae aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso); el carrier autenticado pide los gastos de un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista); o es un carrier que todavía no está vinculado a ninguna empresa (mensaje: No perteneces a ninguna empresa transportista, emitido por el servicio, porque este dominio no lleva el middleware carrier.required)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún vehículo con el vehicleId enviado. El mensaje devuelto es: El vehículo no existe. Nunca se responde con un listado vacío en este caso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Falta el parámetro vehicleId (mensaje El vehículo es obligatorio) o no es un entero (mensaje El vehículo debe ser un número entero). ATENCIÓN: este error NO usa el sobre {statusCode, message, data} sino el formato de validación de Laravel {message, errors}. Los demás filtros nunca provocan un 422: son tolerantes y se ignoran si son inválidos",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "VehicleExpenses"
+                ],
+                "summary": "Registrar un gasto de mantenimiento",
+                "description": "Registra un gasto contra un vehículo. Pueden llamarlo los roles carrier y administrator (middlewares jwt.auth y role:carrier,administrator); un manager recibe 403 —lee gastos pero no los escribe— y un pilot también.\n\nEl vehículo se indica en el cuerpo con vehicle_id, en snake_case, no en la URL: la ruta no está anidada bajo /api/vehicles. Un carrier solo puede registrar gastos de vehículos de su propia empresa (403 con uno ajeno) y un administrator puede hacerlo sobre el vehículo de cualquier empresa. Un carrier sin empresa recibe 403 con el mensaje del servicio, no de un middleware.\n\nEl vehicle_id NO se valida contra la base en el FormRequest: un id inexistente es 404 (El vehículo no existe) y no un 422, y en ese caso no se crea nada.\n\nEL ESTADO DEL VEHÍCULO NO IMPORTA: registrar un gasto sobre un vehículo con status inactive —dado de baja con DELETE /api/vehicles/{vehicle}— devuelve 201 con normalidad, porque el mantenimiento pudo ocurrir antes de la baja. Tampoco se comprueba under_repair ni ninguna otra condición del vehículo.\n\nregistered_by SALE DEL USUARIO AUTENTICADO y nunca del cuerpo: enviar registered_by con el id de otro usuario no produce error y tampoco cambia nada, el gasto queda a nombre de quien hizo la petición. En la respuesta ese dato vuelve como registeredBy y es el NOMBRE del usuario, no su id.\n\nNo hay validación cruzada entre category y nature: cualquiera de las 22 categorías se acepta con preventive y con corrective. Tampoco hay control de duplicados: dos gastos idénticos —mismo vehículo, misma categoría, mismo monto y misma fecha— se crean como dos filas distintas y suman dos veces en el totalAmount.",
+                "operationId": "storeVehicleExpense",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreVehicleExpenseRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Gasto registrado correctamente, con registeredBy el nombre del usuario autenticado y vehicleId el del cuerpo. El campo amount vuelve como cadena con dos decimales y expenseDate en formato d-m-Y.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Gasto registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/VehicleExpense"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es carrier ni administrator —un manager o un pilot caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso); el carrier intenta registrar un gasto sobre un vehículo de otra empresa (mensaje: No puedes acceder a un vehículo que no pertenece a tu empresa transportista); o es un carrier sin empresa vinculada (mensaje: No perteneces a ninguna empresa transportista). En los tres casos no se crea ninguna fila",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún vehículo con el vehicle_id enviado y no se registra nada. El mensaje devuelto es: El vehículo no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: falta alguno de los SEIS campos obligatorios, el vehículo no es un entero, la categoría o la naturaleza no pertenecen a su enum, el monto no es numérico, no llega a 0.01 o supera 99999999.99, la fecha no es válida o es futura, o la descripción supera los 1000 caracteres",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/vehicle-expenses/{vehicleExpense}": {
+            "get": {
+                "tags": [
+                    "VehicleExpenses"
+                ],
+                "summary": "Obtener un gasto por id",
+                "description": "Devuelve un gasto concreto. Pueden llamarlo los roles carrier, administrator y manager (middlewares jwt.auth y role:carrier,administrator,manager); un pilot recibe 403.\n\nEl ámbito se resuelve por el VEHÍCULO del gasto, que es lo único que lo ata a una empresa: un carrier solo alcanza los gastos de vehículos de su propia empresa y con uno ajeno recibe 403 —no 404—, la misma regla que ya aplica el recurso Vehicle; administrator y manager alcanzan los de todas las empresas.\n\nUn id que no existe —o el de un gasto ya borrado, que es lo mismo, porque el DELETE es real— devuelve 404 con el mensaje El gasto no existe.\n\nLa respuesta es el mismo objeto que devuelve cada elemento del listado: no trae campos extra, ni el vehículo embebido, ni el histórico de ediciones, que no existe.",
+                "operationId": "showVehicleExpense",
+                "parameters": [
+                    {
+                        "name": "vehicleExpense",
+                        "in": "path",
+                        "description": "Identificador numérico del gasto (vehicle_expenses.id), no el del vehículo. Es el id que devuelve el campo id del recurso.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 41
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Gasto obtenido correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Gasto obtenido correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/VehicleExpense"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier, administrator ni manager —un pilot cae aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso); el carrier pide un gasto de un vehículo de otra empresa (mensaje: No puedes acceder a un gasto que no pertenece a tu empresa transportista); o es un carrier sin empresa vinculada (mensaje: No perteneces a ninguna empresa transportista)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún gasto con ese id, o ya fue borrado: el DELETE es real y no deja fila que consultar. El mensaje devuelto es: El gasto no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "VehicleExpenses"
+                ],
+                "summary": "Actualizar un gasto (alias PUT)",
+                "description": "Mismo comportamiento que PATCH /api/vehicle-expenses/{vehicleExpense}: la ruta admite ambos verbos y la actualización es parcial en los dos, no un reemplazo completo del recurso —enviar solo amount deja los demás campos intactos—. Consulta esa operación para el detalle de permisos, del ámbito por rol, de la inmutabilidad del vehículo y de la conservación de registered_by.",
+                "operationId": "replaceVehicleExpense",
+                "parameters": [
+                    {
+                        "name": "vehicleExpense",
+                        "in": "path",
+                        "description": "Identificador numérico del gasto (vehicle_expenses.id), no el del vehículo.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 41
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateVehicleExpenseRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Gasto actualizado correctamente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Gasto actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/VehicleExpense"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator, el carrier intenta editar un gasto de otra empresa o es un carrier sin empresa vinculada",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún gasto con ese id. El mensaje devuelto es: El gasto no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: algún campo enviado incumple su regla de tipo, rango, longitud o enum",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "VehicleExpenses"
+                ],
+                "summary": "Eliminar un gasto (borrado real)",
+                "description": "ATENCIÓN — ESTE ENDPOINT BORRA DE VERDAD. No es una baja lógica como DELETE /api/vehicles/{vehicle}: no hay soft deletes, no hay columna de estado y la fila DESAPARECE de la base de datos. El gasto no se puede recuperar, no aparece en ningún listado y deja de contar en el totalAmount. Un gasto mal tecleado es basura, no historial.\n\nPor eso un SEGUNDO DELETE del mismo id devuelve 404 con el mensaje El gasto no existe, indistinguible de un id que nunca existió: aquí no se aplica el 400 \"ya fue eliminada\" de las tarifas de flete, que sí usan soft deletes.\n\nLa respuesta 200 devuelve en data el gasto tal como estaba justo antes de borrarse, con su id incluido. Ese objeto es lo único que queda de él: si el cliente lo necesita, debe guardarlo, porque una petición posterior a ese id ya responde 404.\n\nPueden llamarlo los roles carrier y administrator (middlewares jwt.auth y role:carrier,administrator); un manager recibe 403 y un pilot también. Un carrier solo puede borrar gastos de vehículos de su propia empresa: con uno ajeno recibe 403 y la fila sigue intacta.\n\nBorrar un gasto no toca el vehículo ni ninguna otra tabla, y no queda registro de quién lo borró: no hay bitácora.",
+                "operationId": "destroyVehicleExpense",
+                "parameters": [
+                    {
+                        "name": "vehicleExpense",
+                        "in": "path",
+                        "description": "Identificador numérico del gasto (vehicle_expenses.id), no el del vehículo. Tras el borrado este id queda libre de contenido: cualquier petición posterior con él devuelve 404.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 41
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Gasto eliminado correctamente. La fila YA NO EXISTE: data devuelve el gasto tal como estaba antes de borrarse, y ese id ya no se puede volver a consultar.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Gasto eliminado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/VehicleExpense"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator —un manager o un pilot caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso); el carrier intenta borrar un gasto de un vehículo de otra empresa (mensaje: No puedes acceder a un gasto que no pertenece a tu empresa transportista); o es un carrier sin empresa vinculada (mensaje: No perteneces a ninguna empresa transportista). La fila no se toca",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún gasto con ese id, incluido el caso de un segundo DELETE sobre un gasto ya borrado. El mensaje devuelto es: El gasto no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "VehicleExpenses"
+                ],
+                "summary": "Actualizar un gasto",
+                "description": "Actualización PARCIAL de un gasto: solo se modifica lo que se envía y lo omitido queda intacto. Pueden llamarlo los roles carrier y administrator (middlewares jwt.auth y role:carrier,administrator); un manager recibe 403 y un pilot también. Un carrier solo puede editar gastos de vehículos de su propia empresa: con uno ajeno recibe 403, no 404.\n\nUN CUERPO VACÍO ES VÁLIDO: responde 200 con el gasto sin cambios y no toca ni siquiera updated_at. No es un 422, a diferencia de PATCH /api/pilots/{pilot}/salary.\n\nATENCIÓN — EL VEHÍCULO NO SE PUEDE CAMBIAR y el intento no avisa. vehicle_id no forma parte del cuerpo aceptado: enviarlo (o enviar vehicleId) NO devuelve error, se ignora en silencio y la respuesta 200 trae el vehicleId original. Un cliente que mande el gasto entero incluyendo el vehículo creerá que lo movió. Mover un gasto de vehículo es borrarlo y volverlo a crear.\n\nregistered_by tampoco se toca: el gasto conserva PARA SIEMPRE al usuario que lo creó, aunque quien edite sea un administrator, y el campo registeredBy de la respuesta seguirá mostrando el nombre original. Enviar registered_by en el cuerpo no hace nada.\n\nNO HAY BITÁCORA DE EDICIONES: a diferencia del salario de los pilotos, aquí no se guarda el valor anterior ni quién lo cambió, y no existe endpoint de historial. Editar el monto cambia el totalAmount del listado sin dejar rastro de cuál era antes.\n\nLa ruta acepta también PUT, con el mismo comportamiento parcial.",
+                "operationId": "updateVehicleExpense",
+                "parameters": [
+                    {
+                        "name": "vehicleExpense",
+                        "in": "path",
+                        "description": "Identificador numérico del gasto (vehicle_expenses.id), no el del vehículo.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 41
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateVehicleExpenseRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Gasto actualizado correctamente. data trae el gasto ya actualizado, con el mismo vehicleId y el mismo registeredBy que antes de la edición.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Gasto actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/VehicleExpense"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es carrier ni administrator —un manager o un pilot caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso); el carrier intenta editar un gasto de un vehículo de otra empresa (mensaje: No puedes acceder a un gasto que no pertenece a tu empresa transportista); o es un carrier sin empresa vinculada (mensaje: No perteneces a ninguna empresa transportista). No se guarda ningún cambio",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún gasto con ese id, o ya fue borrado. El mensaje devuelto es: El gasto no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: la categoría o la naturaleza enviadas no pertenecen a su enum, el monto no es numérico, no llega a 0.01 o supera 99999999.99, la fecha no es válida o es futura, o la descripción supera los 1000 caracteres. Enviar vehicle_id NO provoca un 422: se ignora",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/zones": {
             "get": {
                 "tags": [
@@ -4995,6 +5624,149 @@
                         "description": "Nueva disponibilidad del producto, como BOOLEANO. Opcional si se envía name. Con false se da de baja y con true se reactiva, lo mismo que consiguen DELETE /api/products/{product} y PATCH /api/products/{product}/toggle-status; el solapamiento es deliberado: el toggle sirve al interruptor de una tabla y este campo al formulario de edición que manda estado y nombre juntos. Un valor no booleano —por ejemplo \"quizas\"— devuelve 422 con el mensaje: El estado debe ser verdadero o falso.",
                         "type": "boolean",
                         "example": false
+                    }
+                },
+                "type": "object"
+            },
+            "StoreVehicleExpenseRequest": {
+                "title": "Alta de gasto de vehículo",
+                "description": "Cuerpo JSON para registrar un gasto de mantenimiento. Los SEIS campos son obligatorios y ninguno acepta null: omitir cualquiera devuelve 422. No hay campos opcionales en el alta.\n\nATENCIÓN — EL CUERPO VA EN snake_case Y LA RESPUESTA VUELVE EN camelCase. Aquí se envían vehicle_id y expense_date, y el recurso devuelto trae vehicleId y expenseDate. No se puede reenviar un objeto VehicleExpense tal como salió de un GET: vehicleId y expenseDate no son campos válidos de este cuerpo, y los obligatorios vehicle_id y expense_date faltarían.\n\nNo existe validación cruzada entre category y nature: cualquiera de las 22 categorías se acepta con preventive y con corrective. Tampoco hay validación cruzada con el vehículo: su estado NO importa, y un vehículo con status inactive acepta gastos igual que uno active, porque el mantenimiento pudo ocurrir antes de la baja.\n\nCampos que NO se aceptan aquí y que enviarlos no hace nada: registered_by —sale siempre del usuario autenticado, así que mandar el id de otro usuario no lo cambia— y cualquier otro nombre desconocido, que se descarta en silencio.\n\nvehicle_id NO lleva regla exists: un vehículo inexistente lo resuelve el servicio y responde 404 (El vehículo no existe), y uno de otra empresa responde 403 (No puedes acceder a un vehículo que no pertenece a tu empresa transportista). Ninguno de los dos casos es un 422.",
+                "required": [
+                    "vehicle_id",
+                    "category",
+                    "nature",
+                    "amount",
+                    "expense_date",
+                    "description"
+                ],
+                "properties": {
+                    "vehicle_id": {
+                        "description": "Identificador del vehículo al que se imputa el gasto (vehicles.id). Debe ser un entero; un valor no entero devuelve 422 con el mensaje El vehículo debe ser un número entero. Queda FIJADO PARA SIEMPRE: el PATCH no acepta este campo y mover un gasto de vehículo es borrarlo y volverlo a crear. En la respuesta sale como vehicleId.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "category": {
+                        "description": "Categoría del gasto. Debe ser uno de los 22 valores del enum; cualquier otro (por ejemplo motor_fundido) devuelve 422 con el mensaje La categoría del gasto no es válida. Los valores viajan en inglés y en snake_case, y traducirlos es responsabilidad del cliente. other es un valor más y no recibe trato especial.",
+                        "type": "string",
+                        "example": "tires",
+                        "enum": [
+                            "tires",
+                            "oil_change",
+                            "brakes",
+                            "spare_part",
+                            "battery",
+                            "suspension",
+                            "engine",
+                            "transmission",
+                            "electrical_system",
+                            "cooling_system",
+                            "filters",
+                            "alignment_balancing",
+                            "clutch",
+                            "exhaust",
+                            "air_conditioning",
+                            "bodywork_paint",
+                            "glass_mirrors",
+                            "inspection",
+                            "washing",
+                            "towing",
+                            "labor",
+                            "other"
+                        ]
+                    },
+                    "nature": {
+                        "description": "Naturaleza del gasto: preventive si se hizo antes de que fallara, corrective si se hizo porque ya falló. Obligatorio y sin tercer valor: no hay \"sin clasificar\". Un valor fuera del enum devuelve 422 con el mensaje La naturaleza del gasto no es válida. NO depende de category: brakes + preventive y brakes + corrective se aceptan igual.",
+                        "type": "string",
+                        "example": "preventive",
+                        "enum": [
+                            "preventive",
+                            "corrective"
+                        ]
+                    },
+                    "amount": {
+                        "description": "Monto del gasto EN QUETZALES (GTQ). Numérico y MAYOR QUE CERO: el mínimo aceptado es 0.01 y un 0 o un negativo devuelven 422 con el mensaje El monto debe ser mayor que cero, porque un gasto de cero es un error de captura, no un gasto. El máximo es 99999999.99 —lo que cabe en decimal(10,2)—; superarlo devuelve 422. Se envía como número y se DEVUELVE como cadena con dos decimales. La moneda es convención del dominio: nada valida que el importe sean quetzales.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 1250.5,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "expense_date": {
+                        "description": "DÍA en que ocurrió el gasto, en formato Y-m-d. NO ADMITE FECHAS FUTURAS (before_or_equal:today): la de mañana devuelve 422 con el mensaje La fecha del gasto no puede ser futura, mientras que la de hoy se acepta —un gasto se registra cuando ya ocurrió, y el mantenimiento programado está fuera de alcance—. No lleva hora: cuándo se capturó ya lo dice createdAt. ATENCIÓN al formato de vuelta: entra como 2026-08-12 y el recurso lo devuelve como 12-08-2026 en el campo expenseDate.",
+                        "type": "string",
+                        "format": "date",
+                        "example": "2026-08-12"
+                    },
+                    "description": {
+                        "description": "Detalle libre del gasto. OBLIGATORIO —no es un campo de notas opcional— y de hasta 1000 caracteres; superarlos devuelve 422. Es donde caben hoy el taller, el número de factura y la pieza concreta: no existen columnas supplier ni invoice_number, así que este texto es el único sitio donde queda esa información.",
+                        "type": "string",
+                        "example": "Cuatro llantas nuevas, taller El Rodaje, factura A-9912",
+                        "maxLength": 1000
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateVehicleExpenseRequest": {
+                "title": "Edición de gasto de vehículo",
+                "description": "Cuerpo JSON para editar un gasto. Es una edición PARCIAL: los CINCO campos son opcionales y solo se actualiza lo que se envía; lo omitido queda intacto. Un CUERPO VACÍO es válido y responde 200 sin tocar nada, ni siquiera updated_at. Ningún campo acepta null: si se envía, debe traer un valor válido.\n\nATENCIÓN — vehicle_id NO APARECE AQUÍ Y NO SE PUEDE CAMBIAR. El vehículo se fija en el alta y es inmutable: mandar vehicle_id (o vehicleId) en este cuerpo NO ES UN ERROR —no devuelve 422 ni 400—, simplemente SE IGNORA en silencio y el gasto sigue colgando del mismo vehículo. Es la trampa principal de este endpoint: la petición responde 200 y parece que funcionó. Mover un gasto de vehículo es borrarlo y volverlo a crear.\n\nregistered_by tampoco se acepta y tampoco se reescribe: el gasto conserva PARA SIEMPRE al usuario que lo creó, aunque quien edite sea un administrator. En la respuesta, registeredBy seguirá siendo el nombre original.\n\nEl cuerpo va en snake_case (expense_date) y la respuesta vuelve en camelCase (expenseDate). No hay bitácora de ediciones: el PATCH no deja rastro consultable.",
+                "properties": {
+                    "category": {
+                        "description": "Nueva categoría del gasto. Si se envía debe ser uno de los 22 valores del enum; cualquier otro devuelve 422 con el mensaje La categoría del gasto no es válida. Se puede cambiar sin tocar nature: los dos ejes son independientes y no hay validación cruzada.",
+                        "type": "string",
+                        "example": "clutch",
+                        "enum": [
+                            "tires",
+                            "oil_change",
+                            "brakes",
+                            "spare_part",
+                            "battery",
+                            "suspension",
+                            "engine",
+                            "transmission",
+                            "electrical_system",
+                            "cooling_system",
+                            "filters",
+                            "alignment_balancing",
+                            "clutch",
+                            "exhaust",
+                            "air_conditioning",
+                            "bodywork_paint",
+                            "glass_mirrors",
+                            "inspection",
+                            "washing",
+                            "towing",
+                            "labor",
+                            "other"
+                        ]
+                    },
+                    "nature": {
+                        "description": "Nueva naturaleza del gasto. Si se envía debe ser preventive o corrective; cualquier otro valor devuelve 422 con el mensaje La naturaleza del gasto no es válida. Reclasificar un gasto de preventive a corrective no exige cambiar también la categoría.",
+                        "type": "string",
+                        "example": "corrective",
+                        "enum": [
+                            "preventive",
+                            "corrective"
+                        ]
+                    },
+                    "amount": {
+                        "description": "Nuevo monto EN QUETZALES (GTQ). Rigen las mismas cotas que en el alta: numérico, mínimo 0.01 —un 0 devuelve 422— y máximo 99999999.99. Cambiar el monto altera el totalAmount que devuelve el listado del vehículo, y no queda registro del valor anterior.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 4321.1,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "expense_date": {
+                        "description": "Nueva fecha del gasto, en formato Y-m-d y SIN FECHAS FUTURAS (before_or_equal:today): una fecha de mañana devuelve 422 con el mensaje La fecha del gasto no puede ser futura. Cambiarla mueve el gasto de sitio en el listado, que ordena por expense_date descendente, y puede sacarlo del rango dateFrom/dateTo con el que se estaba consultando.",
+                        "type": "string",
+                        "format": "date",
+                        "example": "2026-06-30"
+                    },
+                    "description": {
+                        "description": "Nueva descripción, de hasta 1000 caracteres. Sustituye por completo a la anterior: no se concatena ni se versiona, y el texto previo se pierde sin rastro.",
+                        "type": "string",
+                        "example": "Embrague nuevo, taller El Rodaje",
+                        "maxLength": 1000
                     }
                 },
                 "type": "object"
@@ -6047,6 +6819,126 @@
                     }
                 ]
             },
+            "VehicleExpense": {
+                "title": "Gasto de mantenimiento de un vehículo",
+                "description": "Gasto de mantenimiento imputado a un vehículo concreto: qué se hizo (category), si fue programado o por avería (nature), cuánto costó (amount, en quetzales), qué día ocurrió (expenseDate), el detalle libre (description) y quién lo capturó (registeredBy).\n\nATENCIÓN — LA SALIDA VA EN camelCase Y EL CUERPO QUE SE ENVÍA VA EN snake_case. No son los mismos nombres: aquí se lee vehicleId, expenseDate, registeredBy y createdAt, pero el POST y el PATCH esperan vehicle_id, expense_date y description. Copiar un objeto de esta respuesta y reenviarlo tal cual a POST /api/vehicle-expenses devuelve 422, porque vehicleId y expenseDate no son campos válidos del cuerpo y los obligatorios vehicle_id y expense_date faltarían. Los únicos nombres que coinciden en las dos direcciones son category, nature, amount y description.\n\nATENCIÓN — category y nature SON DOS EJES INDEPENDIENTES y no existe ninguna validación cruzada entre ellos: cualquiera de las 22 categorías admite tanto preventive como corrective. Cambiar llantas por desgaste programado es tires + preventive y cambiarlas por un reventón es tires + corrective; el backend acepta las dos combinaciones sin opinar. Es la misma relación que hay entre condition y status en el recurso Vehicle.\n\nexpenseDate y createdAt NO son lo mismo: expenseDate es el DÍA en que ocurrió el gasto (sin hora, y nunca en el futuro) y createdAt es el instante en que se capturó en el sistema. Un gasto de hace tres meses capturado hoy tiene expenseDate de hace tres meses y createdAt de hoy. Ninguna de las dos viaja en ISO 8601.\n\nEl gasto se BORRA DE VERDAD: no hay soft deletes, ni bitácora de ediciones, ni forma de recuperar un gasto eliminado. Tras un DELETE la fila desaparece de la base y cualquier petición posterior sobre ese id devuelve 404.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador del gasto (vehicle_expenses.id). Es el valor que viaja en {vehicleExpense} en las rutas de detalle, edición y borrado.",
+                        "type": "integer",
+                        "example": 41
+                    },
+                    "vehicleId": {
+                        "description": "Identificador del vehículo al que se imputa el gasto (vehicles.id). ES INMUTABLE: se fija en el alta con el campo vehicle_id del cuerpo y el PATCH no lo acepta —mandarlo no es un error, simplemente se ignora—. Mover un gasto a otro vehículo es borrarlo y volverlo a crear. Es también el valor que se manda en el filtro OBLIGATORIO vehicleId de GET /api/vehicle-expenses. Ojo con el cambio de nombre: aquí sale como vehicleId y en el cuerpo del alta se envía como vehicle_id.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "category": {
+                        "description": "Categoría del gasto, uno de los 22 valores cerrados del enum. Viajan en inglés y en snake_case; la etiqueta en español la pone el cliente, porque el backend no devuelve ninguna. other es un valor más, sin trato especial en el código. La lista solo cambia con un despliegue: no hay catálogo administrable ni endpoint que la devuelva, así que un cliente que la escriba a mano debe revisarla en cada versión de la API.",
+                        "type": "string",
+                        "example": "tires",
+                        "enum": [
+                            "tires",
+                            "oil_change",
+                            "brakes",
+                            "spare_part",
+                            "battery",
+                            "suspension",
+                            "engine",
+                            "transmission",
+                            "electrical_system",
+                            "cooling_system",
+                            "filters",
+                            "alignment_balancing",
+                            "clutch",
+                            "exhaust",
+                            "air_conditioning",
+                            "bodywork_paint",
+                            "glass_mirrors",
+                            "inspection",
+                            "washing",
+                            "towing",
+                            "labor",
+                            "other"
+                        ]
+                    },
+                    "nature": {
+                        "description": "Naturaleza del gasto: preventive es lo que se hizo ANTES de que fallara y corrective lo que se hizo PORQUE ya falló. Es una decisión de quien registra el gasto, no una propiedad de la categoría, y por eso es un eje aparte: no hay un tercer valor \"sin clasificar\" ni se admite null.",
+                        "type": "string",
+                        "example": "preventive",
+                        "enum": [
+                            "preventive",
+                            "corrective"
+                        ]
+                    },
+                    "amount": {
+                        "description": "Monto del gasto EN QUETZALES (GTQ), como CADENA con DOS decimales por el cast decimal:2 — nunca como número JSON. La moneda es convención del dominio y no se guarda en base: nada valida que el importe sean quetzales. Nunca es 0.00 ni negativo, porque la validación exige un mínimo de 0.01: un gasto de cero es un error de captura. El máximo es 99999999.99, el que cabe en la columna decimal(10,2).",
+                        "type": "string",
+                        "example": "1250.50"
+                    },
+                    "expenseDate": {
+                        "description": "DÍA en que ocurrió el gasto, sin hora. ATENCIÓN — NO viaja en ISO 8601 sino con el formato propio d-m-Y (día-mes-año), la misma convención del dominio Pilot; por eso se documenta como string SIN format date, y un cliente que lo parsee como ISO leerá el día como año. En el cuerpo del POST y del PATCH este mismo dato se ENVÍA en snake_case y en formato Y-m-d: entra 2026-08-12 y sale 12-08-2026. Nunca es una fecha futura, porque la validación es before_or_equal:today.",
+                        "type": "string",
+                        "example": "12-08-2026"
+                    },
+                    "description": {
+                        "description": "Detalle libre del gasto, obligatorio y de hasta 1000 caracteres. Es donde caben hoy el taller, el número de factura y la pieza concreta, que no tienen columna propia: no existen los campos supplier ni invoiceNumber, así que buscar por proveedor no es posible.",
+                        "type": "string",
+                        "example": "Cuatro llantas nuevas, taller El Rodaje, factura A-9912"
+                    },
+                    "registeredBy": {
+                        "description": "NOMBRE del usuario que registró el gasto, NO su id: la pantalla lo imprime y nadie navega a ese usuario. El id vive en la columna registered_by y NO SALE NUNCA por la API, así que este campo no sirve para filtrar ni para enlazar. Sale siempre del usuario autenticado en el alta —enviar registered_by en el cuerpo no cambia nada— y NO SE REESCRIBE en el PATCH: si un administrator edita el gasto de un transportista, aquí sigue apareciendo el transportista que lo creó. Es null solo si la relación no se pudo cargar; en la práctica siempre viaja poblado, porque la FK a users no admite huérfanos.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Instante en que el gasto se CAPTURÓ en el sistema, que no es cuándo ocurrió: para eso está expenseDate. ATENCIÓN — tampoco viaja en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM). No existe updatedAt en la salida ni bitácora de ediciones: el PATCH no deja ningún rastro visible.",
+                        "type": "string",
+                        "example": "12-08-2026 04:31:07 PM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleExpenseListResponse": {
+                "title": "Listado de gastos sin paginar",
+                "description": "Respuesta de GET /api/vehicle-expenses cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los gastos del vehículo que cumplen los filtros y el sobre NO incluye total, currentPage ni lastPage. El orden es fijo —expense_date descendente y, para dos gastos del mismo día, id descendente— y no es configurable: no hay parámetros sortBy ni order.\n\ntotalAmount SÍ aparece en esta forma, aunque no haya paginación: es dato de negocio y no metadata del paginador.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Gastos obtenidos correctamente"
+                    },
+                    "totalAmount": {
+                        "description": "SUMA en quetzales del campo amount de TODOS los gastos que cumplen los filtros, como CADENA con dos decimales. NO CONFUNDIR CON total: total es el CONTEO de registros que aporta el paginador y solo aparece cuando se pagina; totalAmount es una CANTIDAD DE DINERO y aparece SIEMPRE, con y sin paginación. La suma se calcula sobre la consulta ya filtrada y ANTES de paginar, así que con limit=10 sobre 12 gastos el array data trae 10 elementos pero totalAmount suma los 12. Es \"0.00\" cuando el vehículo no tiene gastos que cumplan los filtros. No hay desglose por categoría, por naturaleza ni por mes: este es el único agregado que devuelve el dominio.",
+                        "type": "string",
+                        "example": "18430.50"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/VehicleExpense"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedVehicleExpenseListResponse": {
+                "title": "Listado de gastos paginado",
+                "description": "Respuesta de GET /api/vehicle-expenses cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message, totalAmount y data, y no anidados bajo una clave meta.\n\nATENCIÓN — en esta forma conviven en la misma raíz totalAmount y total, y NO significan lo mismo: total es el CONTEO de gastos que cumplen los filtros (un entero) y totalAmount es la SUMA en quetzales de sus importes (una cadena con dos decimales). Con 12 gastos de 100.50 la respuesta trae total = 12 y totalAmount = \"1206.00\". Confundirlos imprime doce quetzales o mil doscientos gastos.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/VehicleExpenseListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
             "Vehicle": {
                 "title": "Vehículo",
                 "description": "Vehículo del inventario de una empresa transportista. El recurso no expone el carrier_id, sino el nombre de la empresa dueña en carrierName: al carrier siempre es la suya, y al administrator le permite leer el listado sin resolver ids a mano.",
@@ -6437,6 +7329,10 @@
         {
             "name": "Vehicles",
             "description": "Inventario de vehículos de las empresas transportistas. Todos los endpoints requieren token JWT (Authorization: Bearer {token}), llevan el middleware carrier.required y están filtrados por rol: solo carrier y administrator entran, y el alta es exclusiva del carrier. Los roles pilot y manager reciben 403 en los cinco endpoints. El ámbito se resuelve en el servicio: un carrier solo alcanza los vehículos de su propia empresa y un administrator los de todas; el administrator está exento de carrier.required, así que opera aunque no esté vinculado a ninguna empresa. La capacidad va siempre EN LIBRAS. La imagen se procesa y se almacena: se recorta a un cuadrado centrado de 800x800 px, se sube al almacenamiento y el recurso devuelve su URL pública permanente. El kilometraje tiene autorización propia, comprobada en el servicio y no en un middleware: solo un administrator puede enviarlo con un valor distinto al almacenado."
+        },
+        {
+            "name": "VehicleExpenses",
+            "description": "Gastos de mantenimiento imputados a un vehículo: llantas, frenos, aceite, mano de obra y otras 18 categorías, cada una con su naturaleza preventiva o correctiva, su monto en quetzales, su fecha y su descripción. Todos los endpoints requieren token JWT (Authorization: Bearer {token}). ATENCIÓN — el recurso cuelga de un vehículo pero la ruta NO está anidada: no existe /api/vehicles/{vehicle}/expenses; el vínculo viaja en el campo vehicle_id del cuerpo y en el query param vehicleId del listado, que es OBLIGATORIO. NO EXISTE UN LISTADO GLOBAL de los gastos de toda la flota, ni comparativas entre vehículos, ni reportes por categoría o por mes: el único agregado del dominio es el totalAmount del listado de un vehículo. Este dominio NO lleva el middleware carrier.required, a diferencia de Vehicles: el ámbito lo comprueba el servicio a partir del vehículo, y un carrier sin empresa recibe 403 con el mensaje No perteneces a ninguna empresa transportista. Los permisos van por acción: leer (index y show) es cosa de carrier, administrator y manager; escribir (store, update y destroy) solo de carrier y administrator, así que un manager recibe 403 en los tres. Un pilot recibe 403 en los cinco. El ámbito lo fija el rol: un carrier solo alcanza los vehículos de su propia empresa —tocar uno ajeno es 403, no 404— y administrator y manager alcanzan los de todas. El estado del vehículo no importa: uno inactive acepta y lista gastos igual que uno active. GET /api/vehicles/{vehicle} no cambió con este dominio: no devuelve expenses ni totales, y los gastos se piden siempre aparte."
         },
         {
             "name": "Zones",
