@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 #
-# Hook Stop — red de seguridad del resumen de feature en references/
+# Hook Stop — entrega final del resumen de feature en references/
+#
+# Este hook, y no el de UserPromptSubmit, es el que dicta el contrato completo
+# del documento: llega cuando la implementacion ya esta cerrada, que es cuando
+# rutas, FormRequests, Resources y mensajes de error ya no van a cambiar.
 #
 # Solo actua si se cumplen las tres condiciones:
 #   1. Hay una marca de entrega pendiente dejada por el hook UserPromptSubmit.
@@ -71,16 +75,39 @@ sed -i 's/^attempted=0$/attempted=1/' "$MARKER"
 emit_json block "$(cat <<EOF
 Falta la ultima entrega de /spec-impl: el resumen de la feature en \`$doc_rel\`.
 
-La spec ${spec_rel:-implementada} ya esta cerrada pero el documento de
-referencia para el frontend no existe. Escribelo ahora siguiendo la estructura
-de \`references/zones-api.md\`: intro, trampas del dominio, permisos por rol,
-el objeto del recurso con tipos TypeScript, formatos de respuesta (sobre y 422),
-endpoint por endpoint, tabla de mensajes de error literales, checklist de
-frontend y "lo que este dominio no hace".
+La spec ${spec_rel:-implementada} ya esta cerrada, asi que este es el momento de
+escribirlo: el codigo ya no va a cambiar. Documento de referencia de integracion
+para el frontend, ahora si.
 
-Todo verificado contra el codigo real de esta rama (rutas, FormRequests,
-Resources, Service y tests), mensajes de error literales en español, salida en
-camelCase y fechas en \`d-m-Y h:i:s A\`.
+Plantilla: \`references/zones-api.md\` (y \`references/freight-rates-api.md\`).
+Copia su estructura, su tono y su nivel de detalle:
+
+1. Titulo + intro: que dominio es, cuantos endpoints, bajo que prefijo.
+2. "Lo minimo que hay que saber antes de escribir codigo": las trampas reales
+   del dominio numeradas, no generalidades.
+3. Autenticacion y permisos: tabla accion x rol (administrator, carrier, pilot,
+   manager) y si aplica \`carrier.required\`.
+4. El objeto del recurso: JSON de ejemplo + tabla campo/tipo/notas + tipos
+   TypeScript sugeridos.
+5. Formato de las respuestas: sobre \`{ statusCode, message, data }\`, listado
+   sin paginar, listado paginado (metadatos en la raiz) y el 422 de Laravel
+   \`{ message, errors }\`, que es un formato distinto.
+6. Endpoints uno por uno: query params, body, reglas por campo, codigos de
+   respuesta y mensajes de exito literales.
+7. Tabla de mensajes de error literales, copiados de los \`messages()\` de los
+   FormRequests y de los errores de \`App\Errors\` del service.
+8. Checklist de implementacion en el frontend.
+9. "Lo que este dominio no hace", para que el front no lo diseñe.
+
+Reglas del documento:
+
+- Todo verificado contra el codigo real de esta rama: rutas, FormRequests,
+  Resources, Service y tests. Si no lo has comprobado, no lo escribas.
+- Los mensajes de error van literales, en español, listos para mostrarse.
+- Salida en camelCase y fechas en \`d-m-Y h:i:s A\` (no ISO 8601): dilo explicito.
+- Prosa en español; nombres de codigo en ingles.
+
+Si el commit final ya esta hecho, incluye el documento en un commit aparte.
 EOF
 )"
 

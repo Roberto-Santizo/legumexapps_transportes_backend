@@ -13,32 +13,20 @@ use OpenApi\Attributes as OA;
  * parameters are published as reusable component parameters instead.
  */
 #[OA\QueryParameter(
-    parameter: 'quoteLatQuery',
-    name: 'lat',
+    parameter: 'quoteLocationIdQuery',
+    name: 'locationId',
     description: <<<'TEXT'
-    LATITUD del punto de destino, en [-90, 90]. Va en la QUERY STRING: GET /api/freight-rates/quote?lat=14.6349&lng=-90.5069&productId=7&fuelType=diesel.
+    Identificador del DESTINO al que se cotiza (locations.id). Va en la QUERY STRING: GET /api/freight-rates/quote?locationId=3&productId=7&fuelType=diesel.
 
-    Es OBLIGATORIA. ATENCIÓN — a diferencia del filtro lat+lng del listado de zonas, aquí una coordenada ausente o fuera de rango NO SE IGNORA: lat=200 devuelve 422 (mensajes: La latitud del destino es obligatoria / La latitud debe ser un número / La latitud debe estar entre -90 y 90). La cotización es dinero, y un punto imposible tiene que decirse, no resolverse en silencio.
+    Es OBLIGATORIO. ATENCIÓN — CAMBIO INCOMPATIBLE: este parámetro SUSTITUYE a lat y lng, que YA NO SE ACEPTAN por ningún nombre. Mandarlos no filtra, no valida y no cambia la respuesta: se ignoran por completo, y la llamada falla con 422 por locationId faltante. La cotización por punto geográfico dejó de existir; el destino se da de alta antes en POST /api/locations y aquí se manda su id.
 
-    Junto con lng determina la ZONA: el sistema busca la primera zona ACTIVA cuyo polígono contiene el punto. No se manda zoneId —eso es precisamente lo que el sistema resuelve— y no se calcula distancia, kilometraje ni ruta: del punto solo se deriva la zona que lo contiene. Si ninguna zona activa lo contiene, la respuesta es 404.
+    ATENCIÓN — 422 y 400 no son lo mismo: un id que NO EXISTE devuelve 422 con "El destino seleccionado no existe" (regla exists), mientras que un destino que existe pero tiene status false devuelve 400 con "El destino seleccionado no está activo".
+
+    Del destino NO se deriva distancia, kilometraje ni ruta, y sus coordenadas NO influyen en el precio: la tarifa depende del destino elegido, no de dónde esté. Corregir el pin de un destino no cambia ninguna cotización.
     TEXT,
     in: 'query',
     required: true,
-    schema: new OA\Schema(type: 'number', format: 'float', maximum: 90, minimum: -90, example: 14.6349),
-)]
-#[OA\QueryParameter(
-    parameter: 'quoteLngQuery',
-    name: 'lng',
-    description: <<<'TEXT'
-    LONGITUD del punto de destino, en [-180, 180]. Obligatoria; ausente, no numérica o fuera de rango devuelve 422 (mensajes: La longitud del destino es obligatoria / La longitud debe ser un número / La longitud debe estar entre -180 y 180).
-
-    Aquí las coordenadas van en parámetros separados, así que no hay ambigüedad de orden como en el area de Zones —donde el par es [latitud, longitud]—, pero lat sigue siendo la latitud y lng la longitud.
-
-    Se asume que las zonas no se solapan. Si dos zonas activas contuvieran el punto, gana la de id más bajo: la elección es determinista, pero la respuesta no avisa de que había otra candidata.
-    TEXT,
-    in: 'query',
-    required: true,
-    schema: new OA\Schema(type: 'number', format: 'float', maximum: 180, minimum: -180, example: -90.5069),
+    schema: new OA\Schema(type: 'integer', example: 3),
 )]
 #[OA\QueryParameter(
     parameter: 'quoteProductIdQuery',
@@ -93,9 +81,11 @@ class QuoteFreightRateRequest extends FormRequest
      * Validates the query string, not a body.
      *
      * Sin este FormRequest, un fuelType ausente acabaría en un error del service en vez
-     * de un 422 con mensaje en español. A diferencia del listado de zonas, aquí una
-     * coordenada fuera de rango NO se ignora: la cotización es dinero, y un punto
-     * imposible tiene que decirse, no resolverse en silencio.
+     * de un 422 con mensaje en español. Aquí nada es tolerante: la cotización es dinero,
+     * y un destino ausente o inexistente tiene que decirse, no resolverse en silencio.
+     *
+     * El destino llega por id: lat y lng ya no se aceptan por ningún nombre, y mandarlos
+     * no filtra, no valida y no cambia la respuesta.
      *
      * El precio del combustible no se acepta por ningún nombre: sale siempre del
      * FuelPrice vigente.
@@ -105,8 +95,7 @@ class QuoteFreightRateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'lat' => ['required', 'numeric', 'between:-90,90'],
-            'lng' => ['required', 'numeric', 'between:-180,180'],
+            'locationId' => ['required', 'integer', 'exists:locations,id'],
             'productId' => ['required', 'integer', 'exists:products,id'],
             'fuelType' => ['required', Rule::enum(FuelType::class)],
             'pounds' => ['nullable', 'numeric', 'min:0.01', 'max:99999999.99'],
@@ -119,12 +108,9 @@ class QuoteFreightRateRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'lat.required' => 'La latitud del destino es obligatoria',
-            'lat.numeric' => 'La latitud debe ser un número',
-            'lat.between' => 'La latitud debe estar entre -90 y 90',
-            'lng.required' => 'La longitud del destino es obligatoria',
-            'lng.numeric' => 'La longitud debe ser un número',
-            'lng.between' => 'La longitud debe estar entre -180 y 180',
+            'locationId.required' => 'El destino es obligatorio',
+            'locationId.integer' => 'El destino debe ser un identificador numérico',
+            'locationId.exists' => 'El destino seleccionado no existe',
             'productId.required' => 'El producto es obligatorio',
             'productId.integer' => 'El producto debe ser un identificador numérico',
             'productId.exists' => 'El producto seleccionado no existe',

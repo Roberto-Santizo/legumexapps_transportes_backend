@@ -1211,13 +1211,13 @@
                     "FreightRates"
                 ],
                 "summary": "Listar tarifas de flete",
-                "description": "Devuelve la tabla de precios completa: todas las tarifas vivas, con su zona y su producto ya resueltos por nombre. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque la tarifa es un dato nacional y no está acotada por transportista. Todos ven exactamente las mismas filas.\n\nATENCIÓN — ESTE LISTADO NO PAGINA NUNCA, al contrario que Carriers, Vehicles, FuelPrices, Products y Zones. No existe el parámetro limit, no hay PaginatedResource y el sobre NO trae total, currentPage ni lastPage: enviar limit=10 devuelve igualmente la colección entera y no produce error. Es deliberado: la tabla de tarifas se lee como una tabla de precios completa, no como un histórico que se navega.\n\nEl ÚNICO filtro es zoneId, y es TOLERANTE: un zoneId no numérico (por ejemplo zoneId=abc) se ignora en silencio y devuelve el listado completo, sin 422; un zoneId numérico de una zona que no existe devuelve 200 con data vacío, nunca 404. Cualquier otro query param se ignora: no hay filtro por productId ni por fuelType, ni búsqueda, ni rango de fechas, ni orden configurable.\n\nEl orden es fijo: fuelType ASC y, dentro de cada tipo, fuelMin ASC — que es exactamente el orden en que se leen las bandas de un par.\n\nLas tarifas ELIMINADAS no aparecen: el DELETE es soft delete y saca la fila del listado de verdad, al contrario que la baja lógica de Zones y Products, que las deja visibles con status false.\n\nCuidado con el volumen sin filtro: el número de filas es zonas × productos × tipos de combustible × bandas. Con 15 zonas, 40 productos y tres bandas de diésel ya son 1 800 filas en una sola respuesta sin paginar; zoneId es la única mitigación disponible.",
+                "description": "Devuelve la tabla de precios completa: todas las tarifas vivas, con su destino y su producto ya resueltos por nombre. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque la tarifa es un dato nacional y no está acotada por transportista. Todos ven exactamente las mismas filas.\n\nATENCIÓN — ESTE LISTADO NO PAGINA NUNCA, al contrario que Carriers, Vehicles, FuelPrices, Products, Zones y Locations. No existe el parámetro limit, no hay PaginatedResource y el sobre NO trae total, currentPage ni lastPage: enviar limit=10 devuelve igualmente la colección entera y no produce error. Es deliberado: la tabla de tarifas se lee como una tabla de precios completa, no como un histórico que se navega.\n\nEl ÚNICO filtro es locationId —que SUSTITUYE al antiguo zoneId, ya retirado—, y es TOLERANTE: un locationId no numérico (por ejemplo locationId=abc) se ignora en silencio y devuelve el listado completo, sin 422; un locationId numérico de un destino que no existe devuelve 200 con data vacío, nunca 404. Cualquier otro query param se ignora, zoneId incluido: no hay filtro por productId ni por fuelType, ni búsqueda, ni rango de fechas, ni orden configurable.\n\nEl orden es fijo: fuelType ASC y, dentro de cada tipo, fuelMin ASC — que es exactamente el orden en que se leen las bandas de un trío.\n\nLas tarifas ELIMINADAS no aparecen: el DELETE es soft delete y saca la fila del listado de verdad, al contrario que la baja lógica de Locations, Zones y Products, que las deja visibles con status false. Un destino DADO DE BAJA, en cambio, no oculta sus tarifas: siguen listándose aunque ya no se puedan cotizar ni editar.\n\nCuidado con el volumen sin filtro: el número de filas es destinos × productos × tipos de combustible × bandas. Con 15 destinos, 40 productos y tres bandas de diésel ya son 1 800 filas en una sola respuesta sin paginar; locationId es la única mitigación disponible.",
                 "operationId": "indexFreightRates",
                 "parameters": [
                     {
-                        "name": "zoneId",
+                        "name": "locationId",
                         "in": "query",
-                        "description": "Acota el listado a las tarifas de una zona (zones.id). Es el único filtro que existe, y existe porque las tarifas se pintan dentro de la vista de la zona. Es TOLERANTE: un valor no numérico se ignora sin error y devuelve todas las tarifas; un id numérico sin coincidencias devuelve 200 con data vacío. No comprueba que la zona exista ni que esté activa, así que no produce 404 ni 422 por sí solo.",
+                        "description": "Acota el listado a las tarifas de un destino (locations.id). Es el único filtro que existe, y existe porque las tarifas se pintan dentro de la vista del destino. SUSTITUYE al antiguo zoneId, que ya no se acepta por ningún nombre y se ignora como cualquier otro parámetro desconocido. Es TOLERANTE: un valor no numérico se ignora sin error y devuelve todas las tarifas; un id numérico sin coincidencias devuelve 200 con data vacío. No comprueba que el destino exista ni que esté activo, así que no produce 404 ni 422 por sí solo, y las tarifas de un destino dado de baja se siguen listando.",
                         "required": false,
                         "schema": {
                             "type": "integer",
@@ -1227,7 +1227,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tarifas obtenidas correctamente. Siempre la colección completa —sin metadatos de paginación—, ordenada por fuelType ASC y fuelMin ASC. Una tabla vacía o un zoneId sin coincidencias devuelven 200 con data vacío, nunca 404.",
+                        "description": "Tarifas obtenidas correctamente. Siempre la colección completa —sin metadatos de paginación—, ordenada por fuelType ASC y fuelMin ASC. Una tabla vacía o un locationId sin coincidencias devuelven 200 con data vacío, nunca 404.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1258,7 +1258,7 @@
                     "FreightRates"
                 ],
                 "summary": "Cotizar una tarifa de flete",
-                "description": "Da de alta una banda: el precio por libra de un producto hasta una zona, a partir de cierto precio de combustible. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan listar y cotizar. No lleva carrier.required, porque la tarifa no pertenece a ninguna empresa.\n\nLos cinco campos del cuerpo son obligatorios. El registeredBy NO se acepta: sale del usuario autenticado y se devuelve resuelto en registeredByName, así que mandar otro en el cuerpo no tiene ningún efecto. Tampoco se manda ningún precio de combustible vigente: la tarifa guarda un fuelMin y no referencia ninguna fila de fuel_prices, de modo que publicar un FuelPrice nuevo no deja obsoleta ninguna tarifa ni obliga a recapturarlas.\n\nATENCIÓN — el fuelMin es un MÍNIMO, no un rango: la banda queda ABIERTA hacia arriba hasta que exista otra banda más alta del mismo par. No hay fuelMax y no se pueden dejar huecos. Cotizar una sola banda ya basta para que la cotización responda siempre.\n\nLa unicidad es de la banda entera (zoneId, productId, fuelType, fuelMin) y solo mira las filas VIVAS: repetirla es 400, pero el mismo fuelMin para otro fuelType, otra zona u otro producto se acepta, y tras un DELETE esa misma banda vuelve a estar libre y se puede recotizar con 201.\n\nEl pricePerPound se guarda con SEIS decimales y vuelve íntegro: 0.454120 no se redondea a 0.45 en ningún punto.",
+                "description": "Da de alta una banda: el precio por libra de un producto hasta un DESTINO, a partir de cierto precio de combustible. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan listar y cotizar. No lleva carrier.required, porque la tarifa no pertenece a ninguna empresa.\n\nLos cinco campos del cuerpo son obligatorios. ATENCIÓN — CAMBIO INCOMPATIBLE: se manda locationId (locations.id), NO zoneId, que ya no se acepta por ningún nombre; el destino se da de alta antes en POST /api/locations. El registeredBy NO se acepta: sale del usuario autenticado y se devuelve resuelto en registeredByName, así que mandar otro en el cuerpo no tiene ningún efecto. Tampoco se manda ningún precio de combustible vigente: la tarifa guarda un fuelMin y no referencia ninguna fila de fuel_prices, de modo que publicar un FuelPrice nuevo no deja obsoleta ninguna tarifa ni obliga a recapturarlas.\n\nATENCIÓN — el fuelMin es un MÍNIMO, no un rango: la banda queda ABIERTA hacia arriba hasta que exista otra banda más alta del mismo trío. No hay fuelMax y no se pueden dejar huecos. Cotizar una sola banda ya basta para que la cotización responda siempre.\n\nEl destino y el producto deben estar ACTIVOS: cualquiera de los dos con status false devuelve 400 nombrando cuál. Las coordenadas del destino no intervienen en nada: la tarifa cuelga del destino elegido, no de su posición.\n\nLa unicidad es de la banda entera (locationId, productId, fuelType, fuelMin) y solo mira las filas VIVAS: repetirla es 400, pero el mismo fuelMin para otro fuelType, otro destino u otro producto se acepta, y tras un DELETE esa misma banda vuelve a estar libre y se puede recotizar con 201.\n\nEl pricePerPound se guarda con SEIS decimales y vuelve íntegro: 0.454120 no se redondea a 0.45 en ningún punto.",
                 "operationId": "storeFreightRate",
                 "requestBody": {
                     "required": true,
@@ -1272,7 +1272,7 @@
                 },
                 "responses": {
                     "201": {
-                        "description": "Tarifa registrada correctamente. data trae la fila ya creada, con la zona y el producto resueltos por nombre, el pricePerPound con sus seis decimales intactos, el fuelMin con dos decimales y registeredByName el del administrador autenticado.",
+                        "description": "Tarifa registrada correctamente. data trae la fila ya creada, con el destino y el producto resueltos por nombre (locationId, locationName, productId, productName), el pricePerPound con sus seis decimales intactos, el fuelMin con dos decimales y registeredByName el del administrador autenticado.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1295,7 +1295,7 @@
                         }
                     },
                     "400": {
-                        "description": "Regla de negocio incumplida, nunca un valor mal formado. Tres mensajes posibles: la zona existe pero tiene status false (La zona seleccionada no está activa); el producto existe pero tiene status false (El producto seleccionado no está activo); o ya hay una tarifa VIVA con ese mismo (zoneId, productId, fuelType, fuelMin) (Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio). Ojo con la frontera: id inexistente es 422, id existente pero inactivo es 400.",
+                        "description": "Regla de negocio incumplida, nunca un valor mal formado. Tres mensajes posibles: el destino existe pero tiene status false (El destino seleccionado no está activo); el producto existe pero tiene status false (El producto seleccionado no está activo); o ya hay una tarifa VIVA con ese mismo (locationId, productId, fuelType, fuelMin) (Ya existe una tarifa para ese destino, ese producto y ese combustible desde ese precio). Ojo con la frontera: id inexistente es 422, id existente pero inactivo es 400.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1325,7 +1325,7 @@
                         }
                     },
                     "422": {
-                        "description": "Datos inválidos del cuerpo. Casos típicos: falta alguno de los cinco campos obligatorios; el zoneId o el productId NO EXISTEN en su tabla (La zona seleccionada no existe / El producto seleccionado no existe) —que una zona o un producto estén inactivos es 400, no 422—; el fuelType no pertenece al enum; el fuelMin no es numérico o sale de [0.01, 999999.99]; o el pricePerPound no es numérico o sale de [0.000001, 999999.999999].",
+                        "description": "Datos inválidos del cuerpo. Casos típicos: falta alguno de los cinco campos obligatorios (El destino es obligatorio / El producto es obligatorio); el locationId o el productId NO EXISTEN en su tabla (El destino seleccionado no existe / El producto seleccionado no existe) —que un destino o un producto estén inactivos es 400, no 422—; el fuelType no pertenece al enum; el fuelMin no es numérico o sale de [0.01, 999999.99]; o el pricePerPound no es numérico o sale de [0.000001, 999999.999999]. Mandar zoneId no evita el 422: ese campo ya no existe y locationId se sigue exigiendo.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1347,15 +1347,12 @@
                 "tags": [
                     "FreightRates"
                 ],
-                "summary": "Cotizar un flete hasta un punto",
-                "description": "Responde \"cuánto cuesta la libra hasta este punto\" y, si se envían las libras, cuánto cuesta el flete completo. Es el endpoint que debe usar cualquier pantalla que cotice: evita listar la tabla de precios y elegir la banda a mano.\n\nSolo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. La ruta está declarada ANTES del recurso, así que /quote nunca se confunde con el id de una tarifa.\n\nNO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, el número de filas de freight_rates no cambia y la respuesta no es una reserva ni bloquea el precio.\n\nATENCIÓN — EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN. Aquí solo se manda el TIPO (fuelType); el importe sale SIEMPRE del FuelPrice con status active de ese tipo, y cualquier precio que el cliente incluya en la query se ignora por completo, por ningún nombre. No hay simulación con un precio hipotético.\n\nDel punto solo se deriva la ZONA que lo contiene, resuelta contra los polígonos activos. No hay distancia real, kilometraje, geocodificación de direcciones ni cálculo de ruta, y no se puede mandar zoneId en vez del punto: resolver la zona es precisamente lo que se le pide al sistema.\n\nLa banda se elige así: de las tarifas VIVAS del par (zona + producto + fuelType), la de mayor fuelMin que sea MENOR O IGUAL que el precio vigente —el límite es inclusivo—; si el combustible vigente está por debajo de TODAS, se aplica la de menor fuelMin. Este paso NUNCA falla. Con bandas desde 28.00 y desde 35.00: diésel a 40 aplica la de 35, a 35 exacto aplica la de 35, a 30 la de 28 y a 25 también la de 28, sin error. La contrapartida es el riesgo más caro del dominio: una banda vieja se sigue aplicando EN SILENCIO —currentFuelPrice 60.00 con appliedFuelMin 28.00 responde 200 con un número que ya no cubre el costo—, y la distancia entre esos dos campos es la ÚNICA señal disponible.\n\nEL TOTAL AUTORITATIVO ES EL DE LA API: se multiplica por el pricePerPound de seis decimales y se redondea SOLO al final. Recalcularlo en pantalla con la tarifa redondeada a dos decimales da 20 250.00 en vez de 20 435.40 sobre 45 000 libras, 185 quetzales de diferencia en un solo flete.\n\nA diferencia del listado, aquí NADA es tolerante: lat=200, lng=500, un fuelType fuera del enum o un productId ausente devuelven 422, no se ignoran. Y hay CUATRO fallos de negocio con mensajes distintos entre sí —404 por punto fuera de zona, y tres 400 por producto inactivo, por combustible sin precio vigente y por par sin tarifa—, pensados para que el cliente sepa exactamente qué falta.\n\nEJEMPLO COMPLETO: 45 000 libras de brócoli con destino en la zona norte y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.",
+                "summary": "Cotizar un flete hasta un destino",
+                "description": "Responde \"cuánto cuesta la libra hasta este destino\" y, si se envían las libras, cuánto cuesta el flete completo. Es el endpoint que debe usar cualquier pantalla que cotice: evita listar la tabla de precios y elegir la banda a mano.\n\nSolo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. La ruta está declarada ANTES del recurso, así que /quote nunca se confunde con el id de una tarifa.\n\nNO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, el número de filas de freight_rates no cambia y la respuesta no es una reserva ni bloquea el precio.\n\nATENCIÓN — CAMBIO INCOMPATIBLE: SE COTIZA POR DESTINO, NO POR COORDENADAS. lat y lng YA NO SE ACEPTAN por ningún nombre: mandarlos no filtra, no valida y no cambia la respuesta —se ignoran por completo—, y la llamada falla con 422 por locationId faltante. El destino se da de alta antes en POST /api/locations y aquí se manda su id. Las coordenadas del destino NO INFLUYEN EN EL PRECIO: la tarifa depende del destino ELEGIDO, no de dónde esté. No hay distancia real, kilometraje, geocodificación de direcciones ni cálculo de ruta, y corregir el pin de un destino no cambia ninguna cotización.\n\nATENCIÓN — EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN. Aquí solo se manda el TIPO (fuelType); el importe sale SIEMPRE del FuelPrice con status active de ese tipo, y cualquier precio que el cliente incluya en la query se ignora por completo, por ningún nombre. No hay simulación con un precio hipotético.\n\nLa banda se elige así: de las tarifas VIVAS del trío (destino + producto + fuelType), la de mayor fuelMin que sea MENOR O IGUAL que el precio vigente —el límite es inclusivo—; si el combustible vigente está por debajo de TODAS, se aplica la de menor fuelMin. Este paso NUNCA falla. Con bandas desde 28.00 y desde 35.00: diésel a 40 aplica la de 35, a 35 exacto aplica la de 35, a 30 la de 28 y a 25 también la de 28, sin error. La contrapartida es el riesgo más caro del dominio: una banda vieja se sigue aplicando EN SILENCIO —currentFuelPrice 60.00 con appliedFuelMin 28.00 responde 200 con un número que ya no cubre el costo—, y la distancia entre esos dos campos es la ÚNICA señal disponible.\n\nEL TOTAL AUTORITATIVO ES EL DE LA API: se multiplica por el pricePerPound de seis decimales y se redondea SOLO al final. Recalcularlo en pantalla con la tarifa redondeada a dos decimales da 20 250.00 en vez de 20 435.40 sobre 45 000 libras, 185 quetzales de diferencia en un solo flete.\n\nA diferencia del listado, aquí NADA es tolerante: un locationId ausente o inexistente, un productId ausente o inexistente, un fuelType fuera del enum o unas pounds mal formadas devuelven 422, no se ignoran.\n\nATENCIÓN — ESTA COTIZACIÓN NO TIENE NINGÚN 404. Sus CUATRO fallos de negocio son 400, con mensajes distintos entre sí y comprobados en este orden: destino inactivo, producto inactivo, combustible sin precio vigente y trío sin tarifa cotizada. Un locationId o un productId que NO EXISTEN son 422 (regla exists), no 404.\n\nEJEMPLO COMPLETO: 45 000 libras de brócoli con destino en la bodega central de Escuintla y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.",
                 "operationId": "quoteFreightRate",
                 "parameters": [
                     {
-                        "$ref": "#/components/parameters/quoteLatQuery"
-                    },
-                    {
-                        "$ref": "#/components/parameters/quoteLngQuery"
+                        "$ref": "#/components/parameters/quoteLocationIdQuery"
                     },
                     {
                         "$ref": "#/components/parameters/quoteProductIdQuery"
@@ -1369,7 +1366,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Cotización obtenida correctamente. data trae la tarifa aplicada junto con el precio de combustible vigente (currentFuelPrice), la banda elegida (appliedFuelMin) y, solo si se enviaron pounds, el total; sin pounds, esos dos últimos campos viajan null y el resto es idéntico. No se ha creado ni modificado ninguna fila.",
+                        "description": "Cotización obtenida correctamente. data trae la tarifa aplicada, con el destino resuelto en locationId y locationName, junto con el precio de combustible vigente (currentFuelPrice), la banda elegida (appliedFuelMin) y, solo si se enviaron pounds, el total; sin pounds, pounds y total viajan null y el resto es idéntico. No se ha creado ni modificado ninguna fila.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1392,7 +1389,7 @@
                         }
                     },
                     "400": {
-                        "description": "Fallo de negocio; son TRES casos con mensajes distintos, comprobados en este orden: el producto existe pero tiene status false (El producto seleccionado no está activo); el tipo de combustible no tiene ninguna fila con status active, aunque haya tarifas cotizadas (No existe un precio vigente para el combustible indicado); o el par zona+producto no tiene ninguna tarifa VIVA de ese fuelType, incluido el caso de que la única que había se eliminó (No existe tarifa cotizada para ese producto en esa zona). Ninguno de los tres se debe a un valor mal formado: eso sería 422.",
+                        "description": "Fallo de negocio; son los CUATRO ÚNICOS fallos de la cotización, con mensajes distintos y comprobados en este orden: el destino existe pero tiene status false (El destino seleccionado no está activo); el producto existe pero tiene status false (El producto seleccionado no está activo); el tipo de combustible no tiene ninguna fila con status active, aunque haya tarifas cotizadas (No existe un precio vigente para el combustible indicado); o el trío destino+producto+fuelType no tiene ninguna tarifa VIVA, incluido el caso de que la única que había se eliminó (No existe tarifa cotizada para ese producto en ese destino). Ninguno de los cuatro se debe a un valor mal formado: eso sería 422.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1411,18 +1408,8 @@
                             }
                         }
                     },
-                    "404": {
-                        "description": "El punto (lat, lng) no cae dentro de ninguna zona ACTIVA: una zona dada de baja que contuviera el punto no cuenta. Es el único 404 de la cotización, y llega antes que las tres comprobaciones de 400. El mensaje devuelto es: El punto indicado no pertenece a ninguna zona registrada",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        }
-                    },
                     "422": {
-                        "description": "Parámetros inválidos de la query. ATENCIÓN — a diferencia del listado de zonas, aquí NADA se ignora: falta lat, lng, productId o fuelType; lat=200 o lng=500 están fuera de rango; fuelType=gasolina no pertenece al enum; el productId no existe en la tabla (El producto seleccionado no existe — un producto que existe pero está inactivo es 400, no 422); o pounds no es numérico, es cero o supera 99999999.99.",
+                        "description": "Parámetros inválidos de la query. ATENCIÓN — a diferencia del listado, aquí NADA se ignora: falta locationId, productId o fuelType; fuelType=gasolina no pertenece al enum; el locationId o el productId NO EXISTEN en su tabla (El destino seleccionado no existe / El producto seleccionado no existe) —que existan pero estén inactivos es 400, no 422, y un id inexistente es 422, NUNCA 404—; o pounds no es numérico, es cero o supera 99999999.99. Mandar lat y lng no produce 422 por sí mismo: simplemente se ignoran, y lo que falla es la ausencia de locationId.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1445,13 +1432,13 @@
                     "FreightRates"
                 ],
                 "summary": "Obtener una tarifa de flete por id",
-                "description": "Devuelve una tarifa concreta, con su zona, su producto y el nombre del administrador que la capturó.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator), a diferencia del detalle de FuelPrices y de Zones, que está abierto: un carrier, un pilot o un manager reciben 403 aunque sí puedan listar tarifas. El motivo es que quien no administra tarifas no necesita la fila: usa GET /api/freight-rates/quote.\n\nATENCIÓN — una tarifa ELIMINADA no devuelve 404: devuelve 400 con \"La tarifa ya fue eliminada\". La fila se resuelve con las borradas a la vista, así que el 404 queda reservado a los ids que NUNCA existieron. Es lo contrario de Zones y Products, donde la baja es lógica y el detalle sigue respondiendo 200.\n\nNo hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: el 403 aquí es siempre por rol.",
+                "description": "Devuelve una tarifa concreta, con su destino, su producto y el nombre del administrador que la capturó.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator), a diferencia del detalle de FuelPrices, Zones y Locations, que está abierto: un carrier, un pilot o un manager reciben 403 aunque sí puedan listar tarifas. El motivo es que quien no administra tarifas no necesita la fila: usa GET /api/freight-rates/quote.\n\nATENCIÓN — una tarifa ELIMINADA no devuelve 404: devuelve 400 con \"La tarifa ya fue eliminada\". La fila se resuelve con las borradas a la vista, así que el 404 queda reservado a los ids que NUNCA existieron. Es lo contrario de Locations, Zones y Products, donde la baja es lógica y el detalle sigue respondiendo 200.\n\nNo hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: el 403 aquí es siempre por rol.",
                 "operationId": "showFreightRate",
                 "parameters": [
                     {
                         "name": "freightRate",
                         "in": "path",
-                        "description": "Identificador numérico de la tarifa (freight_rates.id). No es la zona ni el producto: no existe consulta por par, para eso está el filtro zoneId del listado, ni consulta por punto, para eso está /quote. El id de una tarifa eliminada sigue siendo un id válido, pero responde 400 en vez de 200.",
+                        "description": "Identificador numérico de la tarifa (freight_rates.id). No es el destino ni el producto: no existe consulta por trío, para eso está el filtro locationId del listado, ni cotización desde aquí, para eso está /quote. El id de una tarifa eliminada sigue siendo un id válido, pero responde 400 en vez de 200.",
                         "required": true,
                         "schema": {
                             "type": "integer",
@@ -1535,7 +1522,7 @@
                     "FreightRates"
                 ],
                 "summary": "Eliminar una tarifa de flete",
-                "description": "ATENCIÓN — este DELETE es un SOFT DELETE REAL: marca deleted_at y la fila DESAPARECE de GET /api/freight-rates y de la cotización de inmediato. Es lo contrario de la baja lógica de Zones y Products, donde la fila sigue apareciendo en el listado con status false. La fila sigue existiendo en base, pero no hay ningún campo status en el recurso y ninguna lectura la devuelve.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nNO ES IDEMPOTENTE, al contrario que el DELETE de Zones y Products: un SEGUNDO DELETE sobre la misma tarifa responde 400 con \"La tarifa ya fue eliminada\", nunca 200 ni 404. Se considera información útil, no un error del cliente. El 404 queda reservado a los ids que nunca existieron.\n\nNO HAY RESTORE ni /toggle-status: una tarifa eliminada no se resucita por ninguna vía. Si la banda hace falta otra vez, se recotiza con un POST — y funciona, porque la unicidad solo mira filas vivas y el borrado LIBERA ese (zoneId, productId, fuelType, fuelMin) para volver a usarlo.\n\nA diferencia del PATCH, este DELETE SÍ funciona sobre una tarifa cuya zona o producto se desactivó después: borrar nunca se bloquea por el estado del par.\n\nSi era la única tarifa del par, la cotización de ese producto en esa zona pasa a responder 400 (No existe tarifa cotizada para ese producto en esa zona).",
+                "description": "ATENCIÓN — este DELETE es un SOFT DELETE REAL: marca deleted_at y la fila DESAPARECE de GET /api/freight-rates y de la cotización de inmediato. Es lo contrario de la baja lógica de Locations, Zones y Products, donde la fila sigue apareciendo en el listado con status false. La fila sigue existiendo en base, pero no hay ningún campo status en el recurso y ninguna lectura la devuelve.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nNO ES IDEMPOTENTE, al contrario que el DELETE de Locations, Zones y Products: un SEGUNDO DELETE sobre la misma tarifa responde 400 con \"La tarifa ya fue eliminada\", nunca 200 ni 404. Se considera información útil, no un error del cliente. El 404 queda reservado a los ids que nunca existieron.\n\nNO HAY RESTORE ni /toggle-status: una tarifa eliminada no se resucita por ninguna vía. Si la banda hace falta otra vez, se recotiza con un POST — y funciona, porque la unicidad solo mira filas vivas y el borrado LIBERA ese (locationId, productId, fuelType, fuelMin) para volver a usarlo.\n\nA diferencia del PATCH, este DELETE SÍ funciona sobre una tarifa cuyo destino o producto se desactivó después: borrar nunca se bloquea por el estado del trío.\n\nSi era la única tarifa del trío, la cotización de ese producto en ese destino pasa a responder 400 (No existe tarifa cotizada para ese producto en ese destino).",
                 "operationId": "destroyFreightRate",
                 "parameters": [
                     {
@@ -1625,13 +1612,13 @@
                     "FreightRates"
                 ],
                 "summary": "Actualizar una tarifa de flete",
-                "description": "Corrige la zona, el producto, el tipo de combustible, el fuelMin, el pricePerPound o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nTodos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda pricePerPound no altera fuelMin, zoneId, productId ni fuelType. Un CUERPO VACÍO responde 200 como NO-OP, devolviendo la tarifa sin cambios, en vez de 422.\n\nATENCIÓN — LAS DOS REGLAS DE NEGOCIO MIRAN EL PAR COMPLETO, no solo lo enviado: lo que no llega se toma de la propia fila. Por eso un PATCH sobre una tarifa cuya ZONA O PRODUCTO SE DESACTIVÓ DESPUÉS responde 400 aunque solo cambie el precio: las tarifas de ese par quedan CONGELADAS hasta reactivarlo. Es el comportamiento decidido, no un accidente —editar la tarifa de algo que no se puede cotizar es trabajo perdido— y el mensaje dice cuál de los dos está inactivo. El DELETE, en cambio, SÍ funciona en ese caso: borrar nunca se bloquea.\n\nLa unicidad de la banda se revalida ignorando la propia fila, así que reenviar su mismo fuelMin responde 200 y moverlo a un valor que ya ocupa otra tarifa viva del mismo par responde 400. Moverlo a un valor libre responde 200.\n\nSobre una tarifa YA ELIMINADA responde 400 (La tarifa ya fue eliminada), no 404: no hay forma de editar ni de resucitar una fila borrada. Un id que nunca existió sí es 404.\n\nEl registeredBy no se reescribe: sigue apuntando a quien dio de alta la tarifa aunque la edite otro administrador. El createdAt tampoco cambia; el updatedAt sí. Del pricePerPound anterior NO queda ningún rastro: el PATCH sobrescribe sin auditoría.",
+                "description": "Corrige el destino, el producto, el tipo de combustible, el fuelMin, el pricePerPound o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nTodos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda pricePerPound no altera fuelMin, locationId, productId ni fuelType. Un CUERPO VACÍO responde 200 como NO-OP, devolviendo la tarifa sin cambios, en vez de 422. ATENCIÓN — CAMBIO INCOMPATIBLE: para mover la tarifa de destino se manda locationId; zoneId ya no se acepta por ningún nombre.\n\nATENCIÓN — LAS DOS REGLAS DE NEGOCIO MIRAN EL TRÍO COMPLETO, no solo lo enviado: lo que no llega se toma de la propia fila. Por eso un PATCH sobre una tarifa cuyo DESTINO O PRODUCTO SE DESACTIVÓ DESPUÉS responde 400 aunque solo cambie el precio: las tarifas de ese par quedan CONGELADAS hasta reactivarlo —basta un PATCH /api/locations/{location}/toggle-status para desbloquearlas—. Es el comportamiento decidido, no un accidente —editar la tarifa de algo que no se puede cotizar es trabajo perdido— y el mensaje dice cuál de los dos está inactivo. El DELETE, en cambio, SÍ funciona en ese caso: borrar nunca se bloquea.\n\nLa unicidad de la banda se revalida ignorando la propia fila, así que reenviar su mismo fuelMin responde 200 y moverlo a un valor que ya ocupa otra tarifa viva del mismo trío responde 400. Moverlo a un valor libre responde 200.\n\nSobre una tarifa YA ELIMINADA responde 400 (La tarifa ya fue eliminada), no 404: no hay forma de editar ni de resucitar una fila borrada. Un id que nunca existió sí es 404.\n\nEl registeredBy no se reescribe: sigue apuntando a quien dio de alta la tarifa aunque la edite otro administrador. El createdAt tampoco cambia; el updatedAt sí. Del pricePerPound anterior NO queda ningún rastro: el PATCH sobrescribe sin auditoría.",
                 "operationId": "updateFreightRate",
                 "parameters": [
                     {
                         "name": "freightRate",
                         "in": "path",
-                        "description": "Identificador numérico de la tarifa (freight_rates.id). Es también la fila que se ignora al revalidar la unicidad de la banda, de modo que reenviar su propio fuelMin no choca consigo misma.",
+                        "description": "Identificador numérico de la tarifa (freight_rates.id), no el del destino ni el del producto. Es también la fila que se ignora al revalidar la unicidad de la banda, de modo que reenviar su propio fuelMin no choca consigo misma.",
                         "required": true,
                         "schema": {
                             "type": "integer",
@@ -1651,7 +1638,7 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Tarifa actualizada correctamente. data trae la fila ya modificada, releída con su zona y su producto resueltos, el mismo registeredByName, el mismo createdAt y el updatedAt refrescado. Un cuerpo vacío también responde 200, con la tarifa intacta.",
+                        "description": "Tarifa actualizada correctamente. data trae la fila ya modificada, releída con su destino y su producto resueltos, el mismo registeredByName, el mismo createdAt y el updatedAt refrescado. Un cuerpo vacío también responde 200, con la tarifa intacta.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1674,7 +1661,7 @@
                         }
                     },
                     "400": {
-                        "description": "Cuatro mensajes posibles: la tarifa ya fue eliminada (La tarifa ya fue eliminada); la zona del par —enviada o heredada de la fila— tiene status false (La zona seleccionada no está activa); el producto del par tiene status false (El producto seleccionado no está activo); o el nuevo fuelMin ya lo ocupa otra tarifa viva del mismo par (Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio). Los dos del medio saltan aunque el cuerpo solo traiga pricePerPound.",
+                        "description": "Cuatro mensajes posibles: la tarifa ya fue eliminada (La tarifa ya fue eliminada); el destino del trío —enviado o heredado de la fila— tiene status false (El destino seleccionado no está activo); el producto del trío tiene status false (El producto seleccionado no está activo); o el nuevo fuelMin ya lo ocupa otra tarifa viva del mismo trío (Ya existe una tarifa para ese destino, ese producto y ese combustible desde ese precio). Los dos del medio saltan aunque el cuerpo solo traiga pricePerPound.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1714,7 +1701,7 @@
                         }
                     },
                     "422": {
-                        "description": "Datos inválidos del cuerpo: el zoneId o el productId no existen en su tabla (La zona seleccionada no existe / El producto seleccionado no existe) —que estén inactivos es 400—; el fuelType no pertenece al enum; el fuelMin no es numérico o sale de [0.01, 999999.99]; o el pricePerPound no es numérico o sale de [0.000001, 999999.999999]. Un cuerpo vacío NO produce 422.",
+                        "description": "Datos inválidos del cuerpo: el locationId o el productId no existen en su tabla (El destino seleccionado no existe / El producto seleccionado no existe) —que estén inactivos es 400—; el fuelType no pertenece al enum; el fuelMin no es numérico o sale de [0.01, 999999.99]; o el pricePerPound no es numérico o sale de [0.000001, 999999.999999]. Un cuerpo vacío NO produce 422, y un zoneId enviado por costumbre se ignora sin error.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2441,6 +2428,533 @@
                     },
                     "404": {
                         "description": "No existe ninguna fila con ese id. El mensaje devuelto es: El precio de combustible no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/locations": {
+            "get": {
+                "tags": [
+                    "Locations"
+                ],
+                "summary": "Listar destinos",
+                "description": "Devuelve los destinos con sus coordenadas y el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque el destino es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.\n\nATENCIÓN — el listado devuelve por defecto ACTIVOS E INACTIVOS mezclados. La baja de un destino es lógica, así que lo dado de baja sigue apareciendo aquí con status false; para quedarse solo con lo cotizable hay que enviar status=true. Es intencionado: una pantalla de administración necesita ver lo que dio de baja para poder reactivarlo.\n\nEl orden es fijo y no configurable: id ASC, es decir, el orden en que se dieron de alta. No hay sortBy ni sortDir.\n\nLos tres filtros —status, search y limit— se combinan entre sí y son TOLERANTES: un status que no resuelve a booleano, un search en blanco y un limit no numérico se ignoran en silencio y la lectura devuelve 200, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. No hay búsqueda por googlePlaceId, ni por proximidad geográfica, ni filtro por autor del alta o por rango de fechas: cualquier otro query param se ignora.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos APLANADOS EN LA RAÍZ, no bajo meta.",
+                "operationId": "indexLocations",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filtra por publicación. El valor se interpreta con filter_var, así que los valores admitidos son true, false, 1 y 0 —status=1 devuelve solo los activos y status=false solo los dados de baja—. Cualquier valor que filter_var no resuelva a booleano (por ejemplo status=quizas) se ignora sin error y se devuelven ambos estados, igual que si se omitiera: este filtro nunca provoca un 422.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "true",
+                            "enum": [
+                                "true",
+                                "false",
+                                "1",
+                                "0"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Búsqueda parcial sobre el nombre (LIKE %TERM%). El término se normaliza igual que el name —recorte, colapso de espacios y mayúsculas— y el name está siempre en mayúsculas, así que la búsqueda es insensible a mayúsculas: search=bode y search=BODE devuelven ambas BODEGA CENTRAL ESCUINTLA. En blanco o solo espacios se ignora y se devuelven todos los destinos. Solo busca por nombre: NO cubre la descripción, ni el googlePlaceId, ni el autor del alta.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "bode"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación —que es lo que quiere un selector de destinos—. Si es numérico se ACOTA al rango [10, 100]: limit=5 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status y search.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Destinos obtenidos correctamente. Sin limit se devuelve LocationListResponse; con limit numérico, PaginatedLocationListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Una tabla vacía o un filtro sin coincidencias devuelven 200 con data vacío, nunca 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/LocationListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedLocationListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Locations"
+                ],
+                "summary": "Registrar un destino",
+                "description": "Da de alta un destino nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer los destinos. No lleva carrier.required, porque el destino no pertenece a ninguna empresa.\n\nEl cuerpo acepta name, description, googlePlaceId, latitude y longitude; obligatorios todos menos description. El status NO se envía —el destino nace siempre activo— y el registeredBy tampoco: se toma del usuario autenticado y se devuelve resuelto en registeredByName. Mandar cualquiera de los dos en el cuerpo no tiene efecto.\n\nEl name se NORMALIZA: se recorta, se colapsan los espacios internos y se pasa a mayúsculas. Enviar \"bodega central\" devuelve un destino llamado \"BODEGA CENTRAL\"; el cliente debe pintar el name de la respuesta, no el que tecleó el usuario. La unicidad del nombre es GLOBAL e insensible a mayúsculas, porque se compara ya normalizado: enviar \"bodega central\" existiendo \"BODEGA CENTRAL\" devuelve 422, no 201 ni 500.\n\nATENCIÓN — LOS DOS DUPLICADOS POSIBLES RESPONDEN CON CÓDIGOS DISTINTOS, y es deliberado. Un name repetido es 422 (lo caza la regla unique del FormRequest, mensaje \"Ya existe un destino con ese nombre\"). Un googlePlaceId repetido es 400 (lo caza el service, mensaje \"El lugar seleccionado ya está registrado en el destino {NOMBRE}\"). El googlePlaceId se dejó sin regla unique justamente para poder NOMBRAR al destino que ya ocupa ese lugar: un 422 cortaría antes y el cliente nunca vería ese nombre, que es lo único que le dice dónde mirar. El índice único de la columna sigue existiendo en base, pero como último cortafuegos, no como vía de respuesta.\n\nEl googlePlaceId se guarda TAL CUAL LLEGA —sin recortar y sin pasar a mayúsculas, porque es opaco y sensible a mayúsculas— y NO se comprueba contra Google: un place id inventado con el formato correcto se acepta. Se obtiene de GET /api/places.\n\nATENCIÓN — NO HAY VALIDACIÓN CRUZADA entre el googlePlaceId y las coordenadas: nadie verifica que latitude y longitude correspondan al lugar elegido. De todas formas las coordenadas NO INFLUYEN EN EL PRECIO —la tarifa depende del destino elegido, no de dónde esté—, así que un pin desalineado se ve mal en el mapa pero no cobra de más.",
+                "operationId": "storeLocation",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreLocationRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Destino registrado correctamente, con status true, el name ya normalizado en mayúsculas, el googlePlaceId exactamente como se envió, latitude y longitude como cadenas de ocho decimales y registeredByName el del administrador autenticado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Destino registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Location"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida, nunca un valor mal formado: otro destino ya está anclado a ese googlePlaceId. El mensaje NOMBRA al ocupante: El lugar seleccionado ya está registrado en el destino BODEGA CENTRAL ESCUINTLA. Es el único 400 del alta, y es la contrapartida de no poner una regla unique sobre el googlePlaceId: el nombre repetido, en cambio, sale por 422.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer los destinos—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos. Casos típicos: falta el name o ya existe un destino con ese nombre una vez normalizado —incluido mandar \"bodega central\" existiendo \"BODEGA CENTRAL\"— (Ya existe un destino con ese nombre); falta el googlePlaceId o supera los 255 caracteres (El lugar de Google es obligatorio / El lugar de Google no puede superar los 255 caracteres); falta alguna coordenada, no es numérica o está fuera de rango (La latitud debe estar entre -90 y 90 / La longitud debe estar entre -180 y 180); o la descripción no es texto. ATENCIÓN — un googlePlaceId ya usado por otro destino NO cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/locations/{location}": {
+            "get": {
+                "tags": [
+                    "Locations"
+                ],
+                "summary": "Obtener un destino por id",
+                "description": "Devuelve un destino concreto, activo o dado de baja, con sus coordenadas y el nombre del administrador que lo capturó.\n\nSolo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.\n\nUn destino con status false se obtiene con toda normalidad: la baja es lógica y no oculta la fila en ninguna lectura. El campo status es lo que distingue si se puede cotizar.\n\nNo hay consulta por googlePlaceId ni por nombre: para buscar está el filtro search del listado.",
+                "operationId": "showLocation",
+                "parameters": [
+                    {
+                        "name": "location",
+                        "in": "path",
+                        "description": "Identificador numérico del destino (locations.id). Es el mismo valor que se manda como locationId al cotizar un flete y en el filtro locationId del listado de tarifas. No es el googlePlaceId: no existe consulta por place id.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Destino obtenido correctamente. Puede estar activo o dado de baja: el campo status lo distingue. latitude y longitude vuelven como cadenas de ocho decimales, y createdAt/updatedAt con el formato d-m-Y h:i:s A, no ISO 8601.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Destino obtenido correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Location"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Un destino dado de baja NO cae aquí: sigue existiendo y se devuelve con 200. El mensaje devuelto es: El destino no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Locations"
+                ],
+                "summary": "Dar de baja un destino",
+                "description": "ATENCIÓN — este DELETE NO BORRA NADA: es una BAJA LÓGICA que se limita a poner status en false. La fila sigue existiendo en la base, GET /api/locations/{location} la sigue devolviendo con 200 y sigue apareciendo en GET /api/locations sin filtros —para excluirla hay que pedir status=true—. Es lo contrario del DELETE de FuelPrices, que borra de verdad, y del de FreightRates, que es un soft delete no idempotente. El motivo es que un destino referenciado por tarifas y por viajes históricos no debe poder desaparecer; la propia clave foránea de freight_rates.location_id está declarada SIN cascade justamente para frenar un borrado real.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nEs IDEMPOTENTE: repetir la llamada sobre un destino ya dado de baja responde 200 LAS DOS VECES y lo deja igual, no 400 ni 404. Dar de baja algo que ya lo está no es un error del cliente, porque el resultado que pidió ya se cumple.\n\nEs REVERSIBLE: el destino se reactiva con PATCH /api/locations/{location}/toggle-status o con PATCH /api/locations/{location} y status: true. No existe borrado real por ninguna vía.\n\nEFECTO SOBRE LAS TARIFAS: las tarifas del destino NO se borran ni desaparecen de GET /api/freight-rates, pero el destino deja de ser cotizable —GET /api/freight-rates/quote responde 400 con \"El destino seleccionado no está activo\"— y sus tarifas quedan congeladas para edición, porque el PATCH de una tarifa revalida que su destino y su producto sigan activos.",
+                "operationId": "destroyLocation",
+                "parameters": [
+                    {
+                        "name": "location",
+                        "in": "path",
+                        "description": "Identificador numérico del destino (locations.id). Sigue siendo válido después de la baja: el id nunca desaparece y sus tarifas siguen colgando de él.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Destino dado de baja correctamente. data devuelve la fila ya con status false; la fila sigue existiendo, sigue siendo consultable por id y sigue apareciendo en el listado sin filtros. Repetir el DELETE vuelve a responder 200 con exactamente el mismo cuerpo: es idempotente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Destino dado de baja correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Location"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Un destino ya dado de baja NO cae aquí: la baja es idempotente y responde 200. El mensaje devuelto es: El destino no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Locations"
+                ],
+                "summary": "Actualizar un destino",
+                "description": "Modifica el nombre, la descripción, el lugar de Google, las coordenadas, el estado o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nTodos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda description no altera el nombre, el lugar ni las coordenadas. Un CUERPO VACÍO responde 200 como no-op, devolviendo el destino sin cambios, en vez de 422.\n\nEl name se NORMALIZA igual que en el alta —recorte, colapso de espacios y mayúsculas—. La unicidad global se revalida ignorando la propia fila, así que reenviar su mismo nombre responde 200 y usar el de otro destino responde 422.\n\nATENCIÓN — EL googlePlaceId ES EDITABLE, y esa es la decisión de diseño más delicada del dominio: reapuntar el destino a otro lugar CONSERVA la fila, su id y TODAS SUS TARIFAS de flete, que es justo el motivo de permitirlo —corregir un lugar mal capturado sin perder el historial de precios—. La contrapartida es que NO HAY VALIDACIÓN CRUZADA con las coordenadas: cambiar el googlePlaceId sin tocar latitude ni longitude responde 200 y deja el pin apuntando al lugar ANTERIOR, sin ningún aviso, sin log y sin error. Si se reapunta el lugar hay que mandar también las coordenadas nuevas en el mismo PATCH. Reenviar el propio googlePlaceId del destino que se edita es 200: la comprobación ignora su propia fila.\n\nMISMA ASIMETRÍA 422/400 QUE EN EL ALTA: el name que ya usa otro destino es 422 (Ya existe un destino con ese nombre); el googlePlaceId que ya usa otro destino es 400 y nombra al ocupante (El lugar seleccionado ya está registrado en el destino {NOMBRE}).\n\nLa description acepta null para borrarla —se distingue de omitir la clave, que la deja como está—; ningún otro campo acepta null.\n\nCon status: true este endpoint REACTIVA un destino dado de baja; con status: false lo da de baja, exactamente igual que el DELETE. El solapamiento con PATCH /api/locations/{location}/toggle-status es deliberado: el toggle sirve al interruptor de una tabla y este cuerpo al formulario de edición, que manda estado y datos juntos.\n\nEl registeredBy no se reescribe: sigue apuntando a quien dio de alta el destino, aunque lo edite otro administrador. El createdAt tampoco cambia; el updatedAt sí. Corregir las coordenadas NO cambia ninguna cotización: el precio depende del destino elegido, no de dónde esté.",
+                "operationId": "updateLocation",
+                "parameters": [
+                    {
+                        "name": "location",
+                        "in": "path",
+                        "description": "Identificador numérico del destino (locations.id). Es también la fila que se ignora al revalidar la unicidad del nombre y la del googlePlaceId, de modo que reenviar los suyos propios no choca consigo misma. El id NO cambia al reapuntar el lugar: las tarifas que cuelgan de él se conservan.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateLocationRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Destino actualizado correctamente. data trae la fila ya modificada, con el name normalizado en mayúsculas, el googlePlaceId tal cual se envió, las coordenadas como cadenas de ocho decimales, el mismo registeredByName, el mismo createdAt y el updatedAt refrescado. Un cuerpo vacío también responde 200, con el destino intacto.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Destino actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Location"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Otro destino ya está anclado al googlePlaceId enviado. El mensaje nombra al ocupante: El lugar seleccionado ya está registrado en el destino BODEGA CENTRAL ESCUINTLA. Reenviar el propio googlePlaceId del destino que se edita NO cae aquí: es 200. Un nombre repetido tampoco: es 422.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Un destino dado de baja NO cae aquí: se puede editar y reactivar con normalidad. El mensaje devuelto es: El destino no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "El name ya lo usa otro destino (Ya existe un destino con ese nombre) o supera los 255 caracteres; el googlePlaceId no es texto o supera los 255 caracteres —que otro destino ya lo use es 400, no 422—; alguna coordenada no es numérica o está fuera de rango (La latitud debe estar entre -90 y 90 / La longitud debe estar entre -180 y 180); o el status no es booleano (El estado debe ser verdadero o falso). Un cuerpo vacío NO produce 422.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/locations/{location}/toggle-status": {
+            "patch": {
+                "tags": [
+                    "Locations"
+                ],
+                "summary": "Invertir el estado de un destino",
+                "description": "Invierte el status actual del destino: true pasa a false y false pasa a true. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nNO LLEVA CUERPO. Enviarlo no cambia nada: la operación no recibe datos porque el nuevo estado se deduce del actual. Es lo que necesita el interruptor de una tabla de administración, que no tiene por qué saber el estado en el que está la fila. El nombre, la descripción, el lugar de Google y las coordenadas no se tocan.\n\nNO es idempotente por diseño: dos llamadas seguidas devuelven el destino a su estado inicial. Si lo que se quiere es fijar un estado concreto sin depender del actual, usa PATCH /api/locations/{location} con status, o DELETE para dar de baja.\n\nEs la vía de REACTIVACIÓN de un destino dado de baja, junto con PATCH y status: true. La baja aquí nunca es definitiva.\n\nNo se comprueba si el destino tiene tarifas cotizadas: desactivarlo es decisión del administrador. Un destino inactivo deja de poder cotizarse —GET /api/freight-rates/quote responde 400 con \"El destino seleccionado no está activo\"— y sus tarifas quedan congeladas para edición, aunque no se borran ni desaparecen del listado de tarifas.",
+                "operationId": "toggleStatusLocation",
+                "parameters": [
+                    {
+                        "name": "location",
+                        "in": "path",
+                        "description": "Identificador numérico del destino (locations.id), activo o dado de baja: los dos casos son válidos y el resultado es el estado contrario.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Estado del destino actualizado correctamente. data trae la fila con el status ya invertido y el resto de campos intactos, para que el cliente pinte el interruptor sin releer el listado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Estado del destino actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Location"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. El mensaje devuelto es: El destino no existe",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5435,17 +5949,17 @@
             },
             "StoreFreightRateRequest": {
                 "title": "Alta de tarifa de flete",
-                "description": "Cuerpo JSON para cotizar una banda nueva. Los cinco campos —zoneId, productId, fuelType, fuelMin y pricePerPound— son OBLIGATORIOS; no hay ningún campo opcional.\n\nEl registeredBy NO SE ACEPTA por ningún nombre: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no tiene ningún efecto, ni siquiera un 422. Tampoco se acepta ningún precio de combustible vigente: la tarifa guarda un fuelMin, no una referencia a fuel_prices.\n\nLas claves del cuerpo van en camelCase; el service traduce a snake_case al persistir.\n\nATENCIÓN — 422 Y 400 SIGNIFICAN COSAS DISTINTAS. La regla exists solo comprueba que la fila ESTÉ, nunca que esté activa: un zoneId o un productId inexistente es 422 (validación), mientras que una zona o un producto con status false es 400 (regla de negocio del service, con su propio mensaje: La zona seleccionada no está activa / El producto seleccionado no está activo). Repetir una banda ya cotizada también es 400, no 422: Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio.\n\nLa unicidad mira SOLO las filas vivas: tras un DELETE, ese mismo fuelMin vuelve a estar libre y se puede cotizar otra vez con 201.",
+                "description": "Cuerpo JSON para cotizar una banda nueva. Los cinco campos —locationId, productId, fuelType, fuelMin y pricePerPound— son OBLIGATORIOS; no hay ningún campo opcional.\n\nEl registeredBy NO SE ACEPTA por ningún nombre: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no tiene ningún efecto, ni siquiera un 422. Tampoco se acepta ningún precio de combustible vigente: la tarifa guarda un fuelMin, no una referencia a fuel_prices.\n\nLas claves del cuerpo van en camelCase; el service traduce a snake_case al persistir.\n\nATENCIÓN — 422 Y 400 SIGNIFICAN COSAS DISTINTAS. La regla exists solo comprueba que la fila ESTÉ, nunca que esté activa: un locationId o un productId inexistente es 422 (validación), mientras que un destino o un producto con status false es 400 (regla de negocio del service, con su propio mensaje: El destino seleccionado no está activo / El producto seleccionado no está activo). Repetir una banda ya cotizada también es 400, no 422: Ya existe una tarifa para ese destino, ese producto y ese combustible desde ese precio.\n\nLa unicidad mira SOLO las filas vivas: tras un DELETE, ese mismo fuelMin vuelve a estar libre y se puede cotizar otra vez con 201.",
                 "required": [
-                    "zoneId",
+                    "locationId",
                     "productId",
                     "fuelType",
                     "fuelMin",
                     "pricePerPound"
                 ],
                 "properties": {
-                    "zoneId": {
-                        "description": "Identificador de la zona a la que aplica la tarifa (zones.id). Obligatorio y entero. Si el id no existe es 422 con \"La zona seleccionada no existe\"; si existe pero tiene status false es 400 con \"La zona seleccionada no está activa\". Forma parte de la clave de la banda junto a productId, fuelType y fuelMin.",
+                    "locationId": {
+                        "description": "Identificador del destino puntual al que aplica la tarifa (locations.id). Obligatorio y entero. Si el id no existe es 422 con \"El destino seleccionado no existe\"; si existe pero tiene status false es 400 con \"El destino seleccionado no está activo\". Forma parte de la clave de la banda junto a productId, fuelType y fuelMin.",
                         "type": "integer",
                         "example": 3
                     },
@@ -5486,10 +6000,10 @@
             },
             "UpdateFreightRateRequest": {
                 "title": "Actualización de tarifa de flete",
-                "description": "Cuerpo JSON para corregir una tarifa ya cotizada. TODOS los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda pricePerPound no altera zoneId, productId, fuelType ni fuelMin.\n\nUn CUERPO VACÍO es un NO-OP con 200, como en Zones y al contrario que en Products: hay cinco campos editables y encadenar required_without entre todos solo produciría cinco mensajes idénticos. La tarifa vuelve intacta salvo el updatedAt.\n\nEl registeredBy NO se acepta ni se reescribe: sigue apuntando a quien dio de alta la fila aunque la edite otro administrador. Tampoco se guarda rastro del pricePerPound anterior: el PATCH sobrescribe sin histórico.\n\nATENCIÓN — las dos reglas de negocio miran el PAR COMPLETO, no solo lo que se envió. Lo que no llega se toma de la propia fila, de modo que un PATCH con solo el precio revalida igualmente la zona y el producto: si cualquiera de los dos se DESACTIVÓ después de crear la tarifa, la respuesta es 400 y la fila queda CONGELADA hasta reactivarlo. El DELETE, en cambio, sí funciona en ese caso: borrar nunca se bloquea.\n\nMover el fuelMin a un valor que ya ocupa otra tarifa VIVA del mismo par es 400; reenviar su propio fuelMin es 200, porque la comprobación ignora la propia fila.\n\nSobre una tarifa YA ELIMINADA este PATCH responde 400 (La tarifa ya fue eliminada), no 404: la fila sigue existiendo con deleted_at. Un id que nunca existió sí es 404.\n\nLa ruta acepta PATCH y PUT indistintamente y el comportamiento es el mismo: el PUT no reemplaza el recurso completo.",
+                "description": "Cuerpo JSON para corregir una tarifa ya cotizada. TODOS los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda pricePerPound no altera locationId, productId, fuelType ni fuelMin.\n\nUn CUERPO VACÍO es un NO-OP con 200, como en Locations y al contrario que en Products: hay cinco campos editables y encadenar required_without entre todos solo produciría cinco mensajes idénticos. La tarifa vuelve intacta salvo el updatedAt.\n\nEl registeredBy NO se acepta ni se reescribe: sigue apuntando a quien dio de alta la fila aunque la edite otro administrador. Tampoco se guarda rastro del pricePerPound anterior: el PATCH sobrescribe sin histórico.\n\nATENCIÓN — las dos reglas de negocio miran el PAR COMPLETO, no solo lo que se envió. Lo que no llega se toma de la propia fila, de modo que un PATCH con solo el precio revalida igualmente el destino y el producto: si cualquiera de los dos se DESACTIVÓ después de crear la tarifa, la respuesta es 400 y la fila queda CONGELADA hasta reactivarlo. El DELETE, en cambio, sí funciona en ese caso: borrar nunca se bloquea.\n\nMover el fuelMin a un valor que ya ocupa otra tarifa VIVA del mismo trío es 400; reenviar su propio fuelMin es 200, porque la comprobación ignora la propia fila.\n\nSobre una tarifa YA ELIMINADA este PATCH responde 400 (La tarifa ya fue eliminada), no 404: la fila sigue existiendo con deleted_at. Un id que nunca existió sí es 404.\n\nLa ruta acepta PATCH y PUT indistintamente y el comportamiento es el mismo: el PUT no reemplaza el recurso completo.",
                 "properties": {
-                    "zoneId": {
-                        "description": "Nueva zona de la tarifa (zones.id). Opcional: omitirlo conserva la actual. Id inexistente: 422; zona con status false: 400. Mover la tarifa a otra zona cambia el par y por tanto revalida la unicidad de la banda contra las tarifas vivas de la zona destino.",
+                    "locationId": {
+                        "description": "Nuevo destino de la tarifa (locations.id). Opcional: omitirlo conserva el actual. Id inexistente: 422; destino con status false: 400. Mover la tarifa a otro destino cambia el trío y por tanto revalida la unicidad de la banda contra las tarifas vivas del destino nuevo.",
                         "type": "integer",
                         "example": 3
                     },
@@ -5518,7 +6032,7 @@
                         "minimum": 0.01
                     },
                     "pricePerPound": {
-                        "description": "Nueva tarifa EN QUETZALES POR LIBRA, con hasta seis decimales. Opcional, entre 0.000001 y 999999.999999. Cambiarla NO deja rastro del valor anterior: no hay auditoría del precio. Aunque sea el único campo del cuerpo, la zona y el producto se revalidan igual y pueden devolver 400.",
+                        "description": "Nueva tarifa EN QUETZALES POR LIBRA, con hasta seis decimales. Opcional, entre 0.000001 y 999999.999999. Cambiarla NO deja rastro del valor anterior: no hay auditoría del precio. Aunque sea el único campo del cuerpo, el destino y el producto se revalidan igual y pueden devolver 400.",
                         "type": "number",
                         "format": "float",
                         "example": 0.4625,
@@ -5572,6 +6086,99 @@
                         "example": 33.1,
                         "maximum": 999999.99,
                         "minimum": 0.01
+                    }
+                },
+                "type": "object"
+            },
+            "StoreLocationRequest": {
+                "title": "Alta de destino",
+                "description": "Cuerpo JSON para dar de alta un destino nacional. Los campos aceptados son name, description, googlePlaceId, latitude y longitude; todos son obligatorios salvo description.\n\nEl status NO se acepta: el destino nace siempre activo (true) y enviarlo se descarta sin error, así que no hay forma de crear un destino ya dado de baja. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador; mandarlo en el cuerpo no cambia nada.\n\nATENCIÓN — ASIMETRÍA DELIBERADA ENTRE LOS DOS DUPLICADOS POSIBLES. El name duplicado es 422 (regla unique del FormRequest, mensaje \"Ya existe un destino con ese nombre\"); el googlePlaceId duplicado es 400 (regla de negocio del service, mensaje \"El lugar seleccionado ya está registrado en el destino {NOMBRE}\"). El googlePlaceId se deja SIN regla unique a propósito: un 422 cortaría antes y el cliente nunca vería el nombre del destino que ya ocupa ese lugar, que es justo lo que hace útil el error. La columna sí tiene índice único en base, pero es el último cortafuegos, no la vía por la que se responde.\n\nATENCIÓN — el name se NORMALIZA antes de validarse y antes de guardarse: se recorta, se colapsan los espacios internos y se pasa a mayúsculas. Enviar \"bodega central\" crea el destino \"BODEGA CENTRAL\". Como la normalización ocurre ANTES de la regla de unicidad, enviar \"bodega central\" existiendo ya \"BODEGA CENTRAL\" devuelve 422, no 500 ni una fila duplicada. El googlePlaceId, en cambio, NO se toca: es opaco y sensible a mayúsculas, y pasarlo a mayúsculas apuntaría a otro lugar.\n\nATENCIÓN — NO HAY VALIDACIÓN CRUZADA entre el googlePlaceId y las coordenadas: nadie comprueba contra Google que latitude y longitude correspondan al lugar. Se pueden dar de alta unas coordenadas de un sitio con el place id de otro y el alta responde 201 sin ningún aviso. Las coordenadas, además, NO INFLUYEN EN EL PRECIO: la tarifa depende del destino elegido, no de dónde esté.",
+                "required": [
+                    "name",
+                    "googlePlaceId",
+                    "latitude",
+                    "longitude"
+                ],
+                "properties": {
+                    "name": {
+                        "description": "Nombre del destino. Se guarda normalizado y en mayúsculas, así que se puede enviar en minúsculas. Debe ser único en todo el país, comparado ya normalizado: la unicidad es global e insensible a mayúsculas. Ausente, vacío, no textual o de más de 255 caracteres devuelve 422 (mensajes: El nombre del destino es obligatorio / El nombre del destino debe ser texto / El nombre del destino no puede superar los 255 caracteres / Ya existe un destino con ese nombre). El límite de 255 es el de la columna, no una regla de negocio.",
+                        "type": "string",
+                        "example": "bodega central escuintla",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "description": "Descripción libre del destino: referencias de acceso, portón de carga, horarios. ÚNICO CAMPO OPCIONAL y nullable: omitirlo o enviar null guarda null. No tiene longitud máxima —la columna es text—; solo se valida que sea texto (mensaje: La descripción debe ser texto). No se indexa ni participa en el filtro search del listado.",
+                        "type": "string",
+                        "example": "Entrada por el km 58, portón de carga 2",
+                        "nullable": true
+                    },
+                    "googlePlaceId": {
+                        "description": "Place id del lugar en Google Places, obtenido de GET /api/places. OBLIGATORIO. Se guarda TAL CUAL LLEGA: no se recorta ni se pasa a mayúsculas, y es SENSIBLE A MAYÚSCULAS, así que dos cadenas que solo difieran en el case son dos lugares distintos y ambas se aceptarían. Ausente, no textual o de más de 255 caracteres devuelve 422 (mensajes: El lugar de Google es obligatorio / El lugar de Google debe ser texto / El lugar de Google no puede superar los 255 caracteres). ATENCIÓN — si otro destino ya lo usa, la respuesta es 400 y NO 422, con el mensaje \"El lugar seleccionado ya está registrado en el destino {NOMBRE}\", que nombra al ocupante para que el usuario sepa dónde mirar. No se valida contra Google: un place id inventado con el formato correcto se acepta.",
+                        "type": "string",
+                        "example": "ChIJd8BlQ2BZwokRAFUEcm_qrcA",
+                        "maxLength": 255
+                    },
+                    "latitude": {
+                        "description": "Latitud del destino en grados decimales. OBLIGATORIA, numérica y en [-90, 90]; fuera de ese rango, ausente o no numérica devuelve 422 (mensajes: La latitud es obligatoria / La latitud debe ser numérica / La latitud debe estar entre -90 y 90). Se guarda con OCHO decimales y VUELVE COMO CADENA en el recurso. No se cruza con el googlePlaceId ni influye en el precio: no se deriva de ella distancia, kilometraje ni ruta.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 14.6349,
+                        "maximum": 90,
+                        "minimum": -90
+                    },
+                    "longitude": {
+                        "description": "Longitud del destino en grados decimales. OBLIGATORIA, numérica y en [-180, 180]; fuera de ese rango, ausente o no numérica devuelve 422 (mensajes: La longitud es obligatoria / La longitud debe ser numérica / La longitud debe estar entre -180 y 180). Se guarda con OCHO decimales y vuelve como cadena. A diferencia del area de Zones, aquí no hay pares ni orden ambiguo: latitude y longitude son dos campos con nombre propio, así que no hay forma de invertirlos por descuido.",
+                        "type": "number",
+                        "format": "float",
+                        "example": -90.5069,
+                        "maximum": 180,
+                        "minimum": -180
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateLocationRequest": {
+                "title": "Actualización de destino",
+                "description": "Cuerpo JSON para actualizar un destino. TODOS los campos son opcionales por separado y solo se toca lo que venga: un PATCH que solo manda description no altera el nombre, el lugar ni las coordenadas. Un CUERPO VACÍO responde 200 como no-op, devolviendo el destino sin cambios, NO 422.\n\nA diferencia del alta, aquí SÍ se acepta status: con status false se da de baja el destino —igual que el DELETE— y con status true se reactiva, lo mismo que hace PATCH /api/locations/{location}/toggle-status. El registeredBy sigue sin aceptarse y NO se reescribe: el destino conserva a quien lo dio de alta aunque lo edite otro administrador.\n\nATENCIÓN — MISMA ASIMETRÍA 422/400 QUE EN EL ALTA. El name duplicado es 422 (regla unique, \"Ya existe un destino con ese nombre\"); el googlePlaceId duplicado es 400 (regla del service, \"El lugar seleccionado ya está registrado en el destino {NOMBRE}\"). Las dos reglas ignoran la propia fila, así que reenviar el mismo nombre o el mismo lugar del destino que se está editando responde 200 y no choca consigo mismo.\n\nATENCIÓN — EL googlePlaceId ES EDITABLE Y ESO ES UN RIESGO ASUMIDO. Reapuntar el destino a otro lugar conserva la fila, su id y TODAS SUS TARIFAS de flete, que es justo el motivo de permitirlo: corregir un lugar mal capturado sin perder el historial de precios. Pero NO HAY VALIDACIÓN CRUZADA con las coordenadas: cambiar el googlePlaceId sin tocar latitude ni longitude es válido, responde 200 y deja el pin apuntando al lugar anterior, SIN NINGÚN AVISO. Si se reapunta el lugar, hay que mandar también las coordenadas nuevas en el mismo PATCH.\n\nEl name se NORMALIZA igual que en el alta —recorte, colapso de espacios y mayúsculas—; el googlePlaceId no se toca. Las coordenadas se pueden corregir sueltas y NO influyen en el precio de ninguna cotización.",
+                "properties": {
+                    "name": {
+                        "description": "Nuevo nombre del destino. Se normaliza a mayúsculas antes de validarse y de guardarse. La unicidad global se revalida IGNORANDO la propia fila, así que reenviar su mismo nombre responde 200 y usar el de otro destino responde 422 con \"Ya existe un destino con ese nombre\". No textual o de más de 255 caracteres es también 422 (El nombre del destino debe ser texto / El nombre del destino no puede superar los 255 caracteres). Omitir la clave deja el nombre intacto; enviar null NO lo borra, es 422 (el campo no es nullable).",
+                        "type": "string",
+                        "example": "bodega central escuintla",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "description": "Nueva descripción. Es el ÚNICO campo que acepta null, y ese null BORRA la descripción —se distingue de omitir la clave, que la deja como está—. Sin longitud máxima; solo se valida que sea texto (mensaje: La descripción debe ser texto).",
+                        "type": "string",
+                        "example": "Entrada por el km 58, portón de carga 2",
+                        "nullable": true
+                    },
+                    "googlePlaceId": {
+                        "description": "Nuevo place id de Google. Se guarda tal cual llega, sensible a mayúsculas, sin normalizar y sin comprobarse contra Google. Si otro destino ya lo usa, la respuesta es 400 —no 422— con \"El lugar seleccionado ya está registrado en el destino {NOMBRE}\"; reenviar el propio del destino que se edita es 200, porque la comprobación ignora su propia fila. ATENCIÓN — cambiarlo REAPUNTA el destino conservando id y tarifas, y NO arrastra las coordenadas: latitude y longitude siguen donde estaban hasta que se manden explícitamente, sin aviso ninguno de que el pin quedó desalineado.",
+                        "type": "string",
+                        "example": "ChIJd8BlQ2BZwokRAFUEcm_qrcA",
+                        "maxLength": 255
+                    },
+                    "latitude": {
+                        "description": "Nueva latitud en grados decimales, numérica y en [-90, 90]; fuera de rango o no numérica es 422 (La latitud debe ser numérica / La latitud debe estar entre -90 y 90). Se puede corregir SOLA, sin tocar el googlePlaceId ni la longitud: no hay validación cruzada de ningún tipo. Corregirla NO cambia ninguna cotización, porque el precio depende del destino elegido y no de dónde esté el pin.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 14.6349,
+                        "maximum": 90,
+                        "minimum": -90
+                    },
+                    "longitude": {
+                        "description": "Nueva longitud en grados decimales, numérica y en [-180, 180]; fuera de rango o no numérica es 422 (La longitud debe ser numérica / La longitud debe estar entre -180 y 180). Igual que latitude: se corrige suelta, sin cruces y sin efecto en los precios.",
+                        "type": "number",
+                        "format": "float",
+                        "example": -90.5069,
+                        "maximum": 180,
+                        "minimum": -180
+                    },
+                    "status": {
+                        "description": "Publicación del destino. A diferencia del alta, aquí SÍ se acepta: con false se da de baja —exactamente igual que el DELETE— y con true se reactiva, igual que el toggle. Debe ser un booleano; cualquier otra cosa es 422 con \"El estado debe ser verdadero o falso\". El solapamiento con PATCH /api/locations/{location}/toggle-status es deliberado: el toggle sirve al interruptor de una tabla y este campo al formulario de edición, que manda estado y datos juntos. Desactivar un destino NO borra sus tarifas, pero impide cotizarlas y congela su edición.",
+                        "type": "boolean",
+                        "example": false
                     }
                 },
                 "type": "object"
@@ -6278,22 +6885,22 @@
             },
             "FreightQuote": {
                 "title": "Cotización de flete",
-                "description": "Respuesta de GET /api/freight-rates/quote: cuánto cuesta la libra hasta el punto consultado y, si se enviaron las libras, cuánto cuesta el flete completo.\n\nNO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, y llamarla mil veces deja freight_rates exactamente igual. No es una reserva, no es un pedido y no bloquea el precio: la misma consulta mañana puede devolver otro número si cambió el precio del combustible o si se cotizó una banda nueva.\n\nUNIDADES FIJAS DEL DOMINIO: currentFuelPrice y appliedFuelMin en QUETZALES (GTQ) POR GALÓN, pricePerPound en GTQ POR LIBRA con seis decimales, pounds en LIBRAS y total en GTQ con dos decimales. No hay moneda configurable, ni kilos, ni litros, ni impuestos.\n\nATENCIÓN — EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN. currentFuelPrice sale SIEMPRE del FuelPrice con status active de ese fuelType; cualquier precio que el cliente mande en la query se ignora por completo, por ningún nombre se acepta. No existe la simulación \"¿y si el diésel subiera a 45?\": si se aceptara, cada quien cotizaría al precio que le conviene.\n\nATENCIÓN — EL TOTAL AUTORITATIVO ES EL DE LA API. Recalcularlo en pantalla redondeando pricePerPound a dos decimales da 20 250.00 en vez de 20 435.40 para 45 000 libras: 185 quetzales de diferencia en un solo flete. La API multiplica con los seis decimales completos y redondea SOLO al final.\n\nEste recurso NO envuelve un modelo: junta la tarifa elegida con los tres datos que la hacen auditable —el precio de combustible vigente, la banda que se aplicó y el total—, que no viven en ninguna fila.\n\nEjemplo completo del dominio: 45 000 libras de brócoli con destino en la zona norte y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.",
+                "description": "Respuesta de GET /api/freight-rates/quote: cuánto cuesta la libra hasta el destino consultado y, si se enviaron las libras, cuánto cuesta el flete completo.\n\nNO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, y llamarla mil veces deja freight_rates exactamente igual. No es una reserva, no es un pedido y no bloquea el precio: la misma consulta mañana puede devolver otro número si cambió el precio del combustible o si se cotizó una banda nueva.\n\nUNIDADES FIJAS DEL DOMINIO: currentFuelPrice y appliedFuelMin en QUETZALES (GTQ) POR GALÓN, pricePerPound en GTQ POR LIBRA con seis decimales, pounds en LIBRAS y total en GTQ con dos decimales. No hay moneda configurable, ni kilos, ni litros, ni impuestos.\n\nATENCIÓN — EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN. currentFuelPrice sale SIEMPRE del FuelPrice con status active de ese fuelType; cualquier precio que el cliente mande en la query se ignora por completo, por ningún nombre se acepta. No existe la simulación \"¿y si el diésel subiera a 45?\": si se aceptara, cada quien cotizaría al precio que le conviene.\n\nATENCIÓN — EL TOTAL AUTORITATIVO ES EL DE LA API. Recalcularlo en pantalla redondeando pricePerPound a dos decimales da 20 250.00 en vez de 20 435.40 para 45 000 libras: 185 quetzales de diferencia en un solo flete. La API multiplica con los seis decimales completos y redondea SOLO al final.\n\nEste recurso NO envuelve un modelo: junta la tarifa elegida con los tres datos que la hacen auditable —el precio de combustible vigente, la banda que se aplicó y el total—, que no viven en ninguna fila.\n\nEjemplo completo del dominio: 45 000 libras de brócoli con destino en la bodega central de Escuintla y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.",
                 "properties": {
                     "freightRateId": {
-                        "description": "Identificador de la tarifa que se APLICÓ (freight_rates.id): la banda concreta que ganó entre todas las del par. Sirve para auditar la cotización y para ir al detalle de la fila, aunque GET /api/freight-rates/{freightRate} es exclusivo del administrator. No se crea nada: este id ya existía antes de la consulta.",
+                        "description": "Identificador de la tarifa que se APLICÓ (freight_rates.id): la banda concreta que ganó entre todas las del trío. Sirve para auditar la cotización y para ir al detalle de la fila, aunque GET /api/freight-rates/{freightRate} es exclusivo del administrator. No se crea nada: este id ya existía antes de la consulta.",
                         "type": "integer",
                         "example": 12
                     },
-                    "zoneId": {
-                        "description": "Identificador de la zona que CONTIENE el punto consultado, resuelta a partir de lat y lng. No se envía en la petición: el sistema la deduce del punto, que es justamente lo que se le pide. Si ninguna zona activa contiene el punto, la respuesta es 404 y no llega a este schema. Se asume que las zonas no se solapan; si dos se cruzan, gana la de id más bajo, de forma determinista y sin avisar de que había otra.",
+                    "locationId": {
+                        "description": "Identificador del destino cotizado (locations.id), el mismo que se envió en la query. No se deduce de ninguna coordenada: el destino se manda explícito, así que no hay ambigüedad que resolver ni forma de cotizar un lugar sin darlo de alta antes. Un destino con status false devuelve 400 y no llega a este schema; uno inexistente lo atrapa antes la validación con 422.",
                         "type": "integer",
                         "example": 3
                     },
-                    "zoneName": {
-                        "description": "Nombre de la zona que contiene el punto, EN MAYÚSCULAS. Es lo que se muestra al usuario para que confirme que el destino cayó donde esperaba.",
+                    "locationName": {
+                        "description": "Nombre del destino cotizado, EN MAYÚSCULAS. Viaja resuelto para que el cliente confirme al usuario qué destino se cotizó sin un segundo GET. Las coordenadas del destino NO viajan aquí: quien cotiza mandó el locationId y ya las tiene.",
                         "type": "string",
-                        "example": "ZONA NORTE",
+                        "example": "BODEGA CENTRAL ESCUINTLA",
                         "nullable": true
                     },
                     "productId": {
@@ -6350,26 +6957,26 @@
             },
             "FreightRate": {
                 "title": "Tarifa de flete",
-                "description": "Precio del flete por libra para una combinación concreta de zona, producto y tipo de combustible. NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso el recurso no expone carrierId y ninguna ruta lleva el middleware carrier.required.\n\nUNIDADES FIJAS DEL DOMINIO, no configurables y sin campo que las declare: el dinero va SIEMPRE en QUETZALES (GTQ), el fuelMin en GTQ POR GALÓN, el pricePerPound en GTQ POR LIBRA con SEIS decimales y el peso en LIBRAS. No hay moneda alternativa, ni kilos, ni litros, ni IVA, ni redondeo comercial.\n\nATENCIÓN — BANDA ABIERTA. Una tarifa no se ata a ningún precio de combustible concreto: rige DESDE su fuelMin HACIA ARRIBA, hasta que exista otra banda más alta del mismo par (zona + producto + combustible). Con bandas desde 28.00 y desde 35.00, un diésel a 40 aplica la de 35 y un diésel a 25 aplica la de 28. Ninguna cotización falla nunca por el precio del combustible, y por lo mismo una banda vieja se sigue aplicando en silencio: una tarifa cotizada desde 28.00 sigue rigiendo con el diésel a 60 sin ningún aviso, sin 400 y sin log. La única señal disponible es la distancia entre currentFuelPrice y appliedFuelMin en la respuesta de GET /api/freight-rates/quote.\n\nLa unicidad es de la banda entera: no pueden existir dos tarifas VIVAS con el mismo (zoneId, productId, fuelType, fuelMin). No la respalda ningún índice único a propósito, porque el DELETE es soft delete y un índice bloquearía para siempre un fuelMin ya borrado.\n\nATENCIÓN — la baja de este recurso es un SOFT DELETE REAL y NO idempotente, al contrario que Zones y Products: DELETE marca deleted_at, la fila desaparece del listado y de la cotización, y un SEGUNDO DELETE responde 400 (La tarifa ya fue eliminada), no 404 ni 200. No hay campo status, no hay /toggle-status y no hay restore: si la banda hace falta otra vez, se vuelve a cotizar con un POST.",
+                "description": "Precio del flete por libra para una combinación concreta de destino, producto y tipo de combustible. NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso el recurso no expone carrierId y ninguna ruta lleva el middleware carrier.required.\n\nUNIDADES FIJAS DEL DOMINIO, no configurables y sin campo que las declare: el dinero va SIEMPRE en QUETZALES (GTQ), el fuelMin en GTQ POR GALÓN, el pricePerPound en GTQ POR LIBRA con SEIS decimales y el peso en LIBRAS. No hay moneda alternativa, ni kilos, ni litros, ni IVA, ni redondeo comercial.\n\nATENCIÓN — BANDA ABIERTA. Una tarifa no se ata a ningún precio de combustible concreto: rige DESDE su fuelMin HACIA ARRIBA, hasta que exista otra banda más alta del mismo trío (destino + producto + combustible). Con bandas desde 28.00 y desde 35.00, un diésel a 40 aplica la de 35 y un diésel a 25 aplica la de 28. Ninguna cotización falla nunca por el precio del combustible, y por lo mismo una banda vieja se sigue aplicando en silencio: una tarifa cotizada desde 28.00 sigue rigiendo con el diésel a 60 sin ningún aviso, sin 400 y sin log. La única señal disponible es la distancia entre currentFuelPrice y appliedFuelMin en la respuesta de GET /api/freight-rates/quote.\n\nLa unicidad es de la banda entera: no pueden existir dos tarifas VIVAS con el mismo (locationId, productId, fuelType, fuelMin). No la respalda ningún índice único a propósito, porque el DELETE es soft delete y un índice bloquearía para siempre un fuelMin ya borrado.\n\nATENCIÓN — la baja de este recurso es un SOFT DELETE REAL y NO idempotente, al contrario que Locations y Products: DELETE marca deleted_at, la fila desaparece del listado y de la cotización, y un SEGUNDO DELETE responde 400 (La tarifa ya fue eliminada), no 404 ni 200. No hay campo status, no hay /toggle-status y no hay restore: si la banda hace falta otra vez, se vuelve a cotizar con un POST.",
                 "properties": {
                     "id": {
                         "description": "Identificador numérico de la fila (freight_rates.id). Es el valor que va en el parámetro {freightRate} de las rutas de detalle, actualización y baja. Sobrevive a la baja: la fila sigue en base con deleted_at poblado, así que el id nunca se reutiliza ni desaparece, solo deja de ser utilizable con 400.",
                         "type": "integer",
                         "example": 1
                     },
-                    "zoneId": {
-                        "description": "Identificador de la zona geográfica a la que aplica la tarifa (zones.id). La zona debe estar activa para poder crear o editar la tarifa; si se desactiva después, la fila queda CONGELADA: el PATCH responde 400 aunque solo se cambie el precio. Es también el único filtro del listado.",
+                    "locationId": {
+                        "description": "Identificador del destino puntual al que aplica la tarifa (locations.id). El destino debe estar activo para poder crear o editar la tarifa; si se desactiva después, la fila queda CONGELADA: el PATCH responde 400 aunque solo se cambie el precio. Es también el único filtro del listado.",
                         "type": "integer",
                         "example": 3
                     },
-                    "zoneName": {
-                        "description": "Nombre de la zona resuelto por relación, siempre EN MAYÚSCULAS como lo devuelve el dominio de Zones. Viaja resuelto para que el cliente pinte la tabla de precios sin un segundo GET. Es null solo si la relación no se pudo cargar.",
+                    "locationName": {
+                        "description": "Nombre del destino resuelto por relación, siempre EN MAYÚSCULAS como lo devuelve el dominio de Locations. Viaja resuelto para que el cliente pinte la tabla de precios sin un segundo GET. Es null solo si la relación no se pudo cargar.",
                         "type": "string",
-                        "example": "ZONA NORTE",
+                        "example": "BODEGA CENTRAL ESCUINTLA",
                         "nullable": true
                     },
                     "productId": {
-                        "description": "Identificador del producto transportado (products.id). Igual que la zona, debe estar activo para crear o editar la tarifa, y desactivarlo congela todas las tarifas de ese producto hasta reactivarlo.",
+                        "description": "Identificador del producto transportado (products.id). Igual que el destino, debe estar activo para crear o editar la tarifa, y desactivarlo congela todas las tarifas de ese producto hasta reactivarlo.",
                         "type": "integer",
                         "example": 7
                     },
@@ -6407,7 +7014,7 @@
                         "nullable": true
                     },
                     "createdAt": {
-                        "description": "Fecha de alta de la tarifa. ATENCIÓN — igual que en Products y Zones: NO viaja en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM). Por eso se documenta como string SIN format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. Está pensado para mostrarse tal cual.",
+                        "description": "Fecha de alta de la tarifa. ATENCIÓN — igual que en Products y Locations: NO viaja en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM). Por eso se documenta como string SIN format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. Está pensado para mostrarse tal cual.",
                         "type": "string",
                         "example": "13-08-2026 08:45:12 PM",
                         "nullable": true
@@ -6423,7 +7030,7 @@
             },
             "FreightRateListResponse": {
                 "title": "Listado de tarifas de flete",
-                "description": "Respuesta de GET /api/freight-rates. ATENCIÓN — este listado NO PAGINA NUNCA, a diferencia de Carriers, Vehicles, FuelPrices, Products y Zones: no existe el parámetro limit, no hay PaginatedResource y el sobre NO trae total, currentPage ni lastPage. Enviar limit=10 no cambia nada. Es deliberado: la tabla de tarifas se lee entera, como una tabla de precios, no se navega. Las tarifas eliminadas (soft delete) NO aparecen. El orden es fijo: fuelType ASC y, dentro de cada tipo, fuelMin ASC, que es el orden en que se leen las bandas de un par.",
+                "description": "Respuesta de GET /api/freight-rates. ATENCIÓN — este listado NO PAGINA NUNCA, a diferencia de Carriers, Vehicles, FuelPrices, Products y Locations: no existe el parámetro limit, no hay PaginatedResource y el sobre NO trae total, currentPage ni lastPage. Enviar limit=10 no cambia nada. Es deliberado: la tabla de tarifas se lee entera, como una tabla de precios, no se navega. Las tarifas eliminadas (soft delete) NO aparecen. El orden es fijo: fuelType ASC y, dentro de cada tipo, fuelMin ASC, que es el orden en que se leen las bandas de un par.",
                 "properties": {
                     "statusCode": {
                         "type": "integer",
@@ -6518,6 +7125,100 @@
                 "allOf": [
                     {
                         "$ref": "#/components/schemas/FuelPriceListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
+            "Location": {
+                "title": "Destino",
+                "description": "Destino nacional: un punto concreto del mapa —una bodega, un centro de acopio, un mercado— anclado a un lugar real de Google por su googlePlaceId. NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso el recurso no expone carrierId ni carrierName y NINGUNA ruta del dominio lleva el middleware carrier.required. Su lectura está abierta a los cuatro roles: administrator, carrier, pilot y manager, incluido un carrier que todavía no ha registrado su empresa.\n\nEs el eje de las tarifas de flete: cada FreightRate cuelga de un destino (location_id) y GET /api/freight-rates/quote se cotiza mandando este id. ATENCIÓN — las coordenadas NO INFLUYEN EN EL PRECIO: la tarifa depende del destino ELEGIDO, no de dónde esté el pin. Corregir latitude y longitude no cambia ninguna cotización, y de ellas no se deriva distancia, kilometraje ni ruta.\n\nATENCIÓN — latitude y longitude viajan como CADENAS con OCHO DECIMALES (\"14.63490000\"), no como números JSON: son el cast decimal:8 entregado tal cual, para que ningún float pierda dígitos por el camino. Hay que parsearlas en el cliente antes de operar con ellas.\n\nATENCIÓN — createdAt y updatedAt NO viajan en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Products y Zones. Por eso se documentan como string SIN format date-time: parsearlos como ISO falla.\n\nEl name se devuelve SIEMPRE normalizado y EN MAYÚSCULAS. El status es un BOOLEANO cuya baja es LÓGICA: DELETE pone status en false, la fila nunca desaparece y sigue apareciendo en el listado sin filtros.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la fila (locations.id). Es el valor que va en el parámetro {location} de las rutas de detalle, actualización, toggle y baja, el que se manda como locationId al cotizar una tarifa y el que se filtra en GET /api/freight-rates?locationId=. Sobrevive a la baja lógica y a un cambio de googlePlaceId: reapuntar el destino a otro lugar conserva el id y sus tarifas.",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "name": {
+                        "description": "Nombre del destino, SIEMPRE EN MAYÚSCULAS. Se normaliza al crear y al actualizar: se recortan los extremos, se colapsan los espacios internos a uno y se pasa a mayúsculas, así que enviar \"  bodega   central  \" guarda y devuelve \"BODEGA CENTRAL\". Es único a nivel global, y al estar siempre en mayúsculas la unicidad resulta insensible a mayúsculas sin depender del collation del motor. Es también el nombre que aparece en el mensaje de error 400 cuando otra alta intenta reutilizar su googlePlaceId.",
+                        "type": "string",
+                        "example": "BODEGA CENTRAL ESCUINTLA"
+                    },
+                    "description": {
+                        "description": "Descripción libre del destino. Es el ÚNICO campo del recurso que puede ser null: se omite en el alta o se limpia enviando null en el PATCH. No tiene longitud máxima —la columna es text— y no participa en la búsqueda del listado, que solo mira el name.",
+                        "type": "string",
+                        "example": "Entrada por el km 58, portón de carga 2",
+                        "nullable": true
+                    },
+                    "googlePlaceId": {
+                        "description": "Identificador del lugar en Google Places (place id), guardado TAL CUAL LLEGA: no se recorta, no se normaliza y ES SENSIBLE A MAYÚSCULAS, porque es un identificador opaco y cambiarle una letra apuntaría a otro lugar. Es único entre destinos, pero esa unicidad NO la impone el FormRequest sino el service, que responde 400 nombrando al destino que ya lo ocupa. Es EDITABLE: un PATCH puede reapuntar el destino a otro lugar conservando su id y sus tarifas, y no se valida contra latitude/longitude, así que puede quedar desalineado con el pin sin ningún aviso. Se obtiene de GET /api/places.",
+                        "type": "string",
+                        "example": "ChIJd8BlQ2BZwokRAFUEcm_qrcA"
+                    },
+                    "latitude": {
+                        "description": "Latitud del destino en grados decimales, en [-90, 90]. ATENCIÓN — viaja como CADENA con OCHO DECIMALES (\"14.63490000\"), no como número: es el cast decimal:8 entregado sin convertir a float, de modo que ningún dígito se pierde. Ocho decimales dan precisión de poco más de un milímetro. NO influye en el precio: sirve para pintar el pin, no para calcular la tarifa.",
+                        "type": "string",
+                        "example": "14.63490000"
+                    },
+                    "longitude": {
+                        "description": "Longitud del destino en grados decimales, en [-180, 180]. Mismo tratamiento que latitude: CADENA con OCHO DECIMALES (\"-90.50690000\"), nunca número JSON. NO influye en el precio ni se cruza con el googlePlaceId: cambiar uno sin el otro es válido y deja el pin desalineado en silencio.",
+                        "type": "string",
+                        "example": "-90.50690000"
+                    },
+                    "status": {
+                        "description": "Publicación del destino, como BOOLEANO JSON (true o false), nunca como 1/0 ni como cadena. Nace en true y el cuerpo del alta no puede fijarlo. Pasa a false con DELETE /api/locations/{location} —que es baja lógica, no borrado— o con PATCH y status: false, y vuelve a true con PATCH /api/locations/{location}/toggle-status o con PATCH y status: true. Un destino inactivo sigue existiendo, sigue apareciendo en GET /api/locations sin filtros y sigue siendo consultable por id, pero YA NO SE PUEDE COTIZAR: GET /api/freight-rates/quote responde 400 con \"El destino seleccionado no está activo\" y las tarifas de ese destino quedan congeladas para edición.",
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del administrador que dio de alta el destino, obtenido de la relación registeredBy. No se envía en el cuerpo: sale del usuario autenticado. El PATCH no lo reescribe, así que sigue apuntando a quien creó la fila aunque la haya editado otro administrador.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha de alta del destino. ATENCIÓN — igual que en Products y Zones: NO viaja en ISO 8601 como en el resto del proyecto, sino con el formato d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM). Por eso se documenta como string sin format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. Está pensado para mostrarse tal cual.",
+                        "type": "string",
+                        "example": "19-08-2026 08:45:12 PM",
+                        "nullable": true
+                    },
+                    "updatedAt": {
+                        "description": "Fecha del último cambio de cualquiera de los campos editables, incluidos el googlePlaceId y las coordenadas; es lo más cercano a una auditoría que ofrece el dominio, porque no se guarda ningún valor anterior. Mismo formato propio d-m-Y h:i:s A que createdAt, tampoco ISO 8601.",
+                        "type": "string",
+                        "example": "19-08-2026 09:02:40 PM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "LocationListResponse": {
+                "title": "Listado de destinos sin paginar",
+                "description": "Respuesta de GET /api/locations cuando no se envía limit o cuando el limit no es numérico: se devuelven todos los destinos que pasen los filtros y el sobre NO incluye total, currentPage ni lastPage. Es la forma que quiere un selector de destinos que necesita la lista entera de una vez. Sin el filtro status, la lista mezcla activos e inactivos, siempre ordenada por id ASC.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Destinos obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Location"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedLocationListResponse": {
+                "title": "Listado de destinos paginado",
+                "description": "Respuesta de GET /api/locations cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/LocationListResponse"
                     },
                     {
                         "$ref": "#/components/schemas/PaginationMeta"
@@ -7194,30 +7895,14 @@
             }
         },
         "parameters": {
-            "quoteLatQuery": {
-                "name": "lat",
+            "quoteLocationIdQuery": {
+                "name": "locationId",
                 "in": "query",
-                "description": "LATITUD del punto de destino, en [-90, 90]. Va en la QUERY STRING: GET /api/freight-rates/quote?lat=14.6349&lng=-90.5069&productId=7&fuelType=diesel.\n\nEs OBLIGATORIA. ATENCIÓN — a diferencia del filtro lat+lng del listado de zonas, aquí una coordenada ausente o fuera de rango NO SE IGNORA: lat=200 devuelve 422 (mensajes: La latitud del destino es obligatoria / La latitud debe ser un número / La latitud debe estar entre -90 y 90). La cotización es dinero, y un punto imposible tiene que decirse, no resolverse en silencio.\n\nJunto con lng determina la ZONA: el sistema busca la primera zona ACTIVA cuyo polígono contiene el punto. No se manda zoneId —eso es precisamente lo que el sistema resuelve— y no se calcula distancia, kilometraje ni ruta: del punto solo se deriva la zona que lo contiene. Si ninguna zona activa lo contiene, la respuesta es 404.",
+                "description": "Identificador del DESTINO al que se cotiza (locations.id). Va en la QUERY STRING: GET /api/freight-rates/quote?locationId=3&productId=7&fuelType=diesel.\n\nEs OBLIGATORIO. ATENCIÓN — CAMBIO INCOMPATIBLE: este parámetro SUSTITUYE a lat y lng, que YA NO SE ACEPTAN por ningún nombre. Mandarlos no filtra, no valida y no cambia la respuesta: se ignoran por completo, y la llamada falla con 422 por locationId faltante. La cotización por punto geográfico dejó de existir; el destino se da de alta antes en POST /api/locations y aquí se manda su id.\n\nATENCIÓN — 422 y 400 no son lo mismo: un id que NO EXISTE devuelve 422 con \"El destino seleccionado no existe\" (regla exists), mientras que un destino que existe pero tiene status false devuelve 400 con \"El destino seleccionado no está activo\".\n\nDel destino NO se deriva distancia, kilometraje ni ruta, y sus coordenadas NO influyen en el precio: la tarifa depende del destino elegido, no de dónde esté. Corregir el pin de un destino no cambia ninguna cotización.",
                 "required": true,
                 "schema": {
-                    "type": "number",
-                    "format": "float",
-                    "example": 14.6349,
-                    "maximum": 90,
-                    "minimum": -90
-                }
-            },
-            "quoteLngQuery": {
-                "name": "lng",
-                "in": "query",
-                "description": "LONGITUD del punto de destino, en [-180, 180]. Obligatoria; ausente, no numérica o fuera de rango devuelve 422 (mensajes: La longitud del destino es obligatoria / La longitud debe ser un número / La longitud debe estar entre -180 y 180).\n\nAquí las coordenadas van en parámetros separados, así que no hay ambigüedad de orden como en el area de Zones —donde el par es [latitud, longitud]—, pero lat sigue siendo la latitud y lng la longitud.\n\nSe asume que las zonas no se solapan. Si dos zonas activas contuvieran el punto, gana la de id más bajo: la elección es determinista, pero la respuesta no avisa de que había otra candidata.",
-                "required": true,
-                "schema": {
-                    "type": "number",
-                    "format": "float",
-                    "example": -90.5069,
-                    "maximum": 180,
-                    "minimum": -180
+                    "type": "integer",
+                    "example": 3
                 }
             },
             "quoteProductIdQuery": {
@@ -7308,11 +7993,15 @@
         },
         {
             "name": "FreightRates",
-            "description": "Tarifas de flete por zona, producto y tipo de combustible: cuánto cuesta la libra hasta un punto del mapa. La tarifa NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los seis endpoints exigen token JWT (Authorization: Bearer {token}) y el reparto de permisos es asimétrico: el LISTADO y la COTIZACIÓN están abiertos a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; el DETALLE por id y toda la ESCRITURA (alta, edición y baja) son exclusivos del administrator (middleware role:administrator) y los otros tres roles reciben 403 — el detalle también, porque quien no administra tarifas cotiza con /quote en vez de leer la fila. UNIDADES FIJAS DEL DOMINIO, no configurables: todo el dinero va en QUETZALES (GTQ), el fuelMin en GTQ POR GALÓN, el pricePerPound en GTQ POR LIBRA con seis decimales, el peso en LIBRAS y el total en GTQ con dos decimales; no hay moneda alternativa, kilos, litros, IVA ni redondeo comercial. BANDA ABIERTA: cada tarifa rige DESDE su fuelMin HACIA ARRIBA hasta que exista otra banda más alta del mismo par, así que la cotización NUNCA falla por el precio del combustible — y, como contrapartida, una banda vieja se sigue aplicando en silencio hasta que alguien cotice una superior. EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN: sale siempre del FuelPrice con status active de ese tipo. LA COTIZACIÓN NO PERSISTE NADA: es una consulta pura. Dos rupturas respecto al resto del proyecto: el listado NO PAGINA (no hay limit, ni total, currentPage o lastPage) y el DELETE es un SOFT DELETE REAL Y NO IDEMPOTENTE, donde el segundo intento responde 400 en vez de 404 o 200, sin restore ni toggle-status."
+            "description": "Tarifas de flete por destino, producto y tipo de combustible: cuánto cuesta la libra hasta un destino dado de alta en /api/locations. La tarifa NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los seis endpoints exigen token JWT (Authorization: Bearer {token}) y el reparto de permisos es asimétrico: el LISTADO y la COTIZACIÓN están abiertos a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; el DETALLE por id y toda la ESCRITURA (alta, edición y baja) son exclusivos del administrator (middleware role:administrator) y los otros tres roles reciben 403 — el detalle también, porque quien no administra tarifas cotiza con /quote en vez de leer la fila. ATENCIÓN — CAMBIO INCOMPATIBLE: el eje de las tarifas pasó de ZONA a DESTINO. zoneId ya no se acepta por ningún nombre —ni en el filtro del listado, ni en el alta, ni en la edición— y la cotización POR COORDENADAS DESAPARECIÓ: lat y lng no se leen, no validan y no cambian la respuesta; en su lugar se manda locationId. Las coordenadas del destino NO INFLUYEN EN EL PRECIO: la tarifa depende del destino ELEGIDO, no de dónde esté, y de él no se deriva distancia, kilometraje ni ruta. UNIDADES FIJAS DEL DOMINIO, no configurables: todo el dinero va en QUETZALES (GTQ), el fuelMin en GTQ POR GALÓN, el pricePerPound en GTQ POR LIBRA con seis decimales, el peso en LIBRAS y el total en GTQ con dos decimales; no hay moneda alternativa, kilos, litros, IVA ni redondeo comercial. BANDA ABIERTA: cada tarifa rige DESDE su fuelMin HACIA ARRIBA hasta que exista otra banda más alta del mismo trío, así que la cotización NUNCA falla por el precio del combustible — y, como contrapartida, una banda vieja se sigue aplicando en silencio hasta que alguien cotice una superior. EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN: sale siempre del FuelPrice con status active de ese tipo. LA COTIZACIÓN NO PERSISTE NADA: es una consulta pura, y NO TIENE NINGÚN 404 — sus cuatro fallos de negocio son 400. Dos rupturas respecto al resto del proyecto: el listado NO PAGINA (no hay limit, ni total, currentPage o lastPage) y el DELETE es un SOFT DELETE REAL Y NO IDEMPOTENTE, donde el segundo intento responde 400 en vez de 404 o 200, sin restore ni toggle-status."
         },
         {
             "name": "FuelPrices",
             "description": "Catálogo nacional de precios de combustible. El precio NO pertenece a ninguna empresa: es un dato único para toda la aplicación, por eso ninguna ruta lleva el middleware carrier.required. Los siete endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado, precio vigente y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, corrección, desactivación y borrado) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. Solo hay un precio active por tipo de combustible, el importe va siempre EN QUETZALES (GTQ) POR GALÓN y el histórico, una vez desplazado, es intocable."
+        },
+        {
+            "name": "Locations",
+            "description": "Destinos nacionales: puntos concretos del mapa —bodegas, centros de acopio, mercados— anclados a un lugar real de Google por su googlePlaceId. El destino NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los seis endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización, toggle de estado y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. ES EL EJE DE LAS TARIFAS DE FLETE: cada FreightRate cuelga de un destino y GET /api/freight-rates/quote se cotiza mandando su id, no coordenadas. ATENCIÓN — LAS COORDENADAS NO INFLUYEN EN EL PRECIO: la tarifa depende del destino ELEGIDO, no de dónde esté el pin; de latitude y longitude no se deriva distancia, kilometraje ni ruta, y corregirlas no cambia ninguna cotización. Reglas que atraviesan el dominio: el name se guarda SIEMPRE normalizado y en MAYÚSCULAS, con unicidad global insensible a mayúsculas; el googlePlaceId se guarda TAL CUAL, es sensible a mayúsculas y también es único, pero su duplicado se responde con 400 —no con 422 como el del name—, nombrando al destino que ya lo ocupa; latitude y longitude salen como CADENAS de ocho decimales, no como números; createdAt y updatedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601; y el status es un BOOLEANO cuya baja es LÓGICA e idempotente —DELETE pone status en false, la fila nunca desaparece—, igual que en Products y Zones y al contrario que el DELETE de FuelPrices, que borra de verdad, o el de FreightRates, que es un soft delete no idempotente."
         },
         {
             "name": "Pilots",

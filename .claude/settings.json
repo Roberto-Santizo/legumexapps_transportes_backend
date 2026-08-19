@@ -20,7 +20,7 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/spec-impl-reference-check.sh\"",
             "timeout": 15,
-            "statusMessage": "Comprobando el resumen de feature en references/"
+            "statusMessage": "Pidiendo el resumen de feature en references/"
           }
         ]
       }

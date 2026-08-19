@@ -5,9 +5,9 @@ namespace Database\Factories;
 use App\Enums\FuelType;
 use App\Enums\UserRole;
 use App\Models\FreightRate;
+use App\Models\Location;
 use App\Models\Product;
 use App\Models\User;
-use App\Models\Zone;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -23,7 +23,7 @@ class FreightRateFactory extends Factory
     public function definition(): array
     {
         return [
-            'zone_id' => Zone::factory(),
+            'location_id' => Location::factory(),
             'product_id' => Product::factory(),
             'fuel_type' => FuelType::Diesel,
             /** Rangos realistas del dominio: el diésel ronda los 30 GTQ el galón. */

@@ -5,9 +5,9 @@ use App\Enums\FuelType;
 use App\Enums\UserRole;
 use App\Models\FreightRate;
 use App\Models\FuelPrice;
+use App\Models\Location;
 use App\Models\Product;
 use App\Models\User;
-use App\Models\Zone;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
@@ -89,16 +89,6 @@ if (! function_exists('asUser')) {
  *
  * @return array<int, array{0: float, 1: float}>
  */
-function freightRateSquarePairs(float $latitude, float $longitude): array
-{
-    return [
-        [$latitude, $longitude],
-        [$latitude + 1.0, $longitude],
-        [$latitude + 1.0, $longitude + 1.0],
-        [$latitude, $longitude + 1.0],
-    ];
-}
-
 /**
  * Las once claves que promete FreightRateResource, en el orden en que las declara.
  *
@@ -107,7 +97,7 @@ function freightRateSquarePairs(float $latitude, float $longitude): array
 function freightRateResourceKeys(): array
 {
     return [
-        'id', 'zoneId', 'zoneName', 'productId', 'productName', 'fuelType',
+        'id', 'locationId', 'locationName', 'productId', 'productName', 'fuelType',
         'fuelMin', 'pricePerPound', 'registeredByName', 'createdAt', 'updatedAt',
     ];
 }
@@ -120,7 +110,7 @@ function freightRateResourceKeys(): array
 function freightQuoteResourceKeys(): array
 {
     return [
-        'freightRateId', 'zoneId', 'zoneName', 'productId', 'productName', 'fuelType',
+        'freightRateId', 'locationId', 'locationName', 'productId', 'productName', 'fuelType',
         'currentFuelPrice', 'appliedFuelMin', 'pricePerPound', 'pounds', 'total',
     ];
 }
@@ -134,15 +124,15 @@ function freightRateDatePattern(): string
 }
 
 /**
- * El cuerpo de un alta por HTTP, con la zona y el producto ya creados.
+ * El cuerpo de un alta por HTTP, con el destino y el producto ya creados.
  *
  * @param  array<string, mixed>  $overrides
  * @return array<string, mixed>
  */
-function freightRateApiBody(Zone $zone, Product $product, array $overrides = []): array
+function freightRateApiBody(Location $location, Product $product, array $overrides = []): array
 {
     return array_merge([
-        'zoneId' => $zone->id,
+        'locationId' => $location->id,
         'productId' => $product->id,
         'fuelType' => FuelType::Diesel->value,
         'fuelMin' => 30.00,
@@ -151,14 +141,14 @@ function freightRateApiBody(Zone $zone, Product $product, array $overrides = [])
 }
 
 /**
- * El escenario completo de una cotización por HTTP: zona con polígono, producto y diésel vigente.
+ * El escenario completo de una cotización por HTTP: destino, producto y diésel vigente.
  *
  * @param  array<int, array{0: float, 1: float}>  $bands  pares [fuelMin, pricePerPound].
- * @return array{zone: Zone, product: Product}
+ * @return array{location: Location, product: Product}
  */
 function freightRateApiScenario(float $currentFuelPrice, array $bands): array
 {
-    $zone = Zone::factory()->active()->withArea(freightRateSquarePairs(14.0, -91.0))->create();
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
 
     FuelPrice::factory()->active()->create([
@@ -168,7 +158,7 @@ function freightRateApiScenario(float $currentFuelPrice, array $bands): array
 
     foreach ($bands as [$fuelMin, $pricePerPound]) {
         FreightRate::factory()->create([
-            'zone_id' => $zone->id,
+            'location_id' => $location->id,
             'product_id' => $product->id,
             'fuel_type' => FuelType::Diesel,
             'fuel_min' => $fuelMin,
@@ -176,19 +166,18 @@ function freightRateApiScenario(float $currentFuelPrice, array $bands): array
         ]);
     }
 
-    return ['zone' => $zone, 'product' => $product];
+    return ['location' => $location, 'product' => $product];
 }
 
 /**
- * La query de la cotización, con el punto dentro de la zona del escenario.
+ * La query de la cotización, con el destino del escenario mandado por id.
  *
  * @param  array<string, mixed>  $overrides
  */
-function freightRateQuoteUri(Product $product, array $overrides = []): string
+function freightRateQuoteUri(Location $location, Product $product, array $overrides = []): string
 {
     $params = array_merge([
-        'lat' => 14.5,
-        'lng' => -90.5,
+        'locationId' => $location->id,
         'productId' => $product->id,
         'fuelType' => FuelType::Diesel->value,
     ], $overrides);
@@ -222,13 +211,13 @@ it('abre el listado a cualquier autenticado, sin exigir empresa', function (User
 })->with(freightRateNonAdminRoles());
 
 it('resuelve /quote como ruta fija y no como un id de tarifa', function () {
-    $zone = Zone::factory()->active()->withArea(freightRateSquarePairs(14.0, -91.0))->create();
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
 
     FuelPrice::factory()->active()->create(['fuel_type' => FuelType::Diesel, 'price' => 40.00]);
 
     FreightRate::factory()->create([
-        'zone_id' => $zone->id,
+        'location_id' => $location->id,
         'product_id' => $product->id,
         'fuel_type' => FuelType::Diesel,
         'fuel_min' => 35.00,
@@ -236,7 +225,7 @@ it('resuelve /quote como ruta fija y no como un id de tarifa', function () {
     ]);
 
     asUser(userWithRole(UserRole::Pilot))
-        ->getJson('/api/freight-rates/quote?lat=14.5&lng=-90.5&productId='.$product->id.'&fuelType=diesel&pounds=45000')
+        ->getJson('/api/freight-rates/quote?locationId='.$location->id.'&productId='.$product->id.'&fuelType=diesel&pounds=45000')
         ->assertStatus(200)
         ->assertJsonPath('data.pricePerPound', '0.454120')
         ->assertJsonPath('data.currentFuelPrice', '40.00')
@@ -245,13 +234,13 @@ it('resuelve /quote como ruta fija y no como un id de tarifa', function () {
 });
 
 it('registra una tarifa como administrador', function () {
-    $zone = Zone::factory()->active()->create();
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
     $admin = userWithRole(UserRole::Administrator);
 
     asUser($admin)
         ->postJson('/api/freight-rates', [
-            'zoneId' => $zone->id,
+            'locationId' => $location->id,
             'productId' => $product->id,
             'fuelType' => 'diesel',
             'fuelMin' => 30.00,
@@ -262,12 +251,12 @@ it('registra una tarifa como administrador', function () {
         ->assertJsonPath('message', 'Tarifa registrada correctamente')
         ->assertJsonPath('data.fuelMin', '30.00')
         ->assertJsonPath('data.pricePerPound', '0.454120')
-        ->assertJsonPath('data.zoneName', $zone->name)
+        ->assertJsonPath('data.locationName', $location->name)
         ->assertJsonPath('data.productName', $product->name)
         ->assertJsonPath('data.registeredByName', $admin->name);
 
     $this->assertDatabaseHas('freight_rates', [
-        'zone_id' => $zone->id,
+        'location_id' => $location->id,
         'product_id' => $product->id,
         'fuel_type' => 'diesel',
         'fuel_min' => '30.00',
@@ -278,9 +267,9 @@ it('registra una tarifa como administrador', function () {
 });
 
 it('abre la cotización a cualquier autenticado, sin exigir empresa', function (UserRole $role) {
-    ['product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
 
-    asUser(userWithRole($role))->getJson(freightRateQuoteUri($product))
+    asUser(userWithRole($role))->getJson(freightRateQuoteUri($location, $product))
         ->assertOk()
         ->assertJsonPath('message', 'Cotización obtenida correctamente');
 })->with(freightRateNonAdminRoles());
@@ -291,7 +280,7 @@ it('abre la cotización a cualquier autenticado, sin exigir empresa', function (
 |--------------------------------------------------------------------------
 */
 
-it('lista las tarifas de todas las zonas en el sobre estándar', function () {
+it('lista las tarifas de todos los destinos en el sobre estándar', function () {
     FreightRate::factory()->count(3)->create();
 
     $response = asUser(userWithRole(UserRole::Manager))->getJson('/api/freight-rates')->assertOk();
@@ -301,19 +290,19 @@ it('lista las tarifas de todas las zonas en el sobre estándar', function () {
         ->and($response->json('data'))->toHaveCount(3);
 });
 
-it('filtra el listado por zona e ignora cualquier otro query param', function () {
-    $zone = Zone::factory()->active()->create();
-    FreightRate::factory()->count(2)->create(['zone_id' => $zone->id]);
+it('filtra el listado por destino e ignora cualquier otro query param', function () {
+    $location = Location::factory()->active()->create();
+    FreightRate::factory()->count(2)->create(['location_id' => $location->id]);
     FreightRate::factory()->create();
 
     $user = userWithRole(UserRole::Carrier);
 
-    expect(asUser($user)->getJson("/api/freight-rates?zoneId={$zone->id}")->assertOk()->json('data'))->toHaveCount(2)
-        /** Una zona que no existe no es un error: es una tabla de precios vacía. */
-        ->and(asUser($user)->getJson('/api/freight-rates?zoneId=9999')->assertOk()->json('data'))->toBe([])
-        ->and(asUser($user)->getJson('/api/freight-rates?zoneId=norte')->assertOk()->json('data'))->toHaveCount(3)
-        /** Un zoneId en forma de array llega como null al service y tampoco vacía la tabla. */
-        ->and(asUser($user)->getJson('/api/freight-rates?zoneId[]=1&productId=3')->assertOk()->json('data'))->toHaveCount(3);
+    expect(asUser($user)->getJson("/api/freight-rates?locationId={$location->id}")->assertOk()->json('data'))->toHaveCount(2)
+        /** Un destino que no existe no es un error: es una tabla de precios vacía. */
+        ->and(asUser($user)->getJson('/api/freight-rates?locationId=9999')->assertOk()->json('data'))->toBe([])
+        ->and(asUser($user)->getJson('/api/freight-rates?locationId=norte')->assertOk()->json('data'))->toHaveCount(3)
+        /** Un locationId en forma de array llega como null al service y tampoco vacía la tabla. */
+        ->and(asUser($user)->getJson('/api/freight-rates?locationId[]=1&productId=3')->assertOk()->json('data'))->toHaveCount(3);
 });
 
 it('devuelve la colección completa aunque llegue limit, sin metadatos de paginación', function () {
@@ -326,12 +315,12 @@ it('devuelve la colección completa aunque llegue limit, sin metadatos de pagina
 });
 
 it('ordena el listado por combustible y, dentro de cada uno, por banda ascendente', function () {
-    $zone = Zone::factory()->active()->create();
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
 
     foreach ([[FuelType::Regular, 20], [FuelType::Diesel, 35], [FuelType::Diesel, 28]] as [$fuelType, $fuelMin]) {
         FreightRate::factory()->create([
-            'zone_id' => $zone->id,
+            'location_id' => $location->id,
             'product_id' => $product->id,
             'fuel_type' => $fuelType,
             'fuel_min' => $fuelMin,
@@ -359,12 +348,12 @@ it('devuelve las once claves en camelCase con las fechas de la spec', function (
         ->and(array_keys($delListado))->toBe(freightRateResourceKeys())
         ->and($detalle['createdAt'])->toMatch(freightRateDatePattern())
         ->and($detalle['updatedAt'])->toMatch(freightRateDatePattern())
-        ->and($detalle['zoneName'])->toBe($rate->zone->name)
+        ->and($detalle['locationName'])->toBe($rate->location->name)
         ->and($detalle['productName'])->toBe($rate->product->name)
         ->and($detalle['registeredByName'])->toBe($rate->registeredBy->name);
 });
 
-it('no dispara N+1 al listar veinte tarifas de zonas y productos distintos', function () {
+it('no dispara N+1 al listar veinte tarifas de destinos y productos distintos', function () {
     FreightRate::factory()->count(20)->create();
 
     /** El token se emite antes de escuchar: sus claims consultan la empresa del usuario. */
@@ -386,7 +375,7 @@ it('no dispara N+1 al listar veinte tarifas de zonas y productos distintos', fun
 
     /** Una consulta por el listado y otra por cada relación: la del usuario autenticado es aparte. */
     expect($sobre('freight_rates'))->toBe(1)
-        ->and($sobre('zones'))->toBe(1)
+        ->and($sobre('locations'))->toBe(1)
         ->and($sobre('products'))->toBe(1)
         ->and($sobre('users'))->toBeLessThanOrEqual(2);
 });
@@ -398,101 +387,101 @@ it('no dispara N+1 al listar veinte tarifas de zonas y productos distintos', fun
 */
 
 it('rechaza con 400 una segunda tarifa con la misma banda del mismo par', function () {
-    $zone = Zone::factory()->active()->create();
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
     $admin = userWithRole(UserRole::Administrator);
 
-    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product))->assertCreated();
+    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product))->assertCreated();
 
-    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product, ['pricePerPound' => 0.9]))
+    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product, ['pricePerPound' => 0.9]))
         ->assertStatus(400)
         ->assertExactJson([
             'statusCode' => 400,
-            'message' => 'Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio',
+            'message' => 'Ya existe una tarifa para ese destino, ese producto y ese combustible desde ese precio',
             'data' => null,
         ]);
 
     expect(FreightRate::query()->count())->toBe(1);
 });
 
-it('acepta por HTTP la misma banda para otro combustible, otra zona u otro producto', function (string $key, string $target) {
-    $zone = Zone::factory()->active()->create();
+it('acepta por HTTP la misma banda para otro combustible, otro destino u otro producto', function (string $key, string $target) {
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
     $admin = userWithRole(UserRole::Administrator);
 
-    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product))->assertCreated();
+    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product))->assertCreated();
 
     $value = match ($target) {
-        'zone' => Zone::factory()->active()->create()->id,
+        'location' => Location::factory()->active()->create()->id,
         'product' => Product::factory()->active()->create()->id,
         default => FuelType::Regular->value,
     };
 
-    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product, [$key => $value]))
+    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product, [$key => $value]))
         ->assertCreated()
         ->assertJsonPath('data.fuelMin', '30.00');
 
     expect(FreightRate::query()->count())->toBe(2);
 })->with([
     'otro combustible' => ['fuelType', 'fuel'],
-    'otra zona' => ['zoneId', 'zone'],
+    'otro destino' => ['locationId', 'location'],
     'otro producto' => ['productId', 'product'],
 ]);
 
 it('vuelve a aceptar la banda después de borrar la tarifa que la ocupaba', function () {
-    $zone = Zone::factory()->active()->create();
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
     $admin = userWithRole(UserRole::Administrator);
 
-    $id = asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product))
+    $id = asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product))
         ->assertCreated()
         ->json('data.id');
 
     asUser($admin)->deleteJson("/api/freight-rates/{$id}")->assertOk();
 
-    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product))
+    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product))
         ->assertCreated()
         ->assertJsonPath('data.fuelMin', '30.00');
 });
 
-it('rechaza con 400 el alta sobre una zona o un producto inactivo', function (bool $zoneIsActive, string $message) {
-    $zone = Zone::factory()->state(['status' => $zoneIsActive])->create();
-    $product = Product::factory()->state(['status' => ! $zoneIsActive])->create();
+it('rechaza con 400 el alta sobre un destino o un producto inactivo', function (bool $locationIsActive, string $message) {
+    $location = Location::factory()->state(['status' => $locationIsActive])->create();
+    $product = Product::factory()->state(['status' => ! $locationIsActive])->create();
 
     asUser(userWithRole(UserRole::Administrator))
-        ->postJson('/api/freight-rates', freightRateApiBody($zone, $product))
+        ->postJson('/api/freight-rates', freightRateApiBody($location, $product))
         ->assertStatus(400)
         ->assertJsonPath('message', $message);
 
     expect(FreightRate::query()->count())->toBe(0);
 })->with([
-    'zona inactiva' => [false, 'La zona seleccionada no está activa'],
+    'destino inactivo' => [false, 'El destino seleccionado no está activo'],
     'producto inactivo' => [true, 'El producto seleccionado no está activo'],
 ]);
 
-it('responde 422, y no 400, cuando la zona o el producto no existen', function (string $key) {
-    $zone = Zone::factory()->active()->create();
+it('responde 422, y no 400, cuando el destino o el producto no existen', function (string $key) {
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
 
     asUser(userWithRole(UserRole::Administrator))
-        ->postJson('/api/freight-rates', freightRateApiBody($zone, $product, [$key => 99999]))
+        ->postJson('/api/freight-rates', freightRateApiBody($location, $product, [$key => 99999]))
         ->assertStatus(422)
         ->assertJsonValidationErrors([$key]);
-})->with(['zoneId', 'productId']);
+})->with(['locationId', 'productId']);
 
 it('responde 422 cuando falta un campo obligatorio del alta', function (string $missing) {
-    $body = freightRateApiBody(Zone::factory()->active()->create(), Product::factory()->active()->create());
+    $body = freightRateApiBody(Location::factory()->active()->create(), Product::factory()->active()->create());
 
     unset($body[$missing]);
 
     asUser(userWithRole(UserRole::Administrator))->postJson('/api/freight-rates', $body)
         ->assertStatus(422)
         ->assertJsonValidationErrors([$missing]);
-})->with(['zoneId', 'productId', 'fuelType', 'fuelMin', 'pricePerPound']);
+})->with(['locationId', 'productId', 'fuelType', 'fuelMin', 'pricePerPound']);
 
 it('responde 422 con un valor inválido en el alta', function (string $key, mixed $value) {
     $body = freightRateApiBody(
-        Zone::factory()->active()->create(),
+        Location::factory()->active()->create(),
         Product::factory()->active()->create(),
         [$key => $value],
     );
@@ -502,7 +491,7 @@ it('responde 422 con un valor inválido en el alta', function (string $key, mixe
         ->assertJsonValidationErrors([$key]);
 })->with([
     'combustible inexistente' => ['fuelType', 'gasolina'],
-    'zona no numérica' => ['zoneId', 'norte'],
+    'destino no numérico' => ['locationId', 'norte'],
     'banda en cero' => ['fuelMin', 0],
     'banda no numérica' => ['fuelMin', 'treinta'],
     'tarifa en cero' => ['pricePerPound', 0],
@@ -510,12 +499,12 @@ it('responde 422 con un valor inválido en el alta', function (string $key, mixe
 ]);
 
 it('registra al usuario autenticado como responsable aunque el body traiga otro', function () {
-    $zone = Zone::factory()->active()->create();
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
     $admin = userWithRole(UserRole::Administrator);
     $otro = userWithRole(UserRole::Administrator);
 
-    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product, [
+    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product, [
         'registeredBy' => $otro->id,
         'registered_by' => $otro->id,
     ]))
@@ -523,7 +512,7 @@ it('registra al usuario autenticado como responsable aunque el body traiga otro'
         ->assertJsonPath('data.registeredByName', $admin->name);
 
     $this->assertDatabaseHas('freight_rates', [
-        'zone_id' => $zone->id,
+        'location_id' => $location->id,
         'registered_by' => $admin->id,
     ]);
 });
@@ -574,7 +563,7 @@ it('cambia solo el precio y deja el resto del par intacto', function () {
         ->assertJsonPath('message', 'Tarifa actualizada correctamente')
         ->assertJsonPath('data.pricePerPound', '0.600000')
         ->assertJsonPath('data.fuelMin', '30.00')
-        ->assertJsonPath('data.zoneId', $rate->zone_id)
+        ->assertJsonPath('data.locationId', $rate->location_id)
         ->assertJsonPath('data.productId', $rate->product_id)
         ->assertJsonPath('data.fuelType', $rate->fuel_type->value);
 
@@ -592,24 +581,24 @@ it('acepta un PATCH vacío como no-op', function () {
         ->assertOk()
         ->assertJsonPath('data.fuelMin', $rate->fuel_min)
         ->assertJsonPath('data.pricePerPound', $rate->price_per_pound)
-        ->assertJsonPath('data.zoneId', $rate->zone_id);
+        ->assertJsonPath('data.locationId', $rate->location_id);
 });
 
 it('rechaza con 400 mover la banda a un fuelMin ocupado y acepta uno libre', function () {
-    $zone = Zone::factory()->active()->create();
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
     $admin = userWithRole(UserRole::Administrator);
 
-    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product, ['fuelMin' => 28.00]))
+    asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product, ['fuelMin' => 28.00]))
         ->assertCreated();
 
-    $id = asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($zone, $product, ['fuelMin' => 35.00]))
+    $id = asUser($admin)->postJson('/api/freight-rates', freightRateApiBody($location, $product, ['fuelMin' => 35.00]))
         ->assertCreated()
         ->json('data.id');
 
     asUser($admin)->patchJson("/api/freight-rates/{$id}", ['fuelMin' => 28.00])
         ->assertStatus(400)
-        ->assertJsonPath('message', 'Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio');
+        ->assertJsonPath('message', 'Ya existe una tarifa para ese destino, ese producto y ese combustible desde ese precio');
 
     /** Reenviar su propia banda no puede chocar consigo misma. */
     asUser($admin)->patchJson("/api/freight-rates/{$id}", ['fuelMin' => 35.00])
@@ -621,19 +610,19 @@ it('rechaza con 400 mover la banda a un fuelMin ocupado y acepta uno libre', fun
         ->assertJsonPath('data.fuelMin', '40.00');
 });
 
-it('rechaza con 400 la edición cuando la zona o el producto se desactivaron después', function (string $target, string $message) {
-    $zone = Zone::factory()->active()->create();
+it('rechaza con 400 la edición cuando el destino o el producto se desactivaron después', function (string $target, string $message) {
+    $location = Location::factory()->active()->create();
     $product = Product::factory()->active()->create();
-    $rate = FreightRate::factory()->create(['zone_id' => $zone->id, 'product_id' => $product->id]);
+    $rate = FreightRate::factory()->create(['location_id' => $location->id, 'product_id' => $product->id]);
 
-    ($target === 'zone' ? $zone : $product)->update(['status' => false]);
+    ($target === 'location' ? $location : $product)->update(['status' => false]);
 
     asUser(userWithRole(UserRole::Administrator))
         ->patchJson("/api/freight-rates/{$rate->id}", ['pricePerPound' => 0.5])
         ->assertStatus(400)
         ->assertJsonPath('message', $message);
 })->with([
-    'zona desactivada' => ['zone', 'La zona seleccionada no está activa'],
+    'destino desactivado' => ['location', 'El destino seleccionado no está activo'],
     'producto desactivado' => ['product', 'El producto seleccionado no está activo'],
 ]);
 
@@ -646,7 +635,7 @@ it('responde 422 con un valor inválido en la edición', function (string $key, 
         ->assertJsonValidationErrors([$key]);
 })->with([
     'combustible inexistente' => ['fuelType', 'gasolina'],
-    'zona inexistente' => ['zoneId', 99999],
+    'destino inexistente' => ['locationId', 99999],
     'producto inexistente' => ['productId', 99999],
     'tarifa en cero' => ['pricePerPound', 0],
 ]);
@@ -678,21 +667,21 @@ it('borra en lógico, saca la tarifa del listado y deja la fila en base', functi
 */
 
 it('devuelve las once claves de la cotización con la banda que rige y el total', function () {
-    ['zone' => $zone, 'product' => $product] = freightRateApiScenario(40.00, [
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [
         [28.00, 0.400000],
         [35.00, 0.454120],
     ]);
 
     $data = asUser(userWithRole(UserRole::Carrier))
-        ->getJson(freightRateQuoteUri($product, ['pounds' => 45000]))
+        ->getJson(freightRateQuoteUri($location, $product, ['pounds' => 45000]))
         ->assertOk()
         ->assertJsonPath('statusCode', 200)
         ->assertJsonPath('message', 'Cotización obtenida correctamente')
         ->json('data');
 
     expect(array_keys($data))->toBe(freightQuoteResourceKeys())
-        ->and($data['zoneId'])->toBe($zone->id)
-        ->and($data['zoneName'])->toBe($zone->name)
+        ->and($data['locationId'])->toBe($location->id)
+        ->and($data['locationName'])->toBe($location->name)
         ->and($data['productId'])->toBe($product->id)
         ->and($data['productName'])->toBe($product->name)
         ->and($data['fuelType'])->toBe('diesel')
@@ -705,12 +694,12 @@ it('devuelve las once claves de la cotización con la banda que rige y el total'
 });
 
 it('deja libras y total en null sin pounds y devuelve el resto idéntico', function () {
-    ['product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
 
     $user = userWithRole(UserRole::Pilot);
 
-    $conLibras = asUser($user)->getJson(freightRateQuoteUri($product, ['pounds' => 45000]))->assertOk()->json('data');
-    $sinLibras = asUser($user)->getJson(freightRateQuoteUri($product))->assertOk()->json('data');
+    $conLibras = asUser($user)->getJson(freightRateQuoteUri($location, $product, ['pounds' => 45000]))->assertOk()->json('data');
+    $sinLibras = asUser($user)->getJson(freightRateQuoteUri($location, $product))->assertOk()->json('data');
 
     expect($sinLibras['pounds'])->toBeNull()
         ->and($sinLibras['total'])->toBeNull()
@@ -718,96 +707,124 @@ it('deja libras y total en null sin pounds y devuelve el resto idéntico', funct
 });
 
 it('ignora cualquier precio de combustible que mande el cliente', function () {
-    ['product' => $product] = freightRateApiScenario(40.00, [
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [
         [28.00, 0.400000],
         [35.00, 0.454120],
     ]);
 
     asUser(userWithRole(UserRole::Manager))
-        ->getJson(freightRateQuoteUri($product, ['fuelPrice' => 10, 'price' => 10, 'currentFuelPrice' => 10]))
+        ->getJson(freightRateQuoteUri($location, $product, ['fuelPrice' => 10, 'price' => 10, 'currentFuelPrice' => 10]))
         ->assertOk()
         ->assertJsonPath('data.currentFuelPrice', '40.00')
         ->assertJsonPath('data.appliedFuelMin', '35.00')
         ->assertJsonPath('data.pricePerPound', '0.454120');
 });
 
-it('responde 404 cuando el punto no cae en ninguna zona', function () {
-    ['product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+it('responde 400, y nunca 404, cuando el destino está inactivo', function () {
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+
+    $location->update(['status' => false]);
 
     asUser(userWithRole(UserRole::Pilot))
-        ->getJson(freightRateQuoteUri($product, ['lat' => -33.0, 'lng' => 18.0]))
-        ->assertNotFound()
+        ->getJson(freightRateQuoteUri($location, $product))
+        ->assertStatus(400)
         ->assertExactJson([
-            'statusCode' => 404,
-            'message' => 'El punto indicado no pertenece a ninguna zona registrada',
+            'statusCode' => 400,
+            'message' => 'El destino seleccionado no está activo',
             'data' => null,
         ]);
 });
 
-it('distingue con un mensaje propio cada fallo de la cotización', function () {
-    ['product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+/** lat y lng dejaron de existir en el contrato: mandarlos no filtra, no valida y no cambia nada. */
+it('ignora por completo lat y lng en la cotización', function () {
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
 
     $user = userWithRole(UserRole::Pilot);
 
-    $fueraDeZona = asUser($user)->getJson(freightRateQuoteUri($product, ['lat' => -33.0, 'lng' => 18.0]))
-        ->assertNotFound()
+    $limpia = asUser($user)->getJson(freightRateQuoteUri($location, $product))->assertOk()->json('data');
+
+    $conCoordenadas = asUser($user)
+        ->getJson(freightRateQuoteUri($location, $product, ['lat' => -33.0, 'lng' => 18.0]))
+        ->assertOk()
+        ->json('data');
+
+    expect($conCoordenadas)->toBe($limpia);
+});
+
+it('responde 422, y no 404, con un destino inexistente', function () {
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+
+    asUser(userWithRole(UserRole::Pilot))
+        ->getJson(freightRateQuoteUri($location, $product, ['locationId' => 99999]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['locationId']);
+});
+
+it('distingue con un mensaje propio cada fallo de la cotización', function () {
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+
+    $user = userWithRole(UserRole::Pilot);
+
+    $inactivo = Location::factory()->inactive()->create();
+
+    $destinoInactivo = asUser($user)->getJson(freightRateQuoteUri($inactivo, $product))
+        ->assertStatus(400)
         ->json('message');
 
     $product->update(['status' => false]);
 
-    $productoInactivo = asUser($user)->getJson(freightRateQuoteUri($product))->assertStatus(400)->json('message');
+    $productoInactivo = asUser($user)->getJson(freightRateQuoteUri($location, $product))->assertStatus(400)->json('message');
 
     $product->update(['status' => true]);
     FuelPrice::query()->update(['status' => FuelPriceStatus::Inactive]);
 
-    $sinPrecioVigente = asUser($user)->getJson(freightRateQuoteUri($product))->assertStatus(400)->json('message');
+    $sinPrecioVigente = asUser($user)->getJson(freightRateQuoteUri($location, $product))->assertStatus(400)->json('message');
 
     FuelPrice::query()->update(['status' => FuelPriceStatus::Active]);
 
     /** Una tarifa borrada no se aplica nunca: si era la única del par, el par se queda sin tarifa. */
     FreightRate::query()->delete();
 
-    $sinTarifa = asUser($user)->getJson(freightRateQuoteUri($product))->assertStatus(400)->json('message');
+    $sinTarifa = asUser($user)->getJson(freightRateQuoteUri($location, $product))->assertStatus(400)->json('message');
 
-    expect([$fueraDeZona, $productoInactivo, $sinPrecioVigente, $sinTarifa])->toBe([
-        'El punto indicado no pertenece a ninguna zona registrada',
+    expect([$destinoInactivo, $productoInactivo, $sinPrecioVigente, $sinTarifa])->toBe([
+        'El destino seleccionado no está activo',
         'El producto seleccionado no está activo',
         'No existe un precio vigente para el combustible indicado',
-        'No existe tarifa cotizada para ese producto en esa zona',
+        'No existe tarifa cotizada para ese producto en ese destino',
     ]);
 });
 
 it('responde 422 cuando falta un parámetro obligatorio de la cotización', function (string $missing) {
-    ['product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
 
     asUser(userWithRole(UserRole::Pilot))
-        ->getJson(freightRateQuoteUri($product, [$missing => null]))
+        ->getJson(freightRateQuoteUri($location, $product, [$missing => null]))
         ->assertStatus(422)
         ->assertJsonValidationErrors([$missing]);
-})->with(['lat', 'lng', 'productId', 'fuelType']);
+})->with(['locationId', 'productId', 'fuelType']);
 
 it('responde 422 con un parámetro fuera de rango en la cotización', function (string $key, mixed $value) {
-    ['product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
 
     asUser(userWithRole(UserRole::Pilot))
-        ->getJson(freightRateQuoteUri($product, [$key => $value]))
+        ->getJson(freightRateQuoteUri($location, $product, [$key => $value]))
         ->assertStatus(422)
         ->assertJsonValidationErrors([$key]);
 })->with([
-    'latitud imposible' => ['lat', 200],
-    'longitud imposible' => ['lng', 500],
     'combustible inexistente' => ['fuelType', 'gasolina'],
+    'destino inexistente' => ['locationId', 99999],
     'producto inexistente' => ['productId', 99999],
     'libras en cero' => ['pounds', 0],
 ]);
 
 it('no persiste nada al cotizar', function () {
-    ['product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
+    ['location' => $location, 'product' => $product] = freightRateApiScenario(40.00, [[35.00, 0.454120]]);
 
     $antes = FreightRate::withTrashed()->count();
 
     asUser(userWithRole(UserRole::Carrier))
-        ->getJson(freightRateQuoteUri($product, ['pounds' => 45000]))
+        ->getJson(freightRateQuoteUri($location, $product, ['pounds' => 45000]))
         ->assertOk();
 
     expect(FreightRate::withTrashed()->count())->toBe($antes);
