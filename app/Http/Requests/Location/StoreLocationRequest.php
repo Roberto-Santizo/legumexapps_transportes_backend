@@ -43,7 +43,12 @@ class StoreLocationRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255', Rule::unique('locations', 'name')],
             'description' => ['nullable', 'string'],
-            'googlePlaceId' => ['required', 'string', 'max:255', Rule::unique('locations', 'google_place_id')],
+            /**
+             * Sin regla unique a propósito: la unicidad del lugar la decide el service, que
+             * responde 400 nombrando al destino que ya lo ocupa. Un 422 aquí cortaría antes y
+             * el cliente nunca vería ese nombre, que es justo lo que hace útil el error.
+             */
+            'googlePlaceId' => ['required', 'string', 'max:255'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
         ];
@@ -63,7 +68,6 @@ class StoreLocationRequest extends FormRequest
             'googlePlaceId.required' => 'El lugar de Google es obligatorio',
             'googlePlaceId.string' => 'El lugar de Google debe ser texto',
             'googlePlaceId.max' => 'El lugar de Google no puede superar los 255 caracteres',
-            'googlePlaceId.unique' => 'Ese lugar ya está registrado en otro destino',
             'latitude.required' => 'La latitud es obligatoria',
             'latitude.numeric' => 'La latitud debe ser numérica',
             'latitude.between' => 'La latitud debe estar entre -90 y 90',

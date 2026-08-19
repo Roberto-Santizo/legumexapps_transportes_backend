@@ -44,7 +44,12 @@ class UpdateLocationRequest extends FormRequest
         return [
             'name' => ['sometimes', 'string', 'max:255', Rule::unique('locations', 'name')->ignore($this->route('location'))],
             'description' => ['sometimes', 'nullable', 'string'],
-            'googlePlaceId' => ['sometimes', 'string', 'max:255', Rule::unique('locations', 'google_place_id')->ignore($this->route('location'))],
+            /**
+             * Sin regla unique a propósito: la unicidad del lugar la decide el service, que
+             * responde 400 nombrando al destino que ya lo ocupa e ignora la propia fila, así
+             * que reenviar el mismo googlePlaceId sigue siendo un 200.
+             */
+            'googlePlaceId' => ['sometimes', 'string', 'max:255'],
             'latitude' => ['sometimes', 'numeric', 'between:-90,90'],
             'longitude' => ['sometimes', 'numeric', 'between:-180,180'],
             'status' => ['sometimes', 'boolean'],
@@ -63,7 +68,6 @@ class UpdateLocationRequest extends FormRequest
             'description.string' => 'La descripción debe ser texto',
             'googlePlaceId.string' => 'El lugar de Google debe ser texto',
             'googlePlaceId.max' => 'El lugar de Google no puede superar los 255 caracteres',
-            'googlePlaceId.unique' => 'Ese lugar ya está registrado en otro destino',
             'latitude.numeric' => 'La latitud debe ser numérica',
             'latitude.between' => 'La latitud debe estar entre -90 y 90',
             'longitude.numeric' => 'La longitud debe ser numérica',
