@@ -74,18 +74,6 @@ class ZoneService implements ZoneServiceInterface
     }
 
     #[Override]
-    public function getZoneContainingPoint(float $latitude, float $longitude): ?Zone
-    {
-        /** Una zona dada de baja deja de resolver puntos, aunque conserve su polígono. */
-        $query = $this->readQuery()->where('status', '=', true);
-
-        $this->whereContainsPoint($query, $latitude, $longitude);
-
-        /** El solape está permitido: el id más bajo gana para que la elección sea determinista. */
-        return $query->orderBy('id')->first();
-    }
-
-    #[Override]
     public function create(User $user, array $data): Zone
     {
         /** Se normaliza aquí aunque el FormRequest ya lo haya hecho: el service es llamable directamente. */
@@ -196,7 +184,7 @@ class ZoneService implements ZoneServiceInterface
      * The filter is applied only when both coordinates arrive, are numeric and are in
      * range; anything else is ignored whole, exactly like a non boolean status. The
      * listing never restricts the status by itself, so an inactive zone containing the
-     * point still shows up here — unlike in getZoneContainingPoint().
+     * point still shows up here.
      *
      * @param  Builder<Zone>  $query
      */
@@ -219,9 +207,11 @@ class ZoneService implements ZoneServiceInterface
     /**
      * Narrow the given query to the zones whose polygon contains the point.
      *
-     * The single place in the project that writes the spatial predicate, shared by the
-     * listing filter and by the point resolution the freight rates lean on. Note that
-     * the point is built as `lng, lat`, the reverse of the query string.
+     * The single place in the project that writes the spatial predicate, now reached
+     * only through the listing filter: the freight rates stopped resolving points when
+     * they moved onto locations. It stays because the filter still uses it, and with it
+     * the knowledge of how to ask PostGIS the question. Note that the point is built as
+     * `lng, lat`, the reverse of the query string.
      *
      * @param  Builder<Zone>  $query
      */
