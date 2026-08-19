@@ -33,6 +33,19 @@ interface LocationServiceInterface
     public function getLocationById(int $id): Location;
 
     /**
+     * Return the active location matching the given id.
+     *
+     * Throws a NotFoundError when the row does not exist and a BadRequestError when it
+     * exists but is inactive: a location taken down draws no routes, exactly as it
+     * quotes no freight. Answering 404 for an inactive one would say it does not
+     * exist and send the client hunting for an id that is perfectly valid.
+     *
+     * The rule lives in this contract and not in the one of whoever consumes it,
+     * because "which location may be used" is knowledge of this domain.
+     */
+    public function getActiveLocationById(int $id): Location;
+
+    /**
      * Register a new location.
      *
      * The name is normalized before being persisted and rejected with a

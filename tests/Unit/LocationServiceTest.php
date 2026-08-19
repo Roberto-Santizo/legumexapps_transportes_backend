@@ -274,7 +274,19 @@ it('devuelve el destino por id sea cual sea su estado', function (string $estado
 
 it('lanza NotFoundError sobre un id inexistente', function (string $method) {
     locationService()->{$method}(9999);
-})->with(['getLocationById', 'toggleStatus', 'destroy'])->throws(NotFoundError::class, 'El destino no existe');
+})->with(['getLocationById', 'toggleStatus', 'destroy', 'getActiveLocationById'])->throws(NotFoundError::class, 'El destino no existe');
+
+it('devuelve el destino activo por id', function () {
+    $location = Location::factory()->active()->create();
+
+    expect(locationService()->getActiveLocationById($location->id)->id)->toBe($location->id);
+});
+
+it('rechaza con BadRequestError un destino inactivo, que existe pero no se usa', function () {
+    $location = Location::factory()->inactive()->create();
+
+    locationService()->getActiveLocationById($location->id);
+})->throws(BadRequestError::class, 'El destino seleccionado no está activo');
 
 /*
 |--------------------------------------------------------------------------
