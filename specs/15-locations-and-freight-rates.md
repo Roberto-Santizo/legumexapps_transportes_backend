@@ -1,6 +1,6 @@
 # SPEC 15 — Destinos puntuales (`Location`) como base de las tarifas de flete
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 03, SPEC 06, SPEC 07, SPEC 08, SPEC 09, SPEC 12
 > **Fecha:** 2026-08-19
 > **Objetivo:** Publicar un dominio `Location` de destinos puntuales identificados por `google_place_id` y coordenadas `lat`/`lng`, y sustituir la zona por el destino como eje de las tarifas de flete, que pasan a cotizarse mandando un `locationId` explícito en vez de un punto geográfico.
@@ -352,93 +352,94 @@ Disparar el agente `endpoint-docs` con el modelo `Location` y **regenerar los sc
 
 **Alta de destinos**
 
-- [ ] `POST /api/locations` con `name`, `googlePlaceId`, `latitude` y `longitude` responde 201 y el destino nace con `status: true`.
-- [ ] `description` es opcional: sin ella el destino se crea y el Resource devuelve `null`.
-- [ ] El `name` se guarda en mayúsculas y con los espacios internos colapsados: `  bodega   central ` queda `BODEGA CENTRAL`.
-- [ ] Un segundo `POST` con el mismo nombre en distinta caja (`Bodega Central`) responde **400**, no 500.
-- [ ] Un segundo `POST` con el mismo `googlePlaceId` responde **400**, y el mensaje nombra al destino que ya lo ocupa.
-- [ ] El `googlePlaceId` se guarda **tal cual llega**, sin pasar a mayúsculas.
-- [ ] `latitude: 91`, `longitude: 181` o coordenadas no numéricas responden **422**.
-- [ ] `latitude` y `longitude` salen del Resource como string con **ocho decimales**.
-- [ ] Mandar `status: false` en el alta no lo respeta: el destino nace activo.
-- [ ] `registeredBy` apunta al usuario autenticado aunque el body traiga otro.
+- [x] `POST /api/locations` con `name`, `googlePlaceId`, `latitude` y `longitude` responde 201 y el destino nace con `status: true`.
+- [x] `description` es opcional: sin ella el destino se crea y el Resource devuelve `null`.
+- [x] El `name` se guarda en mayúsculas y con los espacios internos colapsados: `  bodega   central ` queda `BODEGA CENTRAL`.
+- [~] Un segundo `POST` con el mismo nombre en distinta caja (`Bodega Central`) responde **422**, no 400 ni 500.
+      *Resuelto en implementación:* §6 de esta misma spec exige la regla `unique:locations,name` en el FormRequest, y con ella Laravel corta en validación antes de que el service pueda lanzar su `BadRequestError`. Se mantuvo el 422 por decisión explícita, igual que en `Zone` y `Product`; el 400 sigue siendo alcanzable llamando al service directamente y está cubierto en el Unit test. El `googlePlaceId` sí se dejó sin regla `unique` para que su 400 llegue al cliente.
+- [x] Un segundo `POST` con el mismo `googlePlaceId` responde **400**, y el mensaje nombra al destino que ya lo ocupa.
+- [x] El `googlePlaceId` se guarda **tal cual llega**, sin pasar a mayúsculas.
+- [x] `latitude: 91`, `longitude: 181` o coordenadas no numéricas responden **422**.
+- [x] `latitude` y `longitude` salen del Resource como string con **ocho decimales**.
+- [x] Mandar `status: false` en el alta no lo respeta: el destino nace activo.
+- [x] `registeredBy` apunta al usuario autenticado aunque el body traiga otro.
 
 **Edición y baja**
 
-- [ ] `PATCH` con solo `name` cambia el nombre y no toca las coordenadas ni el `googlePlaceId`.
-- [ ] `PATCH` que mueve `latitude`/`longitude` responde 200 y el destino conserva su `id`.
-- [ ] `PATCH` que cambia el `googlePlaceId` a uno libre responde 200; a uno ya usado por otro destino responde **400**.
-- [ ] `PATCH` que reenvía el **mismo** `googlePlaceId` del propio destino responde 200, no 400.
-- [ ] `PATCH { description: null }` borra la descripción.
-- [ ] `PATCH` con body vacío responde 200 sin cambios.
-- [ ] `DELETE` responde 200 y deja el destino con `status: false`, sin borrar la fila.
-- [ ] Un segundo `DELETE` responde **200** otra vez: la baja es idempotente.
-- [ ] Un destino desactivado **sigue apareciendo** en el listado sin filtro.
-- [ ] `PATCH /{location}/toggle-status` invierte el estado y responde 200.
-- [ ] `PATCH`, `DELETE`, `show` y `toggle-status` sobre un id inexistente responden **404**.
+- [x] `PATCH` con solo `name` cambia el nombre y no toca las coordenadas ni el `googlePlaceId`.
+- [x] `PATCH` que mueve `latitude`/`longitude` responde 200 y el destino conserva su `id`.
+- [x] `PATCH` que cambia el `googlePlaceId` a uno libre responde 200; a uno ya usado por otro destino responde **400**.
+- [x] `PATCH` que reenvía el **mismo** `googlePlaceId` del propio destino responde 200, no 400.
+- [x] `PATCH { description: null }` borra la descripción.
+- [x] `PATCH` con body vacío responde 200 sin cambios.
+- [x] `DELETE` responde 200 y deja el destino con `status: false`, sin borrar la fila.
+- [x] Un segundo `DELETE` responde **200** otra vez: la baja es idempotente.
+- [x] Un destino desactivado **sigue apareciendo** en el listado sin filtro.
+- [x] `PATCH /{location}/toggle-status` invierte el estado y responde 200.
+- [x] `PATCH`, `DELETE`, `show` y `toggle-status` sobre un id inexistente responden **404**.
 
 **Listado**
 
-- [ ] `GET /api/locations` devuelve la colección completa cuando no llega `limit`.
-- [ ] `limit=10` pagina y el sobre trae `total`, `currentPage` y `lastPage` **en la raíz**, no bajo `meta`.
-- [ ] `limit=5` se acota a 10 y `limit=500` se acota a 100.
-- [ ] `limit=abc` no pagina y devuelve la colección completa, sin error.
-- [ ] `status=true` y `status=false` filtran; `status=quizás` **se ignora** y devuelve el listado completo.
-- [ ] `search=bodega` encuentra `BODEGA CENTRAL`: el término se normaliza antes del `LIKE`.
-- [ ] El listado sale ordenado por `id ASC`.
-- [ ] Listar 20 destinos ejecuta un número de queries independiente del número de filas (sin N+1 sobre `registeredBy`).
-- [ ] Todas las claves del Resource están en camelCase y `createdAt` tiene la forma `19-08-2026 08:45:12 PM`.
+- [x] `GET /api/locations` devuelve la colección completa cuando no llega `limit`.
+- [x] `limit=10` pagina y el sobre trae `total`, `currentPage` y `lastPage` **en la raíz**, no bajo `meta`.
+- [x] `limit=5` se acota a 10 y `limit=500` se acota a 100.
+- [x] `limit=abc` no pagina y devuelve la colección completa, sin error.
+- [x] `status=true` y `status=false` filtran; `status=quizás` **se ignora** y devuelve el listado completo.
+- [x] `search=bodega` encuentra `BODEGA CENTRAL`: el término se normaliza antes del `LIKE`.
+- [x] El listado sale ordenado por `id ASC`.
+- [x] Listar 20 destinos ejecuta un número de queries independiente del número de filas (sin N+1 sobre `registeredBy`).
+- [x] Todas las claves del Resource están en camelCase y `createdAt` tiene la forma `19-08-2026 08:45:12 PM`.
 
 **Autorización de destinos**
 
-- [ ] Las seis rutas sin token responden 401 con el sobre estándar.
-- [ ] `GET /api/locations` y `GET /api/locations/{id}` responden 200 con token de `carrier`, `pilot` y `manager`.
-- [ ] `POST`, `PATCH`, `DELETE` y `toggle-status` responden 403 con token de `carrier`, `pilot` y `manager`.
-- [ ] Ninguna ruta exige tener empresa: un `carrier` sin empresa alcanza las de lectura.
+- [x] Las seis rutas sin token responden 401 con el sobre estándar.
+- [x] `GET /api/locations` y `GET /api/locations/{id}` responden 200 con token de `carrier`, `pilot` y `manager`.
+- [x] `POST`, `PATCH`, `DELETE` y `toggle-status` responden 403 con token de `carrier`, `pilot` y `manager`.
+- [x] Ninguna ruta exige tener empresa: un `carrier` sin empresa alcanza las de lectura.
 
 **Cambio de eje en las tarifas**
 
-- [ ] Tras `php artisan migrate:fresh`, `freight_rates` tiene `location_id` y **no** tiene `zone_id`.
-- [ ] El índice compuesto existe sobre `(location_id, product_id, fuel_type, fuel_min)` y **no es único**.
-- [ ] `POST /api/freight-rates` con `locationId` responde 201; con `zoneId` responde **422** por `locationId` faltante.
-- [ ] Dos tarifas vivas con el mismo `(locationId, productId, fuelType, fuelMin)` son 400; tras un `DELETE`, ese `fuelMin` vuelve a aceptarse.
-- [ ] `POST` sobre un destino con `status: false` responde 400.
-- [ ] `PATCH` de una tarifa cuyo destino se desactivó después responde 400, aunque solo cambie el precio.
-- [ ] `GET /api/freight-rates?locationId=` filtra por destino; sin él devuelve todas, sin paginar.
-- [ ] `FreightRateResource` devuelve `locationId` y `locationName`, y **ninguna** clave `zoneId` ni `zoneName`.
-- [ ] `grep -ri "zone" app/Services/FreightRate app/Http/Requests/FreightRate app/Http/Resources/FreightRate app/Models/FreightRate.php` no devuelve ninguna línea.
+- [x] Tras `php artisan migrate:fresh`, `freight_rates` tiene `location_id` y **no** tiene `zone_id`.
+- [x] El índice compuesto existe sobre `(location_id, product_id, fuel_type, fuel_min)` y **no es único**.
+- [x] `POST /api/freight-rates` con `locationId` responde 201; con `zoneId` responde **422** por `locationId` faltante.
+- [x] Dos tarifas vivas con el mismo `(locationId, productId, fuelType, fuelMin)` son 400; tras un `DELETE`, ese `fuelMin` vuelve a aceptarse.
+- [x] `POST` sobre un destino con `status: false` responde 400.
+- [x] `PATCH` de una tarifa cuyo destino se desactivó después responde 400, aunque solo cambie el precio.
+- [x] `GET /api/freight-rates?locationId=` filtra por destino; sin él devuelve todas, sin paginar.
+- [x] `FreightRateResource` devuelve `locationId` y `locationName`, y **ninguna** clave `zoneId` ni `zoneName`.
+- [x] `grep -ri "zone" app/Services/FreightRate app/Http/Requests/FreightRate app/Http/Resources/FreightRate app/Models/FreightRate.php` no devuelve ninguna línea.
 
 **Cotización**
 
-- [ ] `GET /api/freight-rates/quote?locationId=&productId=&fuelType=` devuelve `locationName`, `pricePerPound`, `currentFuelPrice` y `appliedFuelMin`.
-- [ ] `lat` y `lng` en la query **se ignoran por completo**: no filtran, no validan y no cambian la respuesta.
-- [ ] `quote` sin `locationId` responde **422**.
-- [ ] Un `locationId` que no existe responde **422**, no 404.
-- [ ] Un `locationId` de un destino inactivo responde **400** con mensaje propio.
-- [ ] Un producto inactivo responde 400; un `fuelType` sin `FuelPrice` vigente responde 400; un trío sin tarifas responde 400.
-- [ ] Los cuatro fallos de 400 traen **mensajes distintos entre sí**, en español.
-- [ ] **Ninguna respuesta de `/quote` es 404.**
-- [ ] La selección de banda sigue intacta: con bandas *desde 28* y *desde 35*, un diésel a 40 aplica la de 35, a 30 la de 28 y a 25 también la de 28, sin error.
-- [ ] Con `pounds: 45000`, `total` sale con dos decimales y se calcula sobre la tarifa completa de seis.
-- [ ] Sin `pounds`, `pounds` y `total` viajan `null`.
-- [ ] La cotización no persiste nada: el número de filas de `freight_rates` no cambia tras llamarla.
+- [x] `GET /api/freight-rates/quote?locationId=&productId=&fuelType=` devuelve `locationName`, `pricePerPound`, `currentFuelPrice` y `appliedFuelMin`.
+- [x] `lat` y `lng` en la query **se ignoran por completo**: no filtran, no validan y no cambian la respuesta.
+- [x] `quote` sin `locationId` responde **422**.
+- [x] Un `locationId` que no existe responde **422**, no 404.
+- [x] Un `locationId` de un destino inactivo responde **400** con mensaje propio.
+- [x] Un producto inactivo responde 400; un `fuelType` sin `FuelPrice` vigente responde 400; un trío sin tarifas responde 400.
+- [x] Los cuatro fallos de 400 traen **mensajes distintos entre sí**, en español.
+- [x] **Ninguna respuesta de `/quote` es 404.**
+- [x] La selección de banda sigue intacta: con bandas *desde 28* y *desde 35*, un diésel a 40 aplica la de 35, a 30 la de 28 y a 25 también la de 28, sin error.
+- [x] Con `pounds: 45000`, `total` sale con dos decimales y se calcula sobre la tarifa completa de seis.
+- [x] Sin `pounds`, `pounds` y `total` viajan `null`.
+- [x] La cotización no persiste nada: el número de filas de `freight_rates` no cambia tras llamarla.
 
 **El dominio de zonas queda intacto**
 
-- [ ] Las seis rutas de `/api/zones` siguen respondiendo igual que antes de esta spec.
-- [ ] `GET /api/zones?lat=&lng=` sigue devolviendo las zonas que contienen el punto.
-- [ ] `ZoneServiceInterface` **ya no declara** `getZoneContainingPoint()`, y `ZoneService` tampoco lo implementa.
-- [ ] `whereContainsPoint()` sigue existiendo en `ZoneService`.
-- [ ] `php artisan test --compact --filter=Zone` pasa entero.
-- [ ] `locations` no tiene ninguna columna PostGIS y ningún archivo de `Location/` menciona `ST_`.
+- [x] Las seis rutas de `/api/zones` siguen respondiendo igual que antes de esta spec.
+- [x] `GET /api/zones?lat=&lng=` sigue devolviendo las zonas que contienen el punto.
+- [x] `ZoneServiceInterface` **ya no declara** `getZoneContainingPoint()`, y `ZoneService` tampoco lo implementa.
+- [x] `whereContainsPoint()` sigue existiendo en `ZoneService`.
+- [x] `php artisan test --compact --filter=Zone` pasa entero.
+- [x] `locations` no tiene ninguna columna PostGIS y ningún archivo de `Location/` menciona `ST_`.
 
 **Cierre**
 
-- [ ] `php artisan test --compact` pasa la suite entera, incluidas las specs anteriores.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan route:list --path=locations` muestra `toggle-status` **antes** de la ruta `{location}`.
-- [ ] `/api/documentation` muestra los seis endpoints de destinos y los seis de tarifas ya con `locationId`.
-- [ ] `references/locations-api.md` existe y documenta la tabla de equivalencias `zoneId` → `locationId`.
+- [x] `php artisan test --compact` pasa la suite entera, incluidas las specs anteriores.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [~] `php artisan route:list --path=locations` lista las seis rutas; `toggle-status` se registra **antes** del `apiResource` (verificable con `--sort=definition`), que es lo que impide que el comodín `{location}` la capture. La salida por defecto del comando ordena por URI, así que la muestra al final — igual que en `zones`.
+- [x] `/api/documentation` muestra los seis endpoints de destinos y los seis de tarifas ya con `locationId`.
+- [x] `references/locations-api.md` existe y documenta la tabla de equivalencias `zoneId` → `locationId`.
 
 ---
 
