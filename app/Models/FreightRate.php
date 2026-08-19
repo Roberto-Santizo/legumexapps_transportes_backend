@@ -12,22 +12,22 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * A freight rate is an open band: it rules from `fuel_min` upwards, until a higher band
- * of the same zone, product and fuel type exists.
+ * of the same location, product and fuel type exists.
  */
-#[Fillable(['zone_id', 'product_id', 'fuel_type', 'fuel_min', 'price_per_pound', 'registered_by'])]
+#[Fillable(['location_id', 'product_id', 'fuel_type', 'fuel_min', 'price_per_pound', 'registered_by'])]
 class FreightRate extends Model
 {
     /** @use HasFactory<FreightRateFactory> */
     use HasFactory, SoftDeletes;
 
     /**
-     * The zone this rate quotes.
+     * The location this rate quotes.
      *
-     * @return BelongsTo<Zone, $this>
+     * @return BelongsTo<Location, $this>
      */
-    public function zone(): BelongsTo
+    public function location(): BelongsTo
     {
-        return $this->belongsTo(Zone::class);
+        return $this->belongsTo(Location::class);
     }
 
     /**

@@ -64,7 +64,7 @@ class FreightRateController extends Controller
         try {
             /** Nunca pagina: la tabla de precios se lee entera. */
             $rates = $freightRateService->getFreightRates([
-                'zoneId' => $this->queryString($request, 'zoneId'),
+                'locationId' => $this->queryString($request, 'locationId'),
             ]);
 
             return ResponseHandler::success(
@@ -103,8 +103,7 @@ class FreightRateController extends Controller
         security: [['bearerAuth' => []]],
         tags: ['FreightRates'],
         parameters: [
-            new OA\Parameter(ref: '#/components/parameters/quoteLatQuery'),
-            new OA\Parameter(ref: '#/components/parameters/quoteLngQuery'),
+            new OA\Parameter(ref: '#/components/parameters/quoteLocationIdQuery'),
             new OA\Parameter(ref: '#/components/parameters/quoteProductIdQuery'),
             new OA\Parameter(ref: '#/components/parameters/quoteFuelTypeQuery'),
             new OA\Parameter(ref: '#/components/parameters/quotePoundsQuery'),

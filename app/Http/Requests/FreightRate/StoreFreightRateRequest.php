@@ -12,21 +12,21 @@ use OpenApi\Attributes as OA;
     schema: 'StoreFreightRateRequest',
     title: 'Alta de tarifa de flete',
     description: <<<'TEXT'
-    Cuerpo JSON para cotizar una banda nueva. Los cinco campos —zoneId, productId, fuelType, fuelMin y pricePerPound— son OBLIGATORIOS; no hay ningún campo opcional.
+    Cuerpo JSON para cotizar una banda nueva. Los cinco campos —locationId, productId, fuelType, fuelMin y pricePerPound— son OBLIGATORIOS; no hay ningún campo opcional.
 
     El registeredBy NO SE ACEPTA por ningún nombre: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no tiene ningún efecto, ni siquiera un 422. Tampoco se acepta ningún precio de combustible vigente: la tarifa guarda un fuelMin, no una referencia a fuel_prices.
 
     Las claves del cuerpo van en camelCase; el service traduce a snake_case al persistir.
 
-    ATENCIÓN — 422 Y 400 SIGNIFICAN COSAS DISTINTAS. La regla exists solo comprueba que la fila ESTÉ, nunca que esté activa: un zoneId o un productId inexistente es 422 (validación), mientras que una zona o un producto con status false es 400 (regla de negocio del service, con su propio mensaje: La zona seleccionada no está activa / El producto seleccionado no está activo). Repetir una banda ya cotizada también es 400, no 422: Ya existe una tarifa para esa zona, ese producto y ese combustible desde ese precio.
+    ATENCIÓN — 422 Y 400 SIGNIFICAN COSAS DISTINTAS. La regla exists solo comprueba que la fila ESTÉ, nunca que esté activa: un locationId o un productId inexistente es 422 (validación), mientras que un destino o un producto con status false es 400 (regla de negocio del service, con su propio mensaje: El destino seleccionado no está activo / El producto seleccionado no está activo). Repetir una banda ya cotizada también es 400, no 422: Ya existe una tarifa para ese destino, ese producto y ese combustible desde ese precio.
 
     La unicidad mira SOLO las filas vivas: tras un DELETE, ese mismo fuelMin vuelve a estar libre y se puede cotizar otra vez con 201.
     TEXT,
-    required: ['zoneId', 'productId', 'fuelType', 'fuelMin', 'pricePerPound'],
+    required: ['locationId', 'productId', 'fuelType', 'fuelMin', 'pricePerPound'],
     properties: [
         new OA\Property(
-            property: 'zoneId',
-            description: 'Identificador de la zona a la que aplica la tarifa (zones.id). Obligatorio y entero. Si el id no existe es 422 con "La zona seleccionada no existe"; si existe pero tiene status false es 400 con "La zona seleccionada no está activa". Forma parte de la clave de la banda junto a productId, fuelType y fuelMin.',
+            property: 'locationId',
+            description: 'Identificador del destino puntual al que aplica la tarifa (locations.id). Obligatorio y entero. Si el id no existe es 422 con "El destino seleccionado no existe"; si existe pero tiene status false es 400 con "El destino seleccionado no está activo". Forma parte de la clave de la banda junto a productId, fuelType y fuelMin.',
             type: 'integer',
             example: 3,
         ),
@@ -82,7 +82,7 @@ class StoreFreightRateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'zoneId' => ['required', 'integer', 'exists:zones,id'],
+            'locationId' => ['required', 'integer', 'exists:locations,id'],
             'productId' => ['required', 'integer', 'exists:products,id'],
             'fuelType' => ['required', Rule::enum(FuelType::class)],
             'fuelMin' => ['required', 'numeric', 'min:0.01', 'max:999999.99'],
@@ -96,9 +96,9 @@ class StoreFreightRateRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'zoneId.required' => 'La zona es obligatoria',
-            'zoneId.integer' => 'La zona debe ser un identificador numérico',
-            'zoneId.exists' => 'La zona seleccionada no existe',
+            'locationId.required' => 'El destino es obligatorio',
+            'locationId.integer' => 'El destino debe ser un identificador numérico',
+            'locationId.exists' => 'El destino seleccionado no existe',
             'productId.required' => 'El producto es obligatorio',
             'productId.integer' => 'El producto debe ser un identificador numérico',
             'productId.exists' => 'El producto seleccionado no existe',

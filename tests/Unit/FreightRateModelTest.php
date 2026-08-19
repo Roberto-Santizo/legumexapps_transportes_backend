@@ -2,14 +2,14 @@
 
 use App\Enums\FuelType;
 use App\Models\FreightRate;
+use App\Models\Location;
 use App\Models\Product;
 use App\Models\User;
-use App\Models\Zone;
 
-it('crea una tarifa con su zona, su producto y su administrador propios', function () {
+it('crea una tarifa con su destino, su producto y su administrador propios', function () {
     $rate = FreightRate::factory()->create();
 
-    expect($rate->zone)->toBeInstanceOf(Zone::class)
+    expect($rate->location)->toBeInstanceOf(Location::class)
         ->and($rate->product)->toBeInstanceOf(Product::class)
         ->and($rate->registeredBy)->toBeInstanceOf(User::class);
 });

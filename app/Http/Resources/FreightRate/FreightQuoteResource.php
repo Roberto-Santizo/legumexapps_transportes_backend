@@ -19,7 +19,7 @@ use OpenApi\Attributes as OA;
     schema: 'FreightQuote',
     title: 'Cotización de flete',
     description: <<<'TEXT'
-    Respuesta de GET /api/freight-rates/quote: cuánto cuesta la libra hasta el punto consultado y, si se enviaron las libras, cuánto cuesta el flete completo.
+    Respuesta de GET /api/freight-rates/quote: cuánto cuesta la libra hasta el destino consultado y, si se enviaron las libras, cuánto cuesta el flete completo.
 
     NO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, y llamarla mil veces deja freight_rates exactamente igual. No es una reserva, no es un pedido y no bloquea el precio: la misma consulta mañana puede devolver otro número si cambió el precio del combustible o si se cotizó una banda nueva.
 
@@ -31,27 +31,27 @@ use OpenApi\Attributes as OA;
 
     Este recurso NO envuelve un modelo: junta la tarifa elegida con los tres datos que la hacen auditable —el precio de combustible vigente, la banda que se aplicó y el total—, que no viven en ninguna fila.
 
-    Ejemplo completo del dominio: 45 000 libras de brócoli con destino en la zona norte y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.
+    Ejemplo completo del dominio: 45 000 libras de brócoli con destino en la bodega central de Escuintla y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.
     TEXT,
     properties: [
         new OA\Property(
             property: 'freightRateId',
-            description: 'Identificador de la tarifa que se APLICÓ (freight_rates.id): la banda concreta que ganó entre todas las del par. Sirve para auditar la cotización y para ir al detalle de la fila, aunque GET /api/freight-rates/{freightRate} es exclusivo del administrator. No se crea nada: este id ya existía antes de la consulta.',
+            description: 'Identificador de la tarifa que se APLICÓ (freight_rates.id): la banda concreta que ganó entre todas las del trío. Sirve para auditar la cotización y para ir al detalle de la fila, aunque GET /api/freight-rates/{freightRate} es exclusivo del administrator. No se crea nada: este id ya existía antes de la consulta.',
             type: 'integer',
             example: 12,
         ),
         new OA\Property(
-            property: 'zoneId',
-            description: 'Identificador de la zona que CONTIENE el punto consultado, resuelta a partir de lat y lng. No se envía en la petición: el sistema la deduce del punto, que es justamente lo que se le pide. Si ninguna zona activa contiene el punto, la respuesta es 404 y no llega a este schema. Se asume que las zonas no se solapan; si dos se cruzan, gana la de id más bajo, de forma determinista y sin avisar de que había otra.',
+            property: 'locationId',
+            description: 'Identificador del destino cotizado (locations.id), el mismo que se envió en la query. No se deduce de ninguna coordenada: el destino se manda explícito, así que no hay ambigüedad que resolver ni forma de cotizar un lugar sin darlo de alta antes. Un destino con status false devuelve 400 y no llega a este schema; uno inexistente lo atrapa antes la validación con 422.',
             type: 'integer',
             example: 3,
         ),
         new OA\Property(
-            property: 'zoneName',
-            description: 'Nombre de la zona que contiene el punto, EN MAYÚSCULAS. Es lo que se muestra al usuario para que confirme que el destino cayó donde esperaba.',
+            property: 'locationName',
+            description: 'Nombre del destino cotizado, EN MAYÚSCULAS. Viaja resuelto para que el cliente confirme al usuario qué destino se cotizó sin un segundo GET. Las coordenadas del destino NO viajan aquí: quien cotiza mandó el locationId y ya las tiene.',
             type: 'string',
             nullable: true,
-            example: 'ZONA NORTE',
+            example: 'BODEGA CENTRAL ESCUINTLA',
         ),
         new OA\Property(
             property: 'productId',
@@ -125,8 +125,8 @@ class FreightQuoteResource extends JsonResource
 
         return [
             'freightRateId' => $rate->id,
-            'zoneId' => $rate->zone_id,
-            'zoneName' => $rate->zone?->name,
+            'locationId' => $rate->location_id,
+            'locationName' => $rate->location?->name,
             'productId' => $rate->product_id,
             'productName' => $rate->product?->name,
             'fuelType' => $rate->fuel_type->value,
