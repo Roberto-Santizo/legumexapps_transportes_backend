@@ -1,5 +1,6 @@
 <?php
 
+use App\Providers\Accessory\AccessoryProvider;
 use App\Providers\AppServiceProvider;
 use App\Providers\Auth\AuthProvider;
 use App\Providers\Carrier\CarrierProvider;
@@ -15,6 +16,7 @@ use App\Providers\VehicleExpense\VehicleExpenseProvider;
 use App\Providers\Zone\ZoneProvider;
 
 return [
+    AccessoryProvider::class,
     AppServiceProvider::class,
     AuthProvider::class,
     CarrierProvider::class,
