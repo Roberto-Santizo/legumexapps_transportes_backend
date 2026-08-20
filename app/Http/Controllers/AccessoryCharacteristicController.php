@@ -23,7 +23,13 @@ class AccessoryCharacteristicController extends Controller
 
             $data = $characteristics instanceof LengthAwarePaginator
                 ? (new PaginatedResource($characteristics, AccessoryCharacteristicResource::class))->resolve()
-                : ['data' => AccessoryCharacteristicResource::collection($characteristics)->resolve()];
+                /**
+                 * Sin envolver en ['data' => ...]: ResponseHandler solo aplana esa clave
+                 * cuando el array trae más de una, así que envolverla anidaría data
+                 * dentro de data. VehicleExpenseController se salva porque añade
+                 * totalAmount, que aquí no existe.
+                 */
+                : AccessoryCharacteristicResource::collection($characteristics);
 
             return ResponseHandler::success($data, 'Características obtenidas correctamente', 200);
         } catch (\Throwable $th) {
