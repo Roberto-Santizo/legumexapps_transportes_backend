@@ -11,6 +11,7 @@
 */
 
 require __DIR__.'/accessories.php';
+require __DIR__.'/accessory_characteristics.php';
 require __DIR__.'/auth.php';
 require __DIR__.'/carriers.php';
 require __DIR__.'/freight_rates.php';
