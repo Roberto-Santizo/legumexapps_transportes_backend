@@ -32,25 +32,29 @@ function carrierEndpoints(): array
     ];
 }
 
-/**
- * Create a confirmed user with the given role.
- */
-function userWithRole(UserRole $role): User
-{
-    return User::factory()->create(['role' => $role]);
+if (! function_exists('userWithRole')) {
+    /**
+     * Create a confirmed user with the given role.
+     */
+    function userWithRole(UserRole $role): User
+    {
+        return User::factory()->create(['role' => $role]);
+    }
 }
 
-/**
- * Authenticate the next request as the given user.
- *
- * The JWT singletons survive between calls of the same test, so the guard state
- * is dropped before handing the fresh token over.
- */
-function asUser(User $user): TestCase
-{
-    resetAuthState();
+if (! function_exists('asUser')) {
+    /**
+     * Authenticate the next request as the given user.
+     *
+     * The JWT singletons survive between calls of the same test, so the guard state
+     * is dropped before handing the fresh token over.
+     */
+    function asUser(User $user): TestCase
+    {
+        resetAuthState();
 
-    return test()->withToken(JWTAuth::fromUser($user))->withHeader('Accept', 'application/json');
+        return test()->withToken(JWTAuth::fromUser($user))->withHeader('Accept', 'application/json');
+    }
 }
 
 /**
