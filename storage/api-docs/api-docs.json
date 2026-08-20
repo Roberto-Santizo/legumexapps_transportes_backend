@@ -12,6 +12,450 @@
         }
     ],
     "paths": {
+        "/api/accessories": {
+            "get": {
+                "tags": [
+                    "Accessories"
+                ],
+                "summary": "Listar accesorios",
+                "description": "Devuelve los accesorios del inventario nacional con su valor depreciado a día de hoy y el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque el accesorio es un dato nacional y no está acotado por transportista ni por vehículo. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.\n\nATENCIÓN — el listado devuelve por defecto LOS TRES ESTADOS MEZCLADOS: active, inactive y under_repair. La baja de un accesorio es lógica, así que lo dado de baja SIGUE APARECIENDO aquí con status \"inactive\"; para quedarse solo con lo disponible hay que enviar status=active. Es intencionado: una pantalla de administración necesita ver lo que dio de baja para poder reactivarlo.\n\nATENCIÓN — UNA FILA ES UNA UNIDAD FÍSICA: no hay quantity. Si hay cuatro llantas iguales, aquí salen CUATRO elementos con cuatro códigos distintos y el mismo tipo de nombre no es posible —el name es único—, así que cada unidad lleva su propio nombre y su propio código. Contar existencias es contar filas o leer el total del sobre paginado.\n\nATENCIÓN — cada elemento trae su currentValue RECALCULADO EN ESTA MISMA RESPUESTA: no está guardado en ninguna columna. Dos llamadas idénticas en días distintos devuelven valores distintos con la tabla intacta, y eso NO es un bug. Como el campo no existe en la base, NO se puede filtrar ni ordenar por él: quien necesite la lista ordenada por valor debe ordenarla en el cliente sobre la página que ya recibió.\n\nEl orden es fijo y no configurable: id ASC, es decir, el orden en que se dieron de alta. No hay sortBy ni sortDir.\n\nLos filtros —status, search y limit— se combinan entre sí y son TOLERANTES: un status que no es uno de los tres valores del enum, un search en blanco y un limit no numérico se ignoran en silencio y la lectura devuelve 200, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. No hay filtro por rango de precio, por valor depreciado, por fecha de compra ni por autor del alta: cualquier otro query param se ignora.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos APLANADOS EN LA RAÍZ, no bajo meta.",
+                "operationId": "indexAccessories",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filtra por estado. Es un ENUM DE TRES VALORES, no un booleano: los valores admitidos son active, inactive y under_repair, en minúsculas y tal cual. Cualquier otro valor —status=1, status=true, status=ACTIVE o status=lo-que-sea— NO resuelve al enum y se IGNORA sin error, devolviendo los tres estados mezclados, igual que si se omitiera: este filtro nunca provoca un 422. Solo admite un valor: no hay forma de pedir \"active y under_repair\" a la vez.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "active",
+                            "enum": [
+                                "active",
+                                "inactive",
+                                "under_repair"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Búsqueda parcial sobre el nombre Y el código a la vez (LIKE %TERM% sobre los dos, unidos por OR y agrupados para no saltarse el filtro de status). El término se normaliza como un nombre —recorte, colapso de espacios y mayúsculas— y tanto name como code están siempre en mayúsculas, así que la búsqueda es insensible a mayúsculas: search=gato y search=GATO devuelven ambas GATO HIDRÁULICO, y search=acc-00 encuentra ACC-0042 por su código. ATENCIÓN — el término colapsa sus espacios internos, así que buscar \"A 100\" busca en realidad \"A 100\" ya colapsado y puede no encontrar un código con espacios múltiples. En blanco o solo espacios se ignora y se devuelven todos. NO cubre la descripción ni el autor del alta.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "gato"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación —que es lo que quiere un selector de accesorios—. Si es numérico se ACOTA al rango [10, 100]: limit=5 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status y search.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Accesorios obtenidos correctamente. Sin limit se devuelve AccessoryListResponse; con limit numérico, PaginatedAccessoryListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Una tabla vacía o un filtro sin coincidencias devuelven 200 con data vacío, nunca 404. Cada elemento trae su currentValue calculado para el día de hoy.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/AccessoryListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedAccessoryListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Accessories"
+                ],
+                "summary": "Registrar un accesorio",
+                "description": "Da de alta UNA UNIDAD FÍSICA del inventario nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer los accesorios. No lleva carrier.required, porque el accesorio no pertenece a ninguna empresa ni se asigna a ningún vehículo.\n\nATENCIÓN — NO HAY CAMPO quantity: cada llamada crea EXACTAMENTE UNA fila. Para registrar cuatro llantas iguales hay que hacer CUATRO altas, cada una con su propio código; no existe alta masiva y mandar una cantidad en el cuerpo se ignora sin error.\n\nEl cuerpo acepta name, code, description, price, purchaseDate y annualDepreciation; obligatorios todos menos description. El status NO se envía —el accesorio nace siempre \"active\" y mandarlo se descarta—, así que no se puede crear uno ya dado de baja o ya en reparación: para eso está el PATCH. El registeredBy tampoco: se toma del usuario autenticado y se devuelve resuelto como el NOMBRE de esa persona. El currentValue tampoco: es derivado y de solo salida, y mandarlo se IGNORA EN SILENCIO.\n\nATENCIÓN — name y code se NORMALIZAN CON REGLAS DISTINTAS. El name se recorta, se le COLAPSAN los espacios internos y se pasa a mayúsculas: enviar \"gato  hidráulico\" crea \"GATO HIDRÁULICO\". El code se recorta y se pasa a mayúsculas pero NO se le colapsan los espacios: \"A 100\" y \"A100\" son dos códigos DISTINTOS y los dos se aceptan a la vez. El cliente debe pintar el name y el code de la respuesta, no los que tecleó el usuario. Como la normalización ocurre ANTES de las reglas unique, enviar \"gato hidráulico\" existiendo \"GATO HIDRÁULICO\" devuelve 422, no 201 ni 500.\n\nLOS DOS DUPLICADOS POSIBLES SE RESPONDEN IGUAL, con 422 desde el FormRequest: \"Ya existe un accesorio con ese nombre\" y \"Ya existe un accesorio con ese código\". Aquí no hay la asimetría 422/400 de Locations. El service repite esas dos comprobaciones con esos mismos mensajes como 400, pero por HTTP nunca se ven: el FormRequest corta antes; solo aparecen en una llamada directa al service.\n\nATENCIÓN — LA UNICIDAD DEL CÓDIGO ES GLOBAL Y CIEGA AL STATUS: un accesorio dado de baja NO libera su código, porque la unidad retirada conserva el número escrito en su etiqueta. Es la diferencia deliberada con la placa de un vehículo, que un status inactive sí libera.\n\nEl día del alta, si purchaseDate es hoy, currentValue viene exactamente igual a price: todavía no ha transcurrido ni un día de depreciación.",
+                "operationId": "storeAccessory",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreAccessoryRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Accesorio registrado correctamente, con status \"active\", el name y el code ya normalizados en mayúsculas, price y annualDepreciation como cadenas de dos decimales, purchaseDate en d-m-Y, createdAt en d-m-Y h:i:s A, registeredBy con el nombre del administrador autenticado y currentValue ya calculado —igual a price si la compra fue hoy—.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Accesorio registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Accessory"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida: el nombre o el código ya están ocupados por otro accesorio (Ya existe un accesorio con ese nombre / Ya existe un accesorio con ese código). ATENCIÓN — por HTTP este 400 NO SE ALCANZA: las reglas unique del FormRequest cazan los dos duplicados antes y responden 422 con esos mismos mensajes. El service repite la comprobación para que una llamada directa —sin pasar por el FormRequest— dé un error de negocio y no un 500 contra el índice único de la tabla. Se documenta por completitud del contrato.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer los accesorios—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos. Casos típicos: falta el name o ya existe un accesorio con ese nombre una vez normalizado —incluido mandar \"gato hidráulico\" existiendo \"GATO HIDRÁULICO\"— (El nombre del accesorio es obligatorio / Ya existe un accesorio con ese nombre); falta el code o ya lo ocupa otro accesorio, INCLUIDO UNO DADO DE BAJA (El código del accesorio es obligatorio / Ya existe un accesorio con ese código); el price falta, no es numérico, es 0 o supera el máximo (El precio es obligatorio / El precio debe ser numérico / El precio debe ser mayor a 0 / El precio no puede superar 99999999.99); la purchaseDate falta, no es una fecha o es FUTURA (La fecha de compra es obligatoria / La fecha de compra debe ser una fecha válida / La fecha de compra no puede ser futura); la annualDepreciation falta, no es numérica o se sale de [0, 100] (El porcentaje de depreciación anual es obligatorio / El porcentaje de depreciación anual no puede ser negativo / El porcentaje de depreciación anual no puede superar 100); o la descripción no es texto o supera los 1000 caracteres.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/accessories/{accessory}": {
+            "get": {
+                "tags": [
+                    "Accessories"
+                ],
+                "summary": "Obtener un accesorio por id",
+                "description": "Devuelve un accesorio concreto —en cualquiera de sus tres estados— con su valor depreciado a día de hoy y el nombre del administrador que lo capturó.\n\nSolo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa ni por vehículo, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.\n\nUn accesorio con status \"inactive\" o \"under_repair\" se obtiene con toda normalidad: la baja es lógica y no oculta la fila en ninguna lectura. El campo status es lo que distingue si está disponible.\n\nATENCIÓN — el currentValue se CALCULA EN ESTA MISMA RESPUESTA y no está guardado en ninguna columna: pedir el mismo id mañana devuelve un número menor sin que nadie haya editado nada. No es un bug ni una condición de carrera; es la depreciación lineal contada por días.\n\nNo hay consulta por code ni por nombre: para buscar por cualquiera de los dos está el filtro search del listado.",
+                "operationId": "showAccessory",
+                "parameters": [
+                    {
+                        "name": "accessory",
+                        "in": "path",
+                        "description": "Identificador numérico del accesorio (accessories.id). NO es el code: el código es el identificador que teclea el usuario, es editable y no existe consulta por él —para eso está el filtro search del listado—. El id, en cambio, no cambia nunca y sobrevive tanto a la baja lógica como a un cambio de código.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Accesorio obtenido correctamente. Puede estar en cualquiera de los tres estados: el campo status lo distingue. price, annualDepreciation y currentValue vuelven como cadenas de dos decimales; purchaseDate en d-m-Y y createdAt en d-m-Y h:i:s A, no ISO 8601. No hay updatedAt.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Accesorio obtenido correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Accessory"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Un accesorio dado de baja o en reparación NO cae aquí: sigue existiendo y se devuelve con 200. El mensaje devuelto es: El accesorio no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Accessories"
+                ],
+                "summary": "Dar de baja un accesorio",
+                "description": "ATENCIÓN — este DELETE NO BORRA NADA: es una BAJA LÓGICA que se limita a poner status en \"inactive\". La fila sigue existiendo en la base, GET /api/accessories/{accessory} la sigue devolviendo con 200 y SIGUE APARECIENDO en GET /api/accessories sin filtros —para excluirla hay que pedir status=active—. Es lo contrario del DELETE de FuelPrices, que borra de verdad, y del de FreightRates, que es un soft delete no idempotente. El motivo es que una unidad retirada sigue siendo historial de inventario: su precio de compra y su depreciación son datos contables que no deben desaparecer.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nEs IDEMPOTENTE: repetir la llamada sobre un accesorio ya dado de baja responde 200 LAS DOS VECES y lo deja igual, no 400 ni 404. Dar de baja algo que ya lo está no es un error del cliente, porque el resultado que pidió ya se cumple. Sobre uno en \"under_repair\" también funciona y lo deja en \"inactive\": no comprueba el estado anterior.\n\nEs REVERSIBLE: el accesorio se reactiva con PATCH /api/accessories/{accessory} y status \"active\". NO existe /toggle-status en este dominio —con tres estados un interruptor no significa nada—, así que el PATCH es la única vía. No hay borrado real por ninguna vía.\n\nATENCIÓN — LA BAJA NO LIBERA EL CÓDIGO: a diferencia de la placa de un vehículo, que un status inactive sí libera, el code de un accesorio dado de baja sigue ocupado PARA SIEMPRE, y otra alta que lo pida recibe 422 con \"Ya existe un accesorio con ese código\". Tampoco libera el name. Si se retira una unidad y entra otra en su lugar, hay que darle un código nuevo.\n\nEl currentValue se sigue calculando y devolviendo en un accesorio dado de baja: la depreciación no se congela con la baja, así que su valor sigue bajando cada día hasta llegar al piso de 0.00.",
+                "operationId": "destroyAccessory",
+                "parameters": [
+                    {
+                        "name": "accessory",
+                        "in": "path",
+                        "description": "Identificador numérico del accesorio (accessories.id). Sigue siendo válido después de la baja: el id nunca desaparece, la fila se sigue consultando y su código sigue ocupado.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Accesorio dado de baja correctamente. data devuelve la fila ya con status \"inactive\"; la fila sigue existiendo, sigue siendo consultable por id y sigue apareciendo en el listado sin filtros. Repetir el DELETE vuelve a responder 200 con el mismo cuerpo —salvo el currentValue, que se recalcula—: es idempotente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Accesorio dado de baja correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Accessory"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Un accesorio ya dado de baja NO cae aquí: la baja es idempotente y responde 200. El mensaje devuelto es: El accesorio no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Accessories"
+                ],
+                "summary": "Actualizar un accesorio",
+                "description": "Modifica el nombre, el código, la descripción, el precio, la fecha de compra, el porcentaje de depreciación, el estado o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nTodos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda description no altera el nombre, el código ni el precio. Un CUERPO VACÍO responde 200 como no-op, devolviendo el accesorio sin cambios, en vez de 422.\n\nATENCIÓN — ESTE ENDPOINT ES LA ÚNICA VÍA PARA CAMBIAR EL ESTADO: NO existe PATCH /api/accessories/{accessory}/toggle-status, al contrario que en Products, Zones y Locations. Con tres valores no hay nada que invertir, así que el estado se fija explícitamente mandando status con \"active\", \"inactive\" o \"under_repair\". No hay reglas de transición: cualquier estado pasa a cualquier otro —de \"inactive\" directamente a \"under_repair\", sin escala en \"active\"— y reenviar el actual es 200 y no-op. Con status \"inactive\" se da de baja igual que con el DELETE; con \"active\" se reactiva.\n\nEl name se NORMALIZA igual que en el alta —recorte, colapso de espacios y mayúsculas— y el code también, pero SIN colapsar los espacios internos. Las dos unicidades se revalidan IGNORANDO la propia fila, así que reenviar su mismo nombre o su mismo código responde 200 y usar el de otro accesorio responde 422.\n\nATENCIÓN — EL code ES EDITABLE: corregir un código mal tecleado conserva la fila, su id y su historial, que es justo el motivo de permitirlo. Pero su unicidad sigue siendo GLOBAL Y CIEGA AL STATUS: no se puede reutilizar el código que ocupa un accesorio dado de baja, porque un inactive nunca libera el suyo.\n\nATENCIÓN — EDITAR price, purchaseDate O annualDepreciation CAMBIA EL currentValue de la siguiente lectura, porque los tres son sus entradas y el valor se recalcula en cada respuesta. No hay bitácora de ninguno de los tres: el valor anterior se pierde sin rastro y la nueva depreciación se aplica como si siempre hubiera sido así. Mandar currentValue en el cuerpo se IGNORA EN SILENCIO, sin 422 y sin aviso: es un campo de solo salida.\n\nLa description acepta null para borrarla —se distingue de omitir la clave, que la deja como está—; ningún otro campo acepta null.\n\nEl registeredBy no se reescribe: sigue apuntando a quien dio de alta el accesorio, aunque lo edite otro administrador. El createdAt tampoco cambia, y el updatedAt existe en la base pero el recurso NO lo expone, así que por la API no hay forma de saber cuándo se editó por última vez.",
+                "operationId": "updateAccessory",
+                "parameters": [
+                    {
+                        "name": "accessory",
+                        "in": "path",
+                        "description": "Identificador numérico del accesorio (accessories.id). Es también la fila que se ignora al revalidar la unicidad del nombre y la del código, de modo que reenviar los suyos propios no choca consigo misma. El id NO cambia al corregir el code: el código es editable, el id no.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateAccessoryRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Accesorio actualizado correctamente. data trae la fila ya modificada, con el name y el code normalizados en mayúsculas, el mismo registeredBy, el mismo createdAt y el currentValue recalculado con los valores nuevos. Un cuerpo vacío también responde 200, con el accesorio intacto.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Accesorio actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Accessory"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida: el nombre o el código enviados ya los ocupa OTRO accesorio (Ya existe un accesorio con ese nombre / Ya existe un accesorio con ese código). ATENCIÓN — por HTTP este 400 NO SE ALCANZA: las reglas unique del FormRequest, que ya ignoran la propia fila, cazan los dos duplicados antes y responden 422 con esos mismos mensajes. El service repite la comprobación para que una llamada directa dé un error de negocio y no un 500 contra el índice único. Se documenta por completitud del contrato.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id. Un accesorio dado de baja NO cae aquí: se puede editar y reactivar con normalidad. El mensaje devuelto es: El accesorio no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "El name ya lo usa otro accesorio (Ya existe un accesorio con ese nombre), no es texto o supera los 255 caracteres; el code ya lo usa otro accesorio —INCLUIDO UNO DADO DE BAJA, porque un inactive no libera su código— (Ya existe un accesorio con ese código), no es texto o supera los 255 caracteres; el price no es numérico, es 0 o supera el máximo (El precio debe ser mayor a 0 / El precio no puede superar 99999999.99); la purchaseDate no es una fecha o es futura (La fecha de compra no puede ser futura); la annualDepreciation no es numérica o se sale de [0, 100]; la descripción no es texto o supera los 1000 caracteres; o el status no es uno de los tres valores del enum (El estado debe ser active, inactive o under_repair). Un cuerpo vacío NO produce 422, y reenviar el propio nombre, el propio código o el propio estado tampoco.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/auth/register": {
             "post": {
                 "tags": [
@@ -5851,6 +6295,119 @@
                 },
                 "type": "object"
             },
+            "StoreAccessoryRequest": {
+                "title": "Alta de accesorio",
+                "description": "Cuerpo JSON para dar de alta un accesorio del inventario nacional. Los campos aceptados son name, code, description, price, purchaseDate y annualDepreciation; todos son obligatorios salvo description.\n\nATENCIÓN — UNA FILA ES UNA UNIDAD FÍSICA: NO existe el campo quantity. Para registrar dos llantas iguales hay que hacer DOS altas, con DOS códigos distintos; mandar una cantidad no crea varias filas ni da error, simplemente se ignora.\n\nEl status NO se acepta: el accesorio nace siempre \"active\" y enviarlo se descarta sin error, así que no hay forma de crear un accesorio ya dado de baja o ya en reparación — para eso está el PATCH. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador, y sale en la respuesta como el NOMBRE de esa persona. El currentValue tampoco se acepta: es un campo DERIVADO Y DE SOLO SALIDA que se calcula en cada lectura; mandarlo se IGNORA EN SILENCIO, sin 422 y sin aviso.\n\nATENCIÓN — name y code se NORMALIZAN antes de validarse y antes de guardarse, pero CON REGLAS DISTINTAS. El name se recorta, se le COLAPSAN los espacios internos y se pasa a mayúsculas: \"  gato   hidráulico  \" crea \"GATO HIDRÁULICO\". El code se recorta y se pasa a mayúsculas pero NO se le colapsan los espacios internos, porque es un identificador y no una frase: \"A 100\" y \"A100\" son dos códigos DISTINTOS y los dos se aceptan. Como la normalización ocurre ANTES de las reglas unique, enviar \"gato hidráulico\" existiendo ya \"GATO HIDRÁULICO\" devuelve 422, no 500 ni una fila duplicada.\n\nLos DOS duplicados posibles se responden igual, con 422 desde el FormRequest: \"Ya existe un accesorio con ese nombre\" y \"Ya existe un accesorio con ese código\". No hay aquí la asimetría 422/400 de Locations. El service repite esas mismas comprobaciones y esos mismos mensajes como 400, pero solo se ven en una llamada directa al service: por HTTP siempre corta antes el FormRequest.\n\nATENCIÓN — LA UNICIDAD DEL CÓDIGO ES GLOBAL Y NO MIRA EL STATUS: un accesorio dado de baja NO libera su código, así que no se puede reutilizar el código de una unidad retirada. Es la diferencia deliberada con la placa de un vehículo, que un status inactive sí libera.",
+                "required": [
+                    "name",
+                    "code",
+                    "price",
+                    "purchaseDate",
+                    "annualDepreciation"
+                ],
+                "properties": {
+                    "name": {
+                        "description": "Nombre del accesorio: el TIPO de pieza, no la unidad. Se guarda normalizado y en MAYÚSCULAS —recorte, colapso de espacios internos y mayúsculas—, así que se puede enviar en minúsculas y el cliente debe pintar el name de la respuesta, no el que tecleó el usuario. Debe ser único a nivel global, comparado ya normalizado, de modo que la unicidad resulta insensible a mayúsculas. Ausente, vacío, no textual o de más de 255 caracteres devuelve 422 (mensajes: El nombre del accesorio es obligatorio / El nombre del accesorio debe ser texto / El nombre del accesorio no puede superar los 255 caracteres / Ya existe un accesorio con ese nombre). El límite de 255 es el de la columna, no una regla de negocio.",
+                        "type": "string",
+                        "example": "gato hidráulico 3 toneladas",
+                        "maxLength": 255
+                    },
+                    "code": {
+                        "description": "Código interno o número de serie de la unidad física. OBLIGATORIO —no se autogenera— y ÚNICO A NIVEL GLOBAL. ATENCIÓN — su normalización NO es la del name: se recorta y se pasa a mayúsculas pero NO se colapsan los espacios internos, así que \"A 100\" y \"A100\" son códigos DISTINTOS y los dos se pueden dar de alta a la vez. ATENCIÓN — la unicidad NO MIRA EL STATUS: el código de un accesorio dado de baja sigue ocupado para siempre, al contrario que la placa de un vehículo, que un inactive libera. Ausente, no textual o de más de 255 caracteres devuelve 422 (mensajes: El código del accesorio es obligatorio / El código del accesorio debe ser texto / El código del accesorio no puede superar los 255 caracteres / Ya existe un accesorio con ese código).",
+                        "type": "string",
+                        "example": "acc-0042",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "description": "Descripción libre del accesorio: marca, medidas, dónde está guardado. ÚNICO CAMPO OPCIONAL y nullable: omitirlo o enviar null guarda null. Máximo 1000 caracteres, y solo se valida que sea texto (mensajes: La descripción debe ser texto / La descripción no puede superar los 1000 caracteres). NO se normaliza —se guarda tal cual, con su capitalización— y NO participa en el filtro search del listado, que solo mira name y code.",
+                        "type": "string",
+                        "example": "Marca Truper, guardado en bodega central, estante 4",
+                        "nullable": true,
+                        "maxLength": 1000
+                    },
+                    "price": {
+                        "description": "Precio de compra de la unidad, en GTQ (la moneda es convención: ningún campo la nombra). OBLIGATORIO, numérico y en [0.01, 99999999.99]. ATENCIÓN — el mínimo es 0.01 y NO 0: un precio de 0 es un error de captura, porque un accesorio siempre costó algo; enviar 0 devuelve 422 con \"El precio debe ser mayor a 0\". Ausente, no numérico o por encima del máximo también es 422 (El precio es obligatorio / El precio debe ser numérico / El precio no puede superar 99999999.99). Se guarda con dos decimales y VUELVE COMO CADENA en el recurso. Es la base del cálculo de currentValue.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 1250,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "purchaseDate": {
+                        "description": "Día en que se compró el accesorio. OBLIGATORIA, fecha válida y NO FUTURA: un accesorio se registra cuando ya se compró, y una fecha posterior a hoy sería una orden de compra, no un activo (mensaje: La fecha de compra no puede ser futura). Hoy SÍ se acepta, y ese día currentValue es exactamente igual a price. Ausente o no parseable es 422 (La fecha de compra es obligatoria / La fecha de compra debe ser una fecha válida). Se envía en formato ISO (Y-m-d) pero VUELVE en d-m-Y en el recurso: los formatos de entrada y de salida NO coinciden. Es el origen del cálculo de la antigüedad y por tanto del currentValue.",
+                        "type": "string",
+                        "format": "date",
+                        "example": "2024-03-15"
+                    },
+                    "annualDepreciation": {
+                        "description": "Porcentaje ANUAL de depreciación LINEAL. OBLIGATORIO, numérico y en [0, 100] — los DOS extremos se aceptan. Es un PORCENTAJE, no una fracción: 20 significa 20 % anual, no 2000 %. Con 0 el accesorio no se deprecia nunca y su currentValue es igual a price para siempre; con 100 llega a 0.00 al cumplir el año. Ausente, no numérico o fuera de rango es 422 (El porcentaje de depreciación anual es obligatorio / El porcentaje de depreciación anual debe ser numérico / El porcentaje de depreciación anual no puede ser negativo / El porcentaje de depreciación anual no puede superar 100). NO se valida contra la vida útil ni contra nada más: no hay reglas cruzadas con price ni con purchaseDate.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 20,
+                        "maximum": 100,
+                        "minimum": 0
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateAccessoryRequest": {
+                "title": "Actualización de accesorio",
+                "description": "Cuerpo JSON para actualizar un accesorio. TODOS los campos son opcionales por separado y solo se toca lo que venga: un PATCH que solo manda description no altera el nombre, el código, el precio ni la fecha de compra. Un CUERPO VACÍO responde 200 como no-op, devolviendo el accesorio sin cambios, NO 422.\n\nA diferencia del alta, aquí SÍ se acepta status, y es la ÚNICA vía para moverlo: no existe /toggle-status en este dominio —con tres estados un interruptor no significa nada—. El status se mueve LIBREMENTE entre \"active\", \"inactive\" y \"under_repair\", SIN reglas de transición y sin comprobar el estado anterior: de \"inactive\" se puede saltar a \"under_repair\" sin pasar por \"active\", y reenviar el mismo estado es 200 y no-op. Con status \"inactive\" se da de baja el accesorio, igual que el DELETE, y con \"active\" se reactiva.\n\nEl registeredBy sigue sin aceptarse y NO se reescribe: el accesorio conserva a quien lo dio de alta aunque lo edite otro administrador. El currentValue tampoco se acepta: es DERIVADO y de SOLO SALIDA, y mandarlo se IGNORA EN SILENCIO. Eso sí, editar price, purchaseDate o annualDepreciation CAMBIA el currentValue de la siguiente lectura, porque los tres son sus entradas.\n\nATENCIÓN — name y code se NORMALIZAN igual que en el alta y CON REGLAS DISTINTAS ENTRE SÍ: el name colapsa los espacios internos, el code NO. Las dos reglas unique IGNORAN LA PROPIA FILA, así que reenviar su mismo nombre o su mismo código responde 200 y no choca consigo mismo; usar el de otro accesorio responde 422 (\"Ya existe un accesorio con ese nombre\" / \"Ya existe un accesorio con ese código\"). La unicidad del código sigue siendo GLOBAL Y CIEGA AL STATUS: el código de una unidad dada de baja no se puede reutilizar.\n\nATENCIÓN — EL code ES EDITABLE: corregir un código mal tecleado conserva la fila, su id y su historial, que es justo el motivo de permitirlo. La description acepta null explícito para BORRARLA —se distingue de omitir la clave, que la deja como está—; ningún otro campo acepta null.",
+                "properties": {
+                    "name": {
+                        "description": "Nuevo nombre del accesorio. Se normaliza a mayúsculas —con colapso de espacios internos— antes de validarse y de guardarse. La unicidad global se revalida IGNORANDO la propia fila, así que reenviar su mismo nombre responde 200 y usar el de otro accesorio responde 422 con \"Ya existe un accesorio con ese nombre\". No textual o de más de 255 caracteres es también 422 (El nombre del accesorio debe ser texto / El nombre del accesorio no puede superar los 255 caracteres). Omitir la clave deja el nombre intacto; enviar null NO lo borra, es 422 (el campo no es nullable).",
+                        "type": "string",
+                        "example": "gato hidráulico 3 toneladas",
+                        "maxLength": 255
+                    },
+                    "code": {
+                        "description": "Nuevo código interno o número de serie. ES EDITABLE a propósito: corregir un código mal tecleado conserva la fila, su id y su historial. Se recorta y se pasa a mayúsculas pero NO se le colapsan los espacios internos, así que cambiar \"A100\" por \"A 100\" es un cambio real y ambos pueden coexistir en la tabla. La unicidad se revalida ignorando la propia fila —reenviar su propio código es 200— y sigue siendo GLOBAL Y CIEGA AL STATUS: el código que ocupa un accesorio dado de baja NO se puede reutilizar, y pedirlo devuelve 422 con \"Ya existe un accesorio con ese código\". No textual o de más de 255 caracteres es también 422.",
+                        "type": "string",
+                        "example": "acc-0042",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "description": "Nueva descripción. Es el ÚNICO campo que acepta null, y ese null BORRA la descripción —se distingue de omitir la clave, que la deja como está—. Máximo 1000 caracteres y solo se valida que sea texto (mensajes: La descripción debe ser texto / La descripción no puede superar los 1000 caracteres). No participa en el filtro search del listado.",
+                        "type": "string",
+                        "example": "Marca Truper, guardado en bodega central, estante 4",
+                        "nullable": true,
+                        "maxLength": 1000
+                    },
+                    "price": {
+                        "description": "Nuevo precio de compra, en GTQ, numérico y en [0.01, 99999999.99]; 0, no numérico o por encima del máximo es 422 (El precio debe ser mayor a 0 / El precio debe ser numérico / El precio no puede superar 99999999.99). ATENCIÓN — corregirlo CAMBIA el currentValue de la siguiente lectura, porque el valor depreciado se deriva de él; no hay ninguna bitácora del precio anterior, así que el valor viejo se pierde sin rastro.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 1250,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "purchaseDate": {
+                        "description": "Nueva fecha de compra, válida y NO FUTURA (mensajes: La fecha de compra debe ser una fecha válida / La fecha de compra no puede ser futura). Se envía en formato ISO (Y-m-d) y vuelve en d-m-Y. ATENCIÓN — es la entrada más sensible del currentValue: moverla hacia atrás envejece el accesorio y baja su valor, moverla hacia adelante lo rejuvenece y lo sube, todo sin tocar el price. No se cruza con createdAt: se puede fijar una compra muy anterior a la captura de la fila, que es el caso normal al inventariar material viejo.",
+                        "type": "string",
+                        "format": "date",
+                        "example": "2024-03-15"
+                    },
+                    "annualDepreciation": {
+                        "description": "Nuevo porcentaje anual de depreciación lineal, numérico y en [0, 100] —los dos extremos se aceptan— (mensajes: El porcentaje de depreciación anual debe ser numérico / El porcentaje de depreciación anual no puede ser negativo / El porcentaje de depreciación anual no puede superar 100). Cambiarlo recalcula el currentValue de la siguiente lectura y NO es retroactivo en ningún sentido contable: no existe historial de tasas, solo la vigente. Ponerlo a 0 congela el valor en el price para siempre.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 20,
+                        "maximum": 100,
+                        "minimum": 0
+                    },
+                    "status": {
+                        "description": "Nuevo estado del accesorio: uno de los TRES valores del enum —\"active\", \"inactive\" o \"under_repair\"—, como CADENA y nunca como booleano. Cualquier otro valor es 422 con \"El estado debe ser active, inactive o under_repair\". ATENCIÓN — este PATCH es la ÚNICA vía para cambiar el estado: NO existe /api/accessories/{accessory}/toggle-status, porque con tres valores no hay nada que invertir. No hay reglas de transición: cualquier estado puede pasar a cualquier otro, incluido a sí mismo, y reenviar el actual es 200 y no-op. Con \"inactive\" se da de baja igual que con el DELETE; con \"active\" se reactiva. Cambiar el estado NO libera el código del accesorio, que sigue ocupado en cualquiera de los tres.",
+                        "type": "string",
+                        "example": "under_repair",
+                        "enum": [
+                            "active",
+                            "inactive",
+                            "under_repair"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
             "ConfirmAccountRequest": {
                 "title": "Confirmación de cuenta",
                 "description": "Correo de la cuenta y código de confirmación de 6 dígitos.",
@@ -6816,6 +7373,109 @@
                     }
                 },
                 "type": "object"
+            },
+            "Accessory": {
+                "title": "Accesorio",
+                "description": "Accesorio del inventario nacional: una llanta, un gato hidráulico, un juego de cadenas. NO pertenece a ninguna empresa transportista ni está asignado a ningún vehículo —es un dato de Legumex, común a todos—, por eso el recurso no expone carrierId ni vehicleId y NINGUNA ruta del dominio lleva el middleware carrier.required. Su lectura está abierta a los cuatro roles: administrator, carrier, pilot y manager, incluido un carrier que todavía no ha registrado su empresa.\n\nATENCIÓN — UNA FILA ES UNA UNIDAD FÍSICA: no existe el campo quantity. Dos llantas iguales son DOS accesorios con DOS códigos distintos, no una fila con cantidad 2. Quien necesite saber \"cuántas llantas hay\" cuenta filas, no lee un contador.\n\nATENCIÓN — currentValue ES UN CAMPO DERIVADO Y DE SOLO SALIDA: no tiene columna en la base, no lo recalcula ningún job y no está cacheado; se calcula en cada lectura, tanto en el listado como en el detalle. El mismo accesorio, leído hoy y dentro de un mes, devuelve dos valores distintos sin que nadie haya escrito en la tabla: NO es un bug. No se puede filtrar ni ordenar por él, y mandarlo en el cuerpo de un alta o de un PATCH se ignora en silencio.\n\nATENCIÓN — price, annualDepreciation y currentValue viajan como CADENAS de DOS DECIMALES (\"1250.00\"), no como números JSON: son casts decimal:2 entregados tal cual, para que ningún float pierda dígitos. Hay que parsearlos en el cliente antes de operar con ellos. La moneda es GTQ por convención: ningún campo la nombra.\n\nATENCIÓN — las dos fechas usan formatos propios y distintos, y ninguno es ISO 8601: purchaseDate es d-m-Y (el día de la compra, sin hora) y createdAt es d-m-Y h:i:s A (cuándo se capturó la fila, con hora de 12 horas y AM/PM). Son dos cosas diferentes: un accesorio comprado hace tres años puede haberse capturado ayer. Por eso ambos se documentan como string SIN format date-time: parsearlos como ISO falla. El recurso NO expone updatedAt.\n\nEl name y el code se devuelven SIEMPRE EN MAYÚSCULAS. El status es un ENUM DE TRES VALORES (active, inactive, under_repair), no un booleano, y la baja es LÓGICA: DELETE pone status en \"inactive\", la fila nunca desaparece y sigue apareciendo en el listado sin filtros.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la fila (accessories.id). Es el valor que va en el parámetro {accessory} de las rutas de detalle, actualización y baja, y el que ignoran las reglas de unicidad al editar, para que el accesorio pueda reenviar su propio nombre y su propio código sin chocar consigo mismo. Sobrevive a la baja lógica y a un cambio de code: el código es editable, el id no. No confundirlo con code, que es el identificador que teclea el usuario.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "name": {
+                        "description": "Nombre del accesorio, SIEMPRE EN MAYÚSCULAS. Se normaliza al crear y al actualizar: se recortan los extremos, se colapsan los espacios internos a uno y se pasa a mayúsculas, así que enviar \"  gato   hidráulico  \" guarda y devuelve \"GATO HIDRÁULICO\". Es único a nivel global, y al estar siempre en mayúsculas la unicidad resulta insensible a mayúsculas sin depender del collation del motor. Describe el TIPO de pieza; para distinguir dos unidades iguales está el code, no el name.",
+                        "type": "string",
+                        "example": "GATO HIDRÁULICO 3 TONELADAS"
+                    },
+                    "code": {
+                        "description": "Código interno o número de serie de ESTA unidad física, SIEMPRE EN MAYÚSCULAS. Se normaliza distinto que el name: se recorta y se pasa a mayúsculas pero NO se colapsan los espacios internos, porque un código es un identificador y no una frase — \"A 100\" y \"A100\" son dos códigos DISTINTOS y ambos pueden coexistir. Es obligatorio y único a nivel GLOBAL SIN MIRAR EL STATUS: un accesorio dado de baja NO libera su código, al contrario que la placa de un vehículo, que un inactive sí libera. Es EDITABLE: corregir un código mal tecleado conserva la fila y su id.",
+                        "type": "string",
+                        "example": "ACC-0042"
+                    },
+                    "description": {
+                        "description": "Descripción libre del accesorio: marca, medidas, dónde está guardado. Es el ÚNICO campo del recurso que puede ser null: se omite en el alta o se limpia enviando null explícito en el PATCH —omitir la clave lo deja intacto—. Máximo 1000 caracteres. NO participa en la búsqueda del listado, que solo mira name y code.",
+                        "type": "string",
+                        "example": "Marca Truper, guardado en bodega central, estante 4",
+                        "nullable": true
+                    },
+                    "price": {
+                        "description": "Precio de compra de la unidad, en GTQ. ATENCIÓN — viaja como CADENA de DOS DECIMALES (\"1250.00\"), no como número: es el cast decimal:2 entregado sin convertir a float. Es el precio HISTÓRICO de adquisición y NO se recalcula nunca: lo que envejece es currentValue, que se deriva de él. Es editable por el PATCH, y editarlo cambia también el currentValue de la siguiente lectura. Siempre es mayor que 0: un accesorio con precio 0 no se puede dar de alta.",
+                        "type": "string",
+                        "example": "1250.00"
+                    },
+                    "purchaseDate": {
+                        "description": "Día en que se COMPRÓ el accesorio, en formato d-m-Y y SIN HORA — NO es ISO 8601, así que parsearlo como ISO falla. Es el origen del cálculo de la antigüedad y por tanto del currentValue: moverla hacia atrás deprecia más y moverla hacia adelante deprecia menos. NO confundirla con createdAt, que es cuándo se capturó la fila: un accesorio comprado hace tres años puede haberse dado de alta ayer. Nunca es futura.",
+                        "type": "string",
+                        "example": "15-03-2024"
+                    },
+                    "annualDepreciation": {
+                        "description": "Porcentaje ANUAL de depreciación LINEAL de este accesorio, en [0, 100]. ATENCIÓN — viaja como CADENA de DOS DECIMALES (\"20.00\"), no como número, y es un PORCENTAJE, no una fracción: 20.00 significa que pierde el 20 % de su precio de compra cada año. Con 0.00 el accesorio no se deprecia nunca y su currentValue es igual a price para siempre; con 100.00 llega a 0.00 al cumplir el año y ahí se queda. Es editable, y editarlo cambia el currentValue de la siguiente lectura sin tocar el price.",
+                        "type": "string",
+                        "example": "20.00"
+                    },
+                    "currentValue": {
+                        "description": "Valor DEPRECIADO del accesorio a día de hoy, en GTQ y como CADENA de dos decimales. ATENCIÓN — ES UN CAMPO DERIVADO Y DE SOLO SALIDA: no existe como columna, no lo escribe ningún job, no está cacheado y NO SE PUEDE ENVIAR — mandarlo en el cuerpo de un alta o de un PATCH se ignora en silencio. Se recalcula en CADA lectura y sale tanto en el listado como en el detalle.\n\nFórmula exacta, depreciación LINEAL y antigüedad en fracción de años por días:\n\n    años         = purchaseDate.diffInDays(hoy) / 365\n    depreciado   = price * (annualDepreciation / 100) * años\n    currentValue = round(max(0, price - depreciado), 2)\n\nLos 365 días son fijos, SIN corrección por año bisiesto: la diferencia son horas sobre una cifra que ya es una convención contable. Al contarse por días y no por aniversarios, el valor baja UN POCO CADA DÍA en vez de dar saltos anuales, así que EL MISMO ACCESORIO DEVUELVE UN VALOR DISTINTO CADA DÍA SIN QUE NADIE ESCRIBA EN LA TABLA: no es un bug y no hay que reportarlo. El DÍA DE LA COMPRA currentValue es exactamente igual a price. Tiene PISO EN 0.00 y NUNCA es negativo: un accesorio totalmente depreciado vale 0.00 por muchos años que pasen.\n\nNO se puede filtrar ni ordenar por él —el listado solo admite status, search, limit y page, y su orden es id ASC y no configurable—: al no estar en la base, la consulta no lo ve. Quien quiera ordenar por valor debe hacerlo en el cliente, sobre la página que ya recibió.",
+                        "type": "string",
+                        "example": "640.41"
+                    },
+                    "status": {
+                        "description": "Estado del accesorio como ENUM DE TRES VALORES —\"active\", \"inactive\" o \"under_repair\"—, NUNCA un booleano y nunca 1/0: es la diferencia con Products, Zones y Locations, cuyo status sí es booleano. Nace siempre en \"active\" y el cuerpo del alta NO puede fijarlo (mandarlo se ignora). El PATCH lo mueve LIBREMENTE entre los tres valores, SIN reglas de transición: de \"inactive\" se puede saltar a \"under_repair\" sin pasar por \"active\". DELETE /api/accessories/{accessory} lo pone en \"inactive\" —baja LÓGICA, no borrado— y el PATCH con status \"active\" lo reactiva. Un accesorio inactivo sigue existiendo, sigue siendo consultable por id y SIGUE APARECIENDO en GET /api/accessories sin filtros; además conserva su código ocupado para siempre.",
+                        "type": "string",
+                        "example": "active",
+                        "enum": [
+                            "active",
+                            "inactive",
+                            "under_repair"
+                        ]
+                    },
+                    "registeredBy": {
+                        "description": "ATENCIÓN — es el NOMBRE del administrador que dio de alta el accesorio, NO su id: la pantalla lo imprime y nadie navega a ese usuario. Sale de la relación registeredBy y no se envía en el cuerpo: se toma del usuario autenticado. El PATCH NO lo reescribe, así que sigue apuntando a quien creó la fila aunque la haya editado otro administrador. Es null solo si el usuario que la registró ya no se puede resolver.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha en la que se CAPTURÓ la fila, con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), NO ISO 8601 — por eso se documenta como string sin format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. NO es la fecha de compra: para eso está purchaseDate, que es la que deprecia. El recurso NO expone updatedAt, así que por la API no hay forma de saber cuándo se editó el accesorio por última vez.",
+                        "type": "string",
+                        "example": "20-08-2026 08:45:12 PM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "AccessoryListResponse": {
+                "title": "Listado de accesorios sin paginar",
+                "description": "Respuesta de GET /api/accessories cuando no se envía limit o cuando el limit no es numérico: se devuelven todos los accesorios que pasen los filtros y el sobre NO incluye total, currentPage ni lastPage. Sin el filtro status, la lista mezcla los tres estados —incluidos los dados de baja—, siempre ordenada por id ASC. Cada elemento trae su currentValue ya calculado para el día de hoy.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Accesorios obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Accessory"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedAccessoryListResponse": {
+                "title": "Listado de accesorios paginado",
+                "description": "Respuesta de GET /api/accessories cuando se envía un limit numérico: los metadatos de paginación —total, currentPage y lastPage— salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, NO anidados bajo meta.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/AccessoryListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
             },
             "User": {
                 "title": "Usuario",
@@ -8178,6 +8838,10 @@
         }
     },
     "tags": [
+        {
+            "name": "Accessories",
+            "description": "Inventario nacional de accesorios: llantas, gatos hidráulicos, juegos de cadenas y demás material suelto. El accesorio NO pertenece a ninguna empresa transportista NI está asignado a ningún vehículo —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId ni vehicleId. Los cinco endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. ATENCIÓN — UNA FILA ES UNA UNIDAD FÍSICA: no hay campo quantity; dos llantas iguales son DOS registros con DOS códigos distintos, y contar existencias es contar filas. ATENCIÓN — currentValue ES DERIVADO Y DE SOLO SALIDA: no hay columna, ni job, ni caché; se recalcula en cada lectura con depreciación LINEAL (años = purchaseDate.diffInDays(hoy) / 365; depreciado = price * (annualDepreciation / 100) * años; currentValue = round(max(0, price - depreciado), 2)), así que el mismo accesorio devuelve un valor distinto cada día sin que nadie escriba en la tabla y NO se puede filtrar ni ordenar por él. Reglas que atraviesan el dominio: el name se guarda normalizado y EN MAYÚSCULAS con los espacios internos colapsados, mientras que el code se guarda en mayúsculas pero SIN colapsarlos —\"A 100\" y \"A100\" son códigos distintos—; ambos son únicos a nivel global y sus duplicados salen por 422 desde el FormRequest (sin la asimetría 422/400 de Locations), aunque el service repite esos mismos mensajes como 400 para las llamadas directas; la unicidad del code es CIEGA AL STATUS, de modo que un accesorio dado de baja NO libera su código, al contrario que la placa de un vehículo; el status es un ENUM DE TRES VALORES (active, inactive, under_repair) y NO un booleano, no se acepta en el alta y se mueve libremente por el PATCH, que es la única vía —NO existe /toggle-status—; y el DELETE es una BAJA LÓGICA que solo pone status en \"inactive\", con la fila viva y todavía visible en el listado. La salida va en camelCase, con price, annualDepreciation y currentValue como CADENAS de dos decimales (GTQ por convención), purchaseDate en d-m-Y y createdAt en d-m-Y h:i:s A, NUNCA ISO 8601; el recurso no expone updatedAt y registeredBy es el NOMBRE del usuario, no su id."
+        },
         {
             "name": "Auth",
             "description": "Registro, confirmación de cuenta, inicio de sesión y recuperación de contraseña."
