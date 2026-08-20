@@ -1,6 +1,6 @@
 # SPEC 17 — Inventario de accesorios
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-08-20
 > **Objetivo:** Llevar un inventario nacional de accesorios —una fila por unidad física, identificada por un código único— con su precio, fecha de compra, estado operativo y porcentaje de depreciación anual, del que la API deriva el valor actual en cada lectura.
