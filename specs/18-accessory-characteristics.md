@@ -1,6 +1,6 @@
 # SPEC 18 — Características de accesorios
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 17
 > **Fecha:** 2026-08-20
 > **Objetivo:** Permitir que cada accesorio del inventario nacional lleve un número libre de características propias en forma de pares nombre/valor —uno puede tener «PLACA» y otro «TIPO DE COMBUSTIBLE»—, expuestas en su propio dominio CRUD cuyo listado exige siempre un `accessoryId`.
