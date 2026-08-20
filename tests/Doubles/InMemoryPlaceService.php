@@ -5,6 +5,7 @@ namespace Tests\Doubles;
 use App\Errors\NotFoundError;
 use App\Errors\ServiceUnavailableError;
 use App\Interfaces\Place\PlaceServiceInterface;
+use App\Services\Place\PolylineDecoder;
 use Override;
 
 /**
@@ -46,9 +47,28 @@ class InMemoryPlaceService implements PlaceServiceInterface
     ];
 
     /**
-     * @param  bool  $failing  Makes both methods fail, as a provider that is down would.
+     * A short encoded route through Guatemala, the same line every call returns.
+     *
+     * The double does not draw a line between the points it was given: it answers a
+     * fixed one, so the Feature suite can assert against a known value. That the
+     * coordinates actually reach the provider in the right order is checked where it
+     * can be checked for real, against the outgoing request in GooglePlacesServiceTest.
      */
-    public function __construct(private readonly bool $failing = false) {}
+    private const POLYLINE = '_lgxA~vmgPrIoAzmE~}A~j`Crzp@';
+
+    private const DISTANCE_KILOMETERS = 104.32;
+
+    private const DURATION_HOURS = 1.75;
+
+    /**
+     * @param  bool  $failing  Makes every method fail, as a provider that is down would.
+     * @param  bool  $routeless  Makes getDirections() find no road route, as an origin
+     *                           in the middle of the ocean would.
+     */
+    public function __construct(
+        private readonly bool $failing = false,
+        private readonly bool $routeless = false,
+    ) {}
 
     #[Override]
     public function searchPlaces(string $search): array
@@ -82,6 +102,23 @@ class InMemoryPlaceService implements PlaceServiceInterface
         return self::PLACES[$placeId];
     }
 
+    #[Override]
+    public function getDirections(
+        float $originLatitude,
+        float $originLongitude,
+        float $destinationLatitude,
+        float $destinationLongitude,
+    ): array {
+        $this->failWhenDown();
+
+        /** El proveedor funcionó y no hay camino: 404, no 503. */
+        if ($this->routeless) {
+            throw new NotFoundError('No se encontró una ruta hacia el destino');
+        }
+
+        return self::route();
+    }
+
     /**
      * The failure every provider outage looks like from the outside.
      *
@@ -102,5 +139,24 @@ class InMemoryPlaceService implements PlaceServiceInterface
     public static function ids(): array
     {
         return array_keys(self::PLACES);
+    }
+
+    /**
+     * The route every successful call answers, so a test can assert against it without
+     * repeating the literals.
+     *
+     * The pairs are decoded with the real decoder rather than hardcoded, so the string
+     * and the points can never drift apart.
+     *
+     * @return array{distanceKilometers: float, durationHours: float, polyline: string, points: list<array{0: float, 1: float}>}
+     */
+    public static function route(): array
+    {
+        return [
+            'distanceKilometers' => self::DISTANCE_KILOMETERS,
+            'durationHours' => self::DURATION_HOURS,
+            'polyline' => self::POLYLINE,
+            'points' => PolylineDecoder::decode(self::POLYLINE),
+        ];
     }
 }

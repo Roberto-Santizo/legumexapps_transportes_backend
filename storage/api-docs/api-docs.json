@@ -3431,6 +3431,107 @@
                 ]
             }
         },
+        "/api/places/directions": {
+            "get": {
+                "tags": [
+                    "Places"
+                ],
+                "summary": "Calcular la ruta por carretera hacia un destino",
+                "description": "Devuelve la ruta POR CARRETERA desde un punto suelto (lat, lng) hasta un destino ya registrado en POST /api/locations, con su distancia en kilómetros, su duración estimada y la línea del trayecto. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa registrada, porque ninguna ruta de este dominio lleva role: ni carrier.required. No hay ámbito por empresa, así que en este endpoint NO existe el 403.\n\nATENCIÓN — ESTE ENDPOINT NO COTIZA. No toca freight_rates, no lee el precio vigente del combustible, no devuelve ningún importe y no crea ningún viaje ni ninguna carga: la respuesta no trae pricePerPound, ni total, ni pounds. Para cotizar está GET /api/freight-rates/quote, que es OTRA LLAMADA y la hace el cliente, no esta API. La distancia devuelta tampoco influye en la tarifa: el precio depende del destino elegido, no de los kilómetros.\n\nATENCIÓN — durationHours ES UNA ESTIMACIÓN SIN TRÁFICO, calculada sobre los límites de velocidad de las vías: sin atascos, sin paradas, sin descansos y sin la diferencia entre un camión cargado y un coche. NO ES UN ETA y en carretera real se va a quedar corta SISTEMÁTICAMENTE. La misma consulta devuelve lo mismo a las 3 de la mañana y en hora pico —no hay hora de salida que la altere—, así que el cliente debería etiquetarla como estimación y nunca presentarla como hora de llegada.\n\nATENCIÓN — polyline y points son LA MISMA LÍNEA EN DOS FORMATOS, una duplicación consciente: la cadena codificada para las librerías de mapa que la consumen directa, los pares [latitud, longitud] para dibujar a mano o medir sin arrastrar un decodificador. NO SON DOS RUTAS ni dos niveles de detalle; el cliente elige uno y descarta el otro. Los pares van en orden LATITUD PRIMERO, igual que el area de Zones. points NUNCA VIENE VACÍO en un 200: una ruta sin puntos sale como 503.\n\nEL ORIGEN SON COORDENADAS SUELTAS y NUNCA un locationId: no hay ruta inversa, ni viaje redondo, ni ruta entre dos destinos registrados. El destino, al revés, es siempre un locationId: sus coordenadas se leen de la fila registrada y no se aceptan por ningún nombre.\n\nUNA SOLA RUTA POR LLAMADA: no hay rutas alternativas, ni waypoints, ni instrucciones paso a paso, ni matriz de distancias. travelMode, polylineQuality y limit se IGNORAN POR COMPLETO —enviarlos devuelve exactamente la misma respuesta—: son constantes del servidor, no opciones del cliente. Este endpoint tampoco pagina, así que el sobre nunca trae total, currentPage ni lastPage.\n\nEL ORDEN DE LOS ERRORES ES CONTRATO: primero la validación (422, con el formato de Laravel { message, errors }, incluido un locationId inexistente), después el destino (400 si está inactivo) y solo entonces la llamada al proveedor de direcciones externo (404 si no hay camino, 503 si el proveedor falló). Los dos primeros se resuelven ANTES de salir fuera, así que NO FACTURAN NADA.\n\nNO PERSISTE NADA y no hay caché: pedir la ruta no la guarda, no deja historial y cada llamada sale al proveedor externo, que cobra una ruta más cara que una búsqueda de texto. Ningún campo de la respuesta es fecha, así que el formato d-m-Y h:i:s A del resto del proyecto no aplica aquí.",
+                "operationId": "directionsPlaces",
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/directionsLocationIdQuery"
+                    },
+                    {
+                        "$ref": "#/components/parameters/directionsLatQuery"
+                    },
+                    {
+                        "$ref": "#/components/parameters/directionsLngQuery"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ruta obtenida correctamente. data trae exactamente locationId, locationName, distanceKilometers, durationHours, polyline y points, y ninguna clave más: NO hay importes, NO hay tarifa y NO se ha creado ningún viaje. points nunca viene vacío y polyline nunca viene como cadena vacía. Recordar que durationHours es una estimación sin tráfico, no un ETA.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Ruta obtenida correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Directions"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El destino existe pero está dado de baja: su status es false. El mensaje devuelto es: El destino seleccionado no está activo. OJO — es 400 y no 404 porque la fila sigue viva: un destino inactivo aparece en GET /api/locations, conserva sus tarifas y se reactiva con PATCH /api/locations/{location}/toggle-status. Se comprueba ANTES de llamar al proveedor de direcciones externo, así que este caso NO FACTURA NADA. No confundirlo con el 422 de un locationId inexistente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "EL PROVEEDOR FUNCIONÓ y no hay camino POR CARRETERA entre el origen y el destino: una isla, un punto en el mar, un tramo sin vía conectada. El mensaje devuelto es: No se encontró una ruta hacia el destino. Es un resultado definitivo, no un fallo temporal: REINTENTAR DA LO MISMO. Lo que se corrige es el origen, no la espera. OJO — no confundirlo con el 503 (el proveedor no contestó) ni con el 400 (el destino está inactivo).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Alguno de los TRES parámetros obligatorios falta o es inválido: locationId (El destino es obligatorio / El destino debe ser un identificador numérico / El destino seleccionado no existe), lat (La latitud de origen es obligatoria / La latitud de origen debe ser numérica / La latitud de origen debe estar entre -90 y 90) y lng (La longitud de origen es obligatoria / La longitud de origen debe ser numérica / La longitud de origen debe estar entre -180 y 180). Un locationId INEXISTENTE cae aquí, con 422, no con 404. En todos los casos la petición NO llega al proveedor de direcciones externo, que factura cada ruta. La respuesta usa el formato de Laravel { message, errors: { locationId: [...] } }, no el sobre { statusCode, message, data }.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "ATENCIÓN — EL CLIENTE NO SE EQUIVOCÓ: el proveedor de direcciones externo no respondió. Los tres parámetros eran válidos y el destino estaba activo; lo que falló es un tercero. Se produce por timeout (10 segundos de espera y ningún reintento), error de red o DNS, credencial ausente o rechazada, cuota agotada, error 5xx del servicio externo, o una respuesta con forma inesperada —incluida una ruta sin distancia, sin duración legible, sin línea codificada o con la línea vacía de puntos, que salen como 503 y NO como una ruta con campos en cero o con points vacío—. Todos los casos comparten el mismo mensaje genérico, sin filtrar nada del error original: El servicio de búsqueda de direcciones no está disponible en este momento. Intenta de nuevo en unos minutos. Un cliente que recibe 503 REINTENTA MÁS TARDE; no corrige el formulario ni marca el campo en rojo. OJO — no confundirlo con el 404: 503 no significa que no haya camino.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/products": {
             "get": {
                 "tags": [
@@ -7401,6 +7502,64 @@
                     }
                 ]
             },
+            "Directions": {
+                "title": "Ruta por carretera hacia un destino",
+                "description": "Respuesta de GET /api/places/directions: la ruta POR CARRETERA desde un punto suelto (lat, lng) hasta un destino ya registrado en POST /api/locations. Trae exactamente SEIS claves y ninguna más.\n\nATENCIÓN — ESTA RESPUESTA NO COTIZA NADA. No consulta freight_rates, no lee el precio vigente del combustible, no devuelve ningún importe en quetzales y no crea ningún viaje ni ninguna carga. Aquí no hay pricePerPound, ni total, ni pounds: quien quiera el precio llama aparte a GET /api/freight-rates/quote, y ese encadenado lo hace el cliente. La distancia de esta ruta TAMPOCO influye en la tarifa: el precio depende del destino elegido, no de los kilómetros recorridos para llegar.\n\nNO PERSISTE NADA: como el resto del dominio, no hay tabla, ni modelo, ni migración, y tampoco hay caché —cada llamada sale al proveedor de direcciones externo, que factura una ruta más cara que una búsqueda de texto—. Pedir la ruta no guarda el trayecto ni deja historial.\n\nNINGÚN CAMPO ES FECHA, así que el formato d-m-Y h:i:s A del resto del proyecto no aplica aquí, y ningún campo es dinero, así que tampoco se formatea con dos decimales de moneda.\n\nUNA SOLA RUTA POR LLAMADA: no hay rutas alternativas, ni waypoints, ni instrucciones paso a paso, ni matriz de distancias. Y un solo sentido: el origen son coordenadas sueltas y el destino un locationId, nunca al revés.",
+                "properties": {
+                    "locationId": {
+                        "description": "Identificador del destino (locations.id), el mismo que se envió en la query string, devuelto para que el cliente confirme qué destino se resolvió. NO viene del proveedor de direcciones externo, que nunca llega a saber que existe un destino registrado: se lee de la fila de locations.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "locationName": {
+                        "description": "Nombre del destino registrado, SIEMPRE EN MAYÚSCULAS y con los espacios colapsados, tal y como lo normalizó el alta del destino. Es el nombre guardado en locations, NO la dirección formateada que compone el proveedor de direcciones externo: quien quiera ese texto lo pide a GET /api/places/{place}.",
+                        "type": "string",
+                        "example": "PUERTO QUETZAL"
+                    },
+                    "distanceKilometers": {
+                        "description": "Longitud de la ruta POR CARRETERA en KILÓMETROS, como NÚMERO redondeado a dos decimales. No es la distancia en línea recta entre los dos puntos, así que siempre es mayor que ella. No es dinero y no interviene en ningún cálculo de precio: la tarifa depende del destino elegido, no de los kilómetros, y mostrar las dos cosas juntas es decisión del cliente.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 104.32
+                    },
+                    "durationHours": {
+                        "description": "Duración estimada del trayecto en HORAS DECIMALES (1.75 es una hora y cuarenta y cinco minutos), como número redondeado a dos decimales.\n\nATENCIÓN — ES UNA ESTIMACIÓN SIN TRÁFICO Y NO ES UN ETA. Se calcula sobre los LÍMITES DE VELOCIDAD de las vías: no contempla atascos, ni retenciones, ni paradas, ni descansos del piloto, ni tiempos de carga y descarga, ni la diferencia entre un camión cargado y un coche. En carretera real se queda corta SISTEMÁTICAMENTE.\n\nLa misma consulta devuelve EXACTAMENTE LO MISMO a las 3 de la mañana y en hora pico: no hay parámetro de hora de salida y la respuesta no depende del momento en que se pida. El cliente debería etiquetarla como estimación y nunca presentarla como hora de llegada.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 1.75
+                    },
+                    "polyline": {
+                        "description": "La línea de la ruta como CADENA CODIFICADA, lista para las librerías de mapa que la consumen directa sin decodificarla. Es EXACTAMENTE LA MISMA LÍNEA que points, solo que en otro formato: no son dos rutas, ni dos niveles de detalle. Es una cadena opaca —no se parsea a mano ni se recorta— y nunca viene vacía en un 200.",
+                        "type": "string",
+                        "example": "_lgxA~vmgPrIoAzmE"
+                    },
+                    "points": {
+                        "description": "La MISMA LÍNEA de polyline, ya decodificada como lista de pares [latitud, longitud], para dibujarla a mano o medirla sin arrastrar un decodificador. La duplicación es CONSCIENTE: polyline y points no son dos rutas distintas ni dos niveles de detalle, son un único trazado en dos formatos, y el cliente elige el que le sirva.\n\nATENCIÓN — el orden es LATITUD PRIMERO, igual que el area de Zones y al revés que GeoJSON, Mapbox y Leaflet en su forma [lng, lat]. Cada par tiene exactamente dos números.\n\nNUNCA VIENE VACÍO en un 200: una ruta sin puntos se considera una respuesta rota del proveedor de direcciones externo y sale como 503, no como una lista vacía que el cliente tendría que dibujar.",
+                        "type": "array",
+                        "items": {
+                            "description": "Par [latitud, longitud]: exactamente dos números, la latitud primero.",
+                            "type": "array",
+                            "items": {
+                                "type": "number",
+                                "format": "float"
+                            },
+                            "maxItems": 2,
+                            "minItems": 2
+                        },
+                        "example": [
+                            [
+                                14.6248,
+                                -90.5152
+                            ],
+                            [
+                                14.6231,
+                                -90.5148
+                            ]
+                        ]
+                    }
+                },
+                "type": "object"
+            },
             "PlacePrediction": {
                 "title": "Dirección sugerida",
                 "description": "Una de las direcciones que devuelve GET /api/places?search=. Es el PRIMER paso de un flujo de DOS llamadas: aquí se elige, y con el id elegido se pide GET /api/places/{place} para obtener las coordenadas.\n\nATENCIÓN — ESTE OBJETO NO TRAE COORDENADAS, y es a propósito: pedirle la posición al proveedor de direcciones para los diez resultados factura un nivel más caro por nueve posiciones que nadie usa. El usuario elige una sola dirección, y solo esa se resuelve.\n\nNO PERSISTE NADA. Este dominio no tiene tabla, ni modelo, ni migración: es un proxy de lectura sobre un servicio externo. La dirección no queda guardada en ningún sitio, no hay favoritos ni historial de búsquedas, y el mismo search mañana puede devolver otras direcciones o el mismo id con otro texto.\n\nNingún campo es fecha, así que el formato d-m-Y h:i:s A del resto del proyecto no aplica aquí.",
@@ -7960,6 +8119,42 @@
                     ]
                 }
             },
+            "directionsLocationIdQuery": {
+                "name": "locationId",
+                "in": "query",
+                "description": "Identificador del DESTINO al que se calcula la ruta (locations.id). Va en la QUERY STRING: GET /api/places/directions?locationId=7&lat=14.6248&lng=-90.5152.\n\nEs OBLIGATORIO, como los otros dos. Ausente o no entero devuelve 422 (mensajes: El destino es obligatorio / El destino debe ser un identificador numérico).\n\nATENCIÓN — 422, 400 y 404 son tres cosas distintas: un id que NO EXISTE devuelve 422 con \"El destino seleccionado no existe\" (regla exists); un destino que existe pero tiene status false devuelve 400 con \"El destino seleccionado no está activo\"; y un destino activo al que NO SE LLEGA POR CARRETERA devuelve 404 con \"No se encontró una ruta hacia el destino\". Los dos primeros se resuelven ANTES de llamar al proveedor de direcciones externo, así que ni el id inexistente ni el destino inactivo facturan nada.\n\nEl destino se da de alta antes en POST /api/locations y aquí se manda su id: sus coordenadas NO se envían por ningún nombre, las lee la API de la fila registrada. El destino es siempre el EXTREMO FINAL de la ruta; no existe la ruta inversa ni el viaje redondo, y el origen nunca se indica por locationId.\n\nESTE ENDPOINT NO COTIZA: mandar el destino aquí no consulta tarifas, no lee el precio del combustible y no devuelve ningún importe. Para eso está GET /api/freight-rates/quote, que es otra llamada y la hace el cliente.",
+                "required": true,
+                "schema": {
+                    "type": "integer",
+                    "example": 7
+                }
+            },
+            "directionsLatQuery": {
+                "name": "lat",
+                "in": "query",
+                "description": "LATITUD DEL ORIGEN en grados decimales, de donde arranca la ruta. OBLIGATORIA; ausente, no numérica o fuera de [-90, 90] devuelve 422 (mensajes: La latitud de origen es obligatoria / La latitud de origen debe ser numérica / La latitud de origen debe estar entre -90 y 90).\n\nATENCIÓN — el origen es un PAR DE COORDENADAS SUELTAS y NUNCA un locationId: no hay forma de pedir la ruta entre dos destinos registrados, ni de invertir el sentido mandando el destino como origen. Suele venir de GET /api/places/{place}, que devuelve latitude y longitude para reenviarlas tal cual aquí, o de la posición del dispositivo.\n\nEl RANGO es lo único que se comprueba: nada garantiza que el punto sea tierra firme, que esté en Guatemala ni que tenga una carretera cerca. Un origen inalcanzable por carretera NO es 422 —el formato era correcto—: es 404 con \"No se encontró una ruta hacia el destino\".\n\nCuidado con el orden al reenviar coordenadas: aquí cada una viaja con su nombre (lat y lng), pero los points de la respuesta y el area de Zones usan pares [latitud, longitud].",
+                "required": true,
+                "schema": {
+                    "type": "number",
+                    "format": "float",
+                    "example": 14.6248,
+                    "maximum": 90,
+                    "minimum": -90
+                }
+            },
+            "directionsLngQuery": {
+                "name": "lng",
+                "in": "query",
+                "description": "LONGITUD DEL ORIGEN en grados decimales. OBLIGATORIA; ausente, no numérica o fuera de [-180, 180] devuelve 422 (mensajes: La longitud de origen es obligatoria / La longitud de origen debe ser numérica / La longitud de origen debe estar entre -180 y 180). El rango es más ancho que el de lat, así que invertir el par no siempre falla: un origen ambiguo con los dos valores dentro de [-90, 90] se acepta sin error y calcula la ruta desde el sitio equivocado.\n\nVa siempre acompañada de lat: las dos son obligatorias y no hay valor por defecto ni origen implícito del usuario autenticado.\n\nNO existe ningún otro parámetro. travelMode, polylineQuality y limit se IGNORAN POR COMPLETO —enviarlos devuelve exactamente la misma respuesta—: son constantes del servidor, no opciones del cliente. Tampoco hay waypoints, ni rutas alternativas, ni instrucciones paso a paso, ni matriz de distancias, ni hora de salida que altere la duración.\n\nATENCIÓN — los 422 de este endpoint salen con el formato de Laravel { message, errors: { lng: [...] } }, NO con el sobre { statusCode, message, data } del resto de la API, y NUNCA LLEGAN AL PROVEEDOR DE DIRECCIONES EXTERNO, que factura cada llamada de ruta más caro que una búsqueda de texto.",
+                "required": true,
+                "schema": {
+                    "type": "number",
+                    "format": "float",
+                    "example": -90.5152,
+                    "maximum": 180,
+                    "minimum": -180
+                }
+            },
             "placesSearchQuery": {
                 "name": "search",
                 "in": "query",
@@ -8009,7 +8204,7 @@
         },
         {
             "name": "Places",
-            "description": "Búsqueda de direcciones para elegir el destino de un flete. Es el único dominio de la API que NO PERSISTE NADA: no hay tabla, ni modelo, ni migración —es un proxy de LECTURA sobre un proveedor de direcciones externo—, y por eso solo existen DOS endpoints, los dos GET. No hay alta, ni edición, ni borrado: POST, PUT, PATCH y DELETE sobre /api/places no existen y responden 405. El flujo son DOS LLAMADAS ENCADENADAS: GET /api/places?search= devuelve hasta 10 direcciones con su id y su texto, el usuario elige una, y GET /api/places/{place} resuelve las coordenadas de esa. El listado NO trae coordenadas a propósito: resolver las diez factura un nivel más caro por nueve posiciones que nadie usa. Esas latitude y longitude se pasan tal cual como lat y lng a GET /api/freight-rates/quote, pero ese encadenado lo hace el cliente: ESTA API NO COTIZA NADA. Permisos: los dos endpoints exigen solo token JWT (Authorization: Bearer {token}) y están abiertos a los CUATRO roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa: ninguna ruta lleva role: ni carrier.required. ATENCIÓN — los dos endpoints pueden responder 503, que significa que EL SERVICIO EXTERNO NO RESPONDIÓ, no que el cliente se equivocara: ante un 503 se reintenta más tarde, no se corrige el formulario."
+            "description": "Búsqueda de direcciones para elegir el destino de un flete y cálculo de la ruta por carretera hasta un destino ya registrado. Es el único dominio de la API que NO PERSISTE NADA: no hay tabla, ni modelo, ni migración —es un proxy de LECTURA sobre un proveedor de direcciones externo—, y por eso solo existen TRES endpoints, los tres GET. No hay alta, ni edición, ni borrado: POST, PUT, PATCH y DELETE sobre /api/places no existen y responden 405. El flujo de la búsqueda son DOS LLAMADAS ENCADENADAS: GET /api/places?search= devuelve hasta 10 direcciones con su id y su texto, el usuario elige una, y GET /api/places/{place} resuelve las coordenadas de esa. El listado NO trae coordenadas a propósito: resolver las diez factura un nivel más caro por nueve posiciones que nadie usa. El TERCER endpoint es independiente de esos dos: GET /api/places/directions?locationId=&lat=&lng= calcula la ruta POR CARRETERA desde un punto suelto hasta un destino registrado en POST /api/locations, y devuelve distancia en kilómetros, duración estimada y la línea del trayecto en dos formatos —cadena codificada y pares [latitud, longitud]—. ESTA API NO COTIZA NADA: ni la dirección elegida ni la ruta calculada consultan tarifas, precio de combustible ni importes, y ninguna crea un viaje; cotizar es otra llamada, GET /api/freight-rates/quote, y la hace el cliente. Además, la duración de la ruta es una ESTIMACIÓN SIN TRÁFICO sobre límites de velocidad, NO UN ETA. Permisos: los tres endpoints exigen solo token JWT (Authorization: Bearer {token}) y están abiertos a los CUATRO roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa: ninguna ruta lleva role: ni carrier.required. ATENCIÓN — los tres endpoints pueden responder 503, que significa que EL SERVICIO EXTERNO NO RESPONDIÓ, no que el cliente se equivocara: ante un 503 se reintenta más tarde, no se corrige el formulario."
         },
         {
             "name": "Products",

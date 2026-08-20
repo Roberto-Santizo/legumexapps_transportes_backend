@@ -65,6 +65,23 @@ class LocationService implements LocationServiceInterface
     }
 
     #[Override]
+    public function getActiveLocationById(int $id): Location
+    {
+        $location = $this->getLocationById($id);
+
+        /**
+         * Un destino dado de baja existe: sigue en el listado, conserva sus tarifas y se
+         * reactiva con /toggle-status. Por eso es 400 y no 404, igual que un precio de
+         * combustible ya inactivo: fila viva, uso prohibido.
+         */
+        if (! $location->status) {
+            throw new BadRequestError('El destino seleccionado no está activo');
+        }
+
+        return $location;
+    }
+
+    #[Override]
     public function create(User $user, array $data): Location
     {
         /** Se normaliza aquí aunque el FormRequest ya lo haya hecho: el service es llamable directamente. */

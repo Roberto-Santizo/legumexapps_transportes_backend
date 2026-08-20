@@ -49,6 +49,40 @@ final class GooglePlacesService implements PlaceServiceInterface
 
     private const NOT_FOUND_MESSAGE = 'La dirección no existe';
 
+    /**
+     * The Routes API, a different product from Places billed separately, reached with
+     * the very same credential.
+     */
+    private const ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
+
+    /** Not one field more: 'routes.*' bills at the most expensive tier. */
+    private const DIRECTIONS_FIELD_MASK = 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline';
+
+    private const TRAVEL_MODE = 'DRIVE';
+
+    /**
+     * Essentials SKU: a static duration from speed limits, so the same query answers
+     * the same at 3 a.m. and at rush hour. It is not an ETA.
+     */
+    private const ROUTING_PREFERENCE = 'TRAFFIC_UNAWARE';
+
+    /**
+     * Fewer points than HIGH_QUALITY at the same price; the line looks angular at
+     * heavy zoom, and it is a single constant away from being changed.
+     */
+    private const POLYLINE_QUALITY = 'OVERVIEW';
+
+    private const UNITS = 'METRIC';
+
+    private const NO_ROUTE_MESSAGE = 'No se encontró una ruta hacia el destino';
+
+    /** Distance and duration are rounded once, at the very end. */
+    private const DECIMALS = 2;
+
+    private const METERS_PER_KILOMETER = 1000;
+
+    private const SECONDS_PER_HOUR = 3600;
+
     #[Override]
     public function searchPlaces(string $search): array
     {
@@ -99,6 +133,57 @@ final class GooglePlacesService implements PlaceServiceInterface
         }
 
         return $this->toPlace($this->decode($response));
+    }
+
+    #[Override]
+    public function getDirections(
+        float $originLatitude,
+        float $originLongitude,
+        float $destinationLatitude,
+        float $destinationLongitude,
+    ): array {
+        $response = $this->send(fn (): Response => $this->request(self::DIRECTIONS_FIELD_MASK)
+            ->post(self::ROUTES_URL, [
+                'origin' => $this->waypoint($originLatitude, $originLongitude),
+                'destination' => $this->waypoint($destinationLatitude, $destinationLongitude),
+                'travelMode' => self::TRAVEL_MODE,
+                'routingPreference' => self::ROUTING_PREFERENCE,
+                'polylineQuality' => self::POLYLINE_QUALITY,
+                /** Una ruta por llamada: las alternativas están fuera de alcance. */
+                'computeAlternativeRoutes' => false,
+                'units' => self::UNITS,
+                'languageCode' => self::LANGUAGE_CODE,
+                'regionCode' => self::REGION_CODE,
+            ]));
+
+        if ($response->failed()) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        $body = $this->decode($response);
+
+        /**
+         * Sin camino por carretera el proveedor contesta 200 con la clave ausente. El
+         * proveedor funcionó: contestar 503 mentiría y haría que el cliente reintentara
+         * algo que va a fallar igual las veces que quiera.
+         */
+        if (! array_key_exists('routes', $body)) {
+            throw new NotFoundError(self::NO_ROUTE_MESSAGE);
+        }
+
+        $routes = $body['routes'];
+
+        /** Una clave presente con otra forma sí es contrato roto, y eso es 503. */
+        if (! is_array($routes)) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        /** La lista vacía es el mismo caso que la clave ausente: no hay camino. */
+        if ($routes === []) {
+            throw new NotFoundError(self::NO_ROUTE_MESSAGE);
+        }
+
+        return $this->toRoute(reset($routes));
     }
 
     /**
@@ -180,6 +265,95 @@ final class GooglePlacesService implements PlaceServiceInterface
             'id' => $id,
             'formattedAddress' => $formattedAddress,
         ];
+    }
+
+    /**
+     * Wrap a coordinate pair in the shape the provider expects for a waypoint.
+     *
+     * @return array{location: array{latLng: array{latitude: float, longitude: float}}}
+     */
+    private function waypoint(float $latitude, float $longitude): array
+    {
+        return [
+            'location' => [
+                'latLng' => [
+                    'latitude' => $latitude,
+                    'longitude' => $longitude,
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Map one route, rejecting the whole call when its shape is wrong.
+     *
+     * Same rule as the search: a partially valid route is not returned short. A missing
+     * distance would come out as zero kilometres and a missing polyline as a route with
+     * nothing to draw, and both look like an answer instead of like a broken provider.
+     *
+     * @return array{distanceKilometers: float, durationHours: float, polyline: string, points: list<array{0: float, 1: float}>}
+     *
+     * @throws ServiceUnavailableError
+     */
+    private function toRoute(mixed $route): array
+    {
+        if (! is_array($route)) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        $distanceMeters = $route['distanceMeters'] ?? null;
+
+        if (! is_numeric($distanceMeters)) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        $durationSeconds = $this->toSeconds($route['duration'] ?? null);
+
+        $polylineNode = $route['polyline'] ?? null;
+        $polyline = is_array($polylineNode) ? ($polylineNode['encodedPolyline'] ?? null) : null;
+
+        if (! is_string($polyline) || $polyline === '') {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        $points = PolylineDecoder::decode($polyline);
+
+        /** Una ruta sin puntos es una respuesta rota, no una ruta sin línea que dibujar. */
+        if ($points === []) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        /** Se redondea a dos decimales y solo al final, como el total de la cotización. */
+        return [
+            'distanceKilometers' => round((float) $distanceMeters / self::METERS_PER_KILOMETER, self::DECIMALS),
+            'durationHours' => round($durationSeconds / self::SECONDS_PER_HOUR, self::DECIMALS),
+            'polyline' => $polyline,
+            'points' => $points,
+        ];
+    }
+
+    /**
+     * Read the duration, which arrives as a string with a trailing 's'.
+     *
+     * That is the google.protobuf.Duration convention, and it is the most fragile field
+     * of the answer: anything that is not a numeric value followed by an 's' is a broken
+     * contract and comes out as a 503, never as a duration of zero.
+     *
+     * @throws ServiceUnavailableError
+     */
+    private function toSeconds(mixed $duration): float
+    {
+        if (! is_string($duration) || ! str_ends_with($duration, 's')) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        $seconds = substr($duration, 0, -1);
+
+        if (! is_numeric($seconds)) {
+            throw new ServiceUnavailableError(self::UNAVAILABLE_MESSAGE);
+        }
+
+        return (float) $seconds;
     }
 
     /**
