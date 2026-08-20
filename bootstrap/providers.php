@@ -1,6 +1,7 @@
 <?php
 
 use App\Providers\Accessory\AccessoryProvider;
+use App\Providers\AccessoryCharacteristic\AccessoryCharacteristicProvider;
 use App\Providers\AppServiceProvider;
 use App\Providers\Auth\AuthProvider;
 use App\Providers\Carrier\CarrierProvider;
@@ -17,6 +18,7 @@ use App\Providers\Zone\ZoneProvider;
 
 return [
     AccessoryProvider::class,
+    AccessoryCharacteristicProvider::class,
     AppServiceProvider::class,
     AuthProvider::class,
     CarrierProvider::class,
