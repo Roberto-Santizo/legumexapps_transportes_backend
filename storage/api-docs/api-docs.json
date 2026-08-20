@@ -12,6 +12,455 @@
         }
     ],
     "paths": {
+        "/api/accessory-characteristics": {
+            "get": {
+                "tags": [
+                    "AccessoryCharacteristics"
+                ],
+                "summary": "Listar las características de un accesorio",
+                "description": "Devuelve las características de UN accesorio concreto, con el nombre de quien capturó cada una. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque las características cuelgan del inventario nacional y no están acotadas por transportista ni por vehículo. No hay ámbito por empresa: todos los usuarios ven exactamente las mismas filas.\n\nATENCIÓN — accessoryId ES OBLIGATORIO. Sin él la petición NO devuelve las características de todo el inventario ni una lista vacía: devuelve 422. Y ese 422 NO usa el sobre habitual {statusCode, message, data}: al venir de un FormRequest sale con el formato de validación de Laravel {message, errors: {accessoryId: [...]}}, con el mensaje El accesorio es obligatorio dentro de errors.accessoryId. Un cliente que lea siempre response.statusCode o response.data en los errores se encontrará undefined justo en este caso. Un accessoryId que no sea entero da el mismo formato con el mensaje El accesorio debe ser un número entero.\n\nATENCIÓN — el query param va en camelCase (accessoryId), mientras que el cuerpo del POST lo lleva en snake_case (accessory_id). Es la única incoherencia de caja del dominio.\n\nUn accessoryId que no corresponde a ningún accesorio es 404 (El accesorio no existe), NO un listado vacío: recibir data: [] siempre significa que el accesorio EXISTE y todavía no tiene ninguna característica. Es distinto del alta, donde ese mismo id inexistente sale por 422 gracias a la regla exists.\n\nATENCIÓN — EL STATUS DEL ACCESORIO NO IMPORTA: uno inactive o under_repair lista sus características con toda normalidad, porque la ficha de una pieza retirada sigue siendo información válida.\n\nNO HAY MÁS FILTROS: no existe search sobre el nombre ni sobre el valor, no existe filtro por status —la tabla no tiene estado— y no existe orden configurable. El orden es FIJO, id ASC, es decir el orden en que se capturaron. Cualquier otro query param se ignora en silencio. Tampoco existe la dirección contraria: no se pueden buscar accesorios por el valor de una característica.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todas las características del accesorio y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos APLANADOS EN LA RAÍZ, no bajo meta. Como las características de un accesorio se cuentan con los dedos, lo normal es no paginar: el limit se mantiene solo por coherencia con el resto del proyecto.",
+                "operationId": "indexAccessoryCharacteristics",
+                "parameters": [
+                    {
+                        "name": "accessoryId",
+                        "in": "query",
+                        "description": "OBLIGATORIO. Identificador del accesorio cuyas características se piden (accessories.id), EN CAMELCASE —el snake_case accessory_id es el del cuerpo del POST, no el de este query param—. Omitirlo devuelve 422 con el formato de validación de Laravel {message, errors} y el mensaje El accesorio es obligatorio; no hay valor por defecto ni listado global. Debe ser un entero: accessoryId=abc devuelve 422 con el mensaje El accesorio debe ser un número entero. Un id inexistente devuelve 404 (El accesorio no existe), nunca un listado vacío. NO lleva regla exists en el FormRequest a propósito: el 422 se reserva a la ausencia del parámetro y el 404 lo levanta el service. El estado del accesorio no se mira: inactive y under_repair listan igual que active.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 12
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todas las características del accesorio sin error y SIN metadatos de paginación. Si es numérico se ACOTA al rango [10, 100]: limit=1 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Nunca provoca un 422: no está validado.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Características obtenidas correctamente. Sin limit se devuelve AccessoryCharacteristicListResponse; con limit numérico, PaginatedAccessoryCharacteristicListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Un accesorio que existe y no tiene ninguna característica devuelve 200 con data vacío, nunca 404. Siempre ordenadas por id ASC.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/AccessoryCharacteristicListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedAccessoryCharacteristicListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún accesorio con el accessoryId enviado. El mensaje devuelto es: El accesorio no existe. Nunca se responde con un listado vacío en este caso, para que el cliente pueda distinguir \"el accesorio no está\" de \"el accesorio no tiene características\"",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Falta el parámetro accessoryId (mensaje El accesorio es obligatorio) o no es un entero (mensaje El accesorio debe ser un número entero). ATENCIÓN: este error NO usa el sobre {statusCode, message, data} sino el formato de validación de Laravel {message, errors}. El limit nunca provoca un 422: no está validado y uno no numérico simplemente no pagina",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "AccessoryCharacteristics"
+                ],
+                "summary": "Registrar una característica de accesorio",
+                "description": "Añade UNA característica —un par nombre/valor— a UN accesorio del inventario nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer las características. No lleva carrier.required, porque el accesorio no pertenece a ninguna empresa.\n\nATENCIÓN — LA RUTA NO ESTÁ ANIDADA: el accesorio NO va en la URL, va en el campo accessory_id del cuerpo, EN SNAKE_CASE. No confundirlo con el query param accessoryId (camelCase) del listado: mandar accessoryId en el cuerpo no vincula nada y devuelve 422 por accessory_id ausente.\n\nCada llamada crea EXACTAMENTE UNA fila: no hay alta en lote ni endpoint de sincronización. Tres características son tres peticiones, sin transacción que las agrupe.\n\nATENCIÓN — UN accessory_id INEXISTENTE ES 422, NO 404: lo caza la regla exists del FormRequest con el mensaje El accesorio no existe. El service tiene su propio 404 con ese mismo mensaje, pero por HTTP no se alcanza aquí; en el LISTADO, en cambio, ese id inexistente sí sale por 404. El STATUS del accesorio no se mira: uno inactive o under_repair acepta características igual que uno active.\n\nATENCIÓN — name y value SE NORMALIZAN CON REGLAS DISTINTAS. El name se recorta, se le COLAPSAN los espacios internos y se pasa a MAYÚSCULAS: enviar \"  placa   trasera \" crea \"PLACA TRASERA\". El value SOLO se recorta y NO cambia de caja ni pierde sus espacios internos: \"  Diésel \" crea \"Diésel\" y \"Acero   inoxidable\" se guarda con sus tres espacios. El cliente debe pintar el name y el value de la respuesta, no lo que tecleó el usuario.\n\nATENCIÓN — REPETIR UN NOMBRE EN EL MISMO ACCESORIO ES 400, NO 422: no hay regla unique en el FormRequest, así que la colisión la corta el service con el mensaje de negocio \"El accesorio ya tiene una característica con ese nombre\" y el índice único (accessory_id, name) queda solo de red de seguridad. Es distinto de Accessories, donde los duplicados salen por 422. El MISMO nombre en OTRO accesorio devuelve 201 con toda normalidad: dos accesorios pueden tener ambos \"PLACA\", uno solo no puede tener dos.\n\nEl registeredBy NO se envía: se toma del usuario autenticado y vuelve resuelto como el NOMBRE de esa persona; mandar registeredBy o registered_by en el cuerpo se ignora sin error. Tampoco hay status ni fecha que enviar: la tabla no tiene estado y el createdAt lo pone la base.",
+                "operationId": "storeAccessoryCharacteristic",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreAccessoryCharacteristicRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Característica registrada correctamente, con el name ya normalizado en MAYÚSCULAS, el value tal como se tecleó salvo por el recorte de los extremos, el accessoryId del cuerpo y registeredBy con el nombre del administrador autenticado. createdAt viene en d-m-Y h:i:s A y no hay updatedAt.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Característica registrada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/AccessoryCharacteristic"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "ATENCIÓN — ESTE 400 SÍ SE ALCANZA POR HTTP, al contrario que el de Accessories: el accesorio ya tiene una característica con ese nombre una vez normalizado. El mensaje devuelto es: El accesorio ya tiene una característica con ese nombre. No es un 422 porque el FormRequest no lleva regla unique: la unicidad es por accesorio y la comprueba el service. El mismo nombre en otro accesorio no da este error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer las características—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos. Casos típicos: falta accessory_id, no es entero o NO EXISTE ningún accesorio con ese id (El accesorio es obligatorio / El accesorio debe ser un número entero / El accesorio no existe — este último es la regla exists, por eso es 422 y no 404); falta el name, va vacío, no es texto o supera los 255 caracteres (El nombre de la característica es obligatorio / El nombre de la característica debe ser texto / El nombre de la característica no puede superar los 255 caracteres); falta el value, va vacío, no es texto o supera los 500 caracteres (El valor de la característica es obligatorio / El valor de la característica debe ser texto / El valor de la característica no puede superar los 500 caracteres). Repetir un nombre en el mismo accesorio NO cae aquí: eso es 400",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/accessory-characteristics/{accessoryCharacteristic}": {
+            "get": {
+                "tags": [
+                    "AccessoryCharacteristics"
+                ],
+                "summary": "Obtener una característica por id",
+                "description": "Devuelve una característica concreta con el nombre de quien la capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa.\n\nATENCIÓN — el {accessoryCharacteristic} de la ruta es el id de la CARACTERÍSTICA (accessory_characteristics.id), NO el del accesorio. Pasar aquí el id de un accesorio devuelve otra fila o un 404, no las características de ese accesorio: para eso está GET /api/accessory-characteristics?accessoryId=.\n\nNo hay ámbito por empresa ni por vehículo, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404. Y como el borrado es FÍSICO, una característica eliminada da 404 y no una fila marcada de baja: aquí no hay el 400 \"ya fue eliminada\" de FreightRates.\n\nEl status del accesorio del que cuelga no interviene: la característica de un accesorio inactive o under_repair se consulta con toda normalidad.\n\nNo hay consulta por nombre: el dominio no tiene búsqueda de ninguna clase, ni aquí ni en el listado.",
+                "operationId": "showAccessoryCharacteristic",
+                "parameters": [
+                    {
+                        "name": "accessoryCharacteristic",
+                        "in": "path",
+                        "description": "Identificador numérico de la CARACTERÍSTICA (accessory_characteristics.id), no del accesorio. Es el id que devuelve la clave id del recurso, no el de accessoryId. No cambia nunca —el vínculo con el accesorio es inmutable— y desaparece de verdad al borrar la fila, porque la baja es física.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 4
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Característica obtenida correctamente. data trae las SEIS claves del recurso —id, accessoryId, name, value, registeredBy y createdAt— y ninguna más: no hay accessoryName, no hay objeto accessory anidado y no hay updatedAt.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Característica obtenida correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/AccessoryCharacteristic"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna característica con ese id, o existía y ya fue BORRADA FÍSICAMENTE por un DELETE. El mensaje devuelto es: La característica no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "AccessoryCharacteristics"
+                ],
+                "summary": "Eliminar una característica",
+                "description": "ATENCIÓN — ESTE DELETE BORRA DE VERDAD: es un BORRADO FÍSICO, la fila DESAPARECE de la tabla y no queda ningún rastro de ella. No hay baja lógica, no hay columna status, no hay SoftDeletes y no hay bitácora: una característica mal tecleada es basura, no historial, el mismo argumento de los gastos de vehículo. Es lo contrario del DELETE de Accessories, que solo pone el status en \"inactive\" y deja la fila viva.\n\nEn consecuencia, NO ES IDEMPOTENTE: un SEGUNDO DELETE del mismo id responde 404 (La característica no existe), igual que un id que nunca existió. Y tampoco hay el 400 \"ya fue eliminada\" de FreightRates, porque aquí no hay soft delete que consultar: los dos casos son indistinguibles.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nBorrar una característica NO TOCA NADA MÁS: el accesorio sigue igual —el DELETE no lo modifica ni cambia su status— y las demás características del mismo accesorio siguen intactas. Como la unicidad del name es por accesorio, borrar una LIBERA su nombre: después se puede volver a crear \"PLACA\" en ese accesorio con otro valor y otro id.\n\nLa respuesta 200 devuelve la característica RECIÉN BORRADA con sus seis claves, como último recibo de lo que desapareció: ese id ya no se puede consultar.",
+                "operationId": "destroyAccessoryCharacteristic",
+                "parameters": [
+                    {
+                        "name": "accessoryCharacteristic",
+                        "in": "path",
+                        "description": "Identificador numérico de la CARACTERÍSTICA a borrar (accessory_characteristics.id), no del accesorio. Borrar el accesorio entero es otra cosa y vive en DELETE /api/accessories/{accessory}, que además es una baja lógica y no arrastra las características: no hay cascada.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 4
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Característica eliminada correctamente. data trae la fila tal como estaba justo antes de desaparecer —id, accessoryId, name, value, registeredBy y createdAt—; ese id ya no existe en la tabla y volver a consultarlo, editarlo o borrarlo devuelve 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Característica eliminada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/AccessoryCharacteristic"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna característica con ese id, o ya fue borrada por un DELETE anterior: al ser un borrado físico, los dos casos son indistinguibles. El mensaje devuelto es: La característica no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "AccessoryCharacteristics"
+                ],
+                "summary": "Actualizar una característica",
+                "description": "Modifica el nombre, el valor o los dos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nLos dos campos son opcionales por separado y solo se toca lo que venga: un PATCH que solo manda value deja el name intacto, y al revés. Un CUERPO VACÍO responde 200 como no-op, devolviendo la característica sin cambios, en vez de 422. Enviarlos VACÍOS sí es 422: son sometimes|required, y ninguna de las dos columnas es nullable.\n\nATENCIÓN — LA CARACTERÍSTICA NUNCA CAMBIA DE ACCESORIO Y EL INTENTO NO AVISA. accessory_id no forma parte del cuerpo aceptado: enviarlo —o enviar accessoryId— NO devuelve error, se IGNORA EN SILENCIO y la respuesta 200 trae el accessoryId original. Un cliente que mande la característica entera incluyendo el accesorio creerá que la movió. Mover una característica de accesorio es borrarla y volverla a crear.\n\nLa normalización es la misma del alta y con la misma asimetría: el name se recorta, colapsa sus espacios internos y sube a MAYÚSCULAS; el value SOLO se recorta y conserva su caja y sus espacios.\n\nATENCIÓN — el choque de nombre se comprueba contra EL ACCESORIO YA GUARDADO, no contra uno que venga en el cuerpo, e IGNORANDO LA PROPIA FILA: chocar con OTRA característica del mismo accesorio es 400 (El accesorio ya tiene una característica con ese nombre), reenviar SU PROPIO nombre sin cambios es 200, y usar un nombre que ya existe en OTRO accesorio también es 200.\n\nEl registeredBy NO se acepta y NO se reescribe: la fila conserva a quien la capturó aunque la edite después otro administrador. Editar PISA el valor anterior sin dejar rastro: no hay historial de cambios, no hay updatedAt en la respuesta y el createdAt no se mueve. El status del accesorio no interviene: una característica de un accesorio dado de baja se edita igual.",
+                "operationId": "updateAccessoryCharacteristic",
+                "parameters": [
+                    {
+                        "name": "accessoryCharacteristic",
+                        "in": "path",
+                        "description": "Identificador numérico de la CARACTERÍSTICA a editar (accessory_characteristics.id), no del accesorio. Es también el id que la comprobación de nombre repetido ignora, para que la fila pueda reenviar su propio nombre sin chocar consigo misma.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 4
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateAccessoryCharacteristicRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Característica actualizada correctamente. data trae la característica ya actualizada, con el MISMO accessoryId y el MISMO registeredBy que antes de la edición. Un cuerpo vacío devuelve este mismo 200 sin haber cambiado nada.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Característica actualizada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/AccessoryCharacteristic"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El name enviado, ya normalizado, lo tiene OTRA característica del MISMO accesorio. El mensaje devuelto es: El accesorio ya tiene una característica con ese nombre. Reenviar el propio nombre de la fila NO cae aquí (es 200), y un nombre que ya existe en otro accesorio tampoco",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna característica con ese id, o ya fue borrada físicamente. El mensaje devuelto es: La característica no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos: el name o el value se enviaron VACÍOS (El nombre de la característica es obligatorio / El valor de la característica es obligatorio), no son texto o superan sus límites de 255 y 500 caracteres. ATENCIÓN — enviar accessory_id o accessoryId NO provoca un 422: se ignora en silencio",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/accessories": {
             "get": {
                 "tags": [
@@ -6295,6 +6744,54 @@
                 },
                 "type": "object"
             },
+            "StoreAccessoryCharacteristicRequest": {
+                "title": "Alta de característica de accesorio",
+                "description": "Cuerpo JSON para dar de alta UNA característica de UN accesorio. Solo se aceptan tres campos —accessory_id, name y value— y LOS TRES SON OBLIGATORIOS: no hay campos opcionales en este alta.\n\nATENCIÓN — accessory_id VA EN SNAKE_CASE, al contrario que el query param accessoryId del listado, que va en camelCase. Es la única incoherencia de caja del dominio y hay que respetarla: enviar accessoryId en el cuerpo NO vincula nada y devuelve 422 por accessory_id ausente (El accesorio es obligatorio).\n\nATENCIÓN — un accessory_id que no corresponde a ningún accesorio es 422 por la regla exists (mensaje El accesorio no existe), NO 404. El 404 con ese mismo mensaje existe en el service pero por HTTP nunca se alcanza en el alta: el FormRequest corta antes. En el LISTADO, en cambio, el mismo id inexistente sí devuelve 404, porque allí no hay regla exists. Dos códigos distintos para el mismo error según el endpoint.\n\nATENCIÓN — REPETIR UN NOMBRE EN EL MISMO ACCESORIO ES 400, NO 422: aquí NO hay regla unique. La colisión la corta el service con el mensaje de negocio \"El accesorio ya tiene una característica con ese nombre\", y el índice único (accessory_id, name) queda de red de seguridad. Es la asimetría deliberada frente a Accessories, donde los duplicados sí salen por 422. El MISMO nombre en OTRO accesorio devuelve 201: la unicidad es por accesorio, no global.\n\nATENCIÓN — name y value SE NORMALIZAN ANTES DE VALIDARSE, y con reglas DISTINTAS. El name se recorta, se le colapsan los espacios internos y se pasa a mayúsculas: \"  placa   trasera \" guarda \"PLACA TRASERA\". El value SOLO se recorta: \"  Diésel \" guarda \"Diésel\", conservando su caja y sus espacios internos. Como la normalización ocurre antes, los límites max:255 y max:500 cuentan el texto ya recortado, no el relleno de los extremos.\n\nEl registeredBy NO se acepta: la autoría sale del usuario autenticado —que por el middleware role:administrator es siempre un administrador— y vuelve en la respuesta como el NOMBRE de esa persona; mandar registeredBy o registered_by en el cuerpo se ignora sin error. Tampoco hay status ni fecha: la tabla no tiene estado y el createdAt lo pone la base.\n\nUn POST crea EXACTAMENTE UNA fila: no hay alta en lote ni endpoint de sincronización. Tres características son tres llamadas, sin transacción que las agrupe.",
+                "required": [
+                    "accessory_id",
+                    "name",
+                    "value"
+                ],
+                "properties": {
+                    "accessory_id": {
+                        "description": "OBLIGATORIO. Identificador del accesorio al que se le añade la característica (accessories.id). EN SNAKE_CASE: es accessory_id, no accessoryId —el camelCase se usa en el query param del listado y en la salida del recurso, pero no aquí—. Debe ser un entero y EXISTIR: un id inexistente devuelve 422 por la regla exists con el mensaje El accesorio no existe, no 404. El STATUS DEL ACCESORIO NO IMPORTA: uno inactive o under_repair acepta características igual que uno active, porque la ficha de una pieza retirada sigue siendo información válida. Ausente o no entero es 422 (El accesorio es obligatorio / El accesorio debe ser un número entero). Una vez creada la fila este vínculo es INMUTABLE: el PATCH no lo acepta.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "name": {
+                        "description": "OBLIGATORIO. Nombre de la característica: PLACA, TIPO DE COMBUSTIBLE, MEDIDA. Texto libre —NO hay catálogo de nombres permitidos ni autocompletado— de máximo 255 caracteres, que es el ancho de la columna. Se NORMALIZA antes de validar y de guardar: recorte, colapso de espacios internos y MAYÚSCULAS, así que se puede enviar en minúsculas y el cliente debe pintar el name de la respuesta, no el que tecleó el usuario. ATENCIÓN — debe ser único DENTRO DEL MISMO ACCESORIO, y la colisión NO es 422 sino 400 del service (El accesorio ya tiene una característica con ese nombre); el mismo nombre en otro accesorio es 201. Como la comparación va sobre el nombre ya normalizado, \"placa\" choca con \"PLACA\". Ausente, vacío, no textual o de más de 255 caracteres devuelve 422 (El nombre de la característica es obligatorio / El nombre de la característica debe ser texto / El nombre de la característica no puede superar los 255 caracteres).",
+                        "type": "string",
+                        "example": "placa",
+                        "maxLength": 255
+                    },
+                    "value": {
+                        "description": "OBLIGATORIO. Valor de la característica, SIEMPRE TEXTO: no hay tipo declarado ni unidad, así que una placa, un tipo de combustible, una fecha o una cantidad viajan todos como cadena y ningún informe podrá operar con ellos sin limpiarlos a mano. Máximo 500 caracteres, el ancho de la columna: 500 se acepta y 501 es 422. ATENCIÓN — SOLO SE RECORTA, y a diferencia del name NO se pasa a mayúsculas ni se le colapsan los espacios internos: \"  Diésel \" se guarda como \"Diésel\" y \"Acero   inoxidable\" conserva sus espacios. Es la asimetría deliberada del dominio: el nombre es un identificador y el valor es contenido del usuario. Ausente, vacío, no textual o demasiado largo devuelve 422 (El valor de la característica es obligatorio / El valor de la característica debe ser texto / El valor de la característica no puede superar los 500 caracteres).",
+                        "type": "string",
+                        "example": "P-123ABC",
+                        "maxLength": 500
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateAccessoryCharacteristicRequest": {
+                "title": "Actualización de característica de accesorio",
+                "description": "Cuerpo JSON para editar una característica. Solo se aceptan DOS campos —name y value—, los dos OPCIONALES por separado: un PATCH que solo manda value deja el name intacto, y al revés. Un CUERPO VACÍO responde 200 como no-op, devolviendo la característica sin cambios, NO 422.\n\nATENCIÓN — accessory_id NO APARECE Y SE IGNORA EN SILENCIO: enviarlo (o enviar accessoryId) NO devuelve 422, no mueve la fila de accesorio y la respuesta 200 trae el accessoryId original. Un cliente que reenvíe el objeto entero creerá que la movió. Mover una característica de accesorio es BORRARLA Y CREARLA de nuevo.\n\nATENCIÓN — los dos campos son \"sometimes|required\": omitirlos está bien, pero enviarlos VACÍOS es 422. No hay forma de limpiar un name ni un value, porque ninguna de las dos columnas es nullable —una característica sin valor no informa de nada—.\n\nEl name y el value se NORMALIZAN igual que en el alta y con la misma asimetría: el name se recorta, colapsa y sube a mayúsculas; el value solo se recorta. La comprobación de nombre repetido corre contra EL ACCESORIO YA GUARDADO —no contra uno que venga en el cuerpo— e ignora la propia fila: chocar con OTRA característica del mismo accesorio es 400 (El accesorio ya tiene una característica con ese nombre), reenviar SU PROPIO nombre sin cambios es 200, y usar un nombre que ya existe en OTRO accesorio también es 200.\n\nEl registeredBy NO se acepta y NO se reescribe: la característica conserva a quien la capturó aunque la edite otro administrador. Editar pisa el valor anterior SIN dejar rastro: no hay historial de cambios ni updatedAt en la respuesta. La ruta acepta PATCH y PUT indistintamente, con el mismo comportamiento: el PUT no reemplaza el recurso completo.",
+                "properties": {
+                    "name": {
+                        "description": "OPCIONAL. Nuevo nombre de la característica. Si se omite, el nombre no se toca; si se envía, no puede ir vacío (sometimes|required): el 422 es El nombre de la característica es obligatorio. Máximo 255 caracteres y misma normalización que en el alta —recorte, colapso de espacios internos y MAYÚSCULAS—, así que el cliente debe pintar el name de la respuesta. ATENCIÓN — si el nombre ya normalizado lo tiene OTRA característica DEL MISMO ACCESORIO la respuesta es 400 (El accesorio ya tiene una característica con ese nombre), NO 422; reenviar el propio nombre de la fila es 200 porque la comprobación ignora su propio id, y usar un nombre que ya existe en otro accesorio también es 200.",
+                        "type": "string",
+                        "example": "placa trasera",
+                        "maxLength": 255
+                    },
+                    "value": {
+                        "description": "OPCIONAL. Nuevo valor de la característica, siempre texto y de máximo 500 caracteres. Si se omite, el valor no se toca; si se envía, no puede ir vacío (sometimes|required): el 422 es El valor de la característica es obligatorio. SOLO SE RECORTA: no se pasa a mayúsculas ni se le colapsan los espacios internos, igual que en el alta. Editarlo PISA el valor anterior sin dejar rastro —no hay historial ni updatedAt— y no hay ninguna regla de unicidad sobre él: dos características del mismo accesorio pueden compartir valor.",
+                        "type": "string",
+                        "example": "P-999XYZ",
+                        "maxLength": 500
+                    }
+                },
+                "type": "object"
+            },
             "StoreAccessoryRequest": {
                 "title": "Alta de accesorio",
                 "description": "Cuerpo JSON para dar de alta un accesorio del inventario nacional. Los campos aceptados son name, code, description, price, purchaseDate y annualDepreciation; todos son obligatorios salvo description.\n\nATENCIÓN — UNA FILA ES UNA UNIDAD FÍSICA: NO existe el campo quantity. Para registrar dos llantas iguales hay que hacer DOS altas, con DOS códigos distintos; mandar una cantidad no crea varias filas ni da error, simplemente se ignora.\n\nEl status NO se acepta: el accesorio nace siempre \"active\" y enviarlo se descarta sin error, así que no hay forma de crear un accesorio ya dado de baja o ya en reparación — para eso está el PATCH. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador, y sale en la respuesta como el NOMBRE de esa persona. El currentValue tampoco se acepta: es un campo DERIVADO Y DE SOLO SALIDA que se calcula en cada lectura; mandarlo se IGNORA EN SILENCIO, sin 422 y sin aviso.\n\nATENCIÓN — name y code se NORMALIZAN antes de validarse y antes de guardarse, pero CON REGLAS DISTINTAS. El name se recorta, se le COLAPSAN los espacios internos y se pasa a mayúsculas: \"  gato   hidráulico  \" crea \"GATO HIDRÁULICO\". El code se recorta y se pasa a mayúsculas pero NO se le colapsan los espacios internos, porque es un identificador y no una frase: \"A 100\" y \"A100\" son dos códigos DISTINTOS y los dos se aceptan. Como la normalización ocurre ANTES de las reglas unique, enviar \"gato hidráulico\" existiendo ya \"GATO HIDRÁULICO\" devuelve 422, no 500 ni una fila duplicada.\n\nLos DOS duplicados posibles se responden igual, con 422 desde el FormRequest: \"Ya existe un accesorio con ese nombre\" y \"Ya existe un accesorio con ese código\". No hay aquí la asimetría 422/400 de Locations. El service repite esas mismas comprobaciones y esos mismos mensajes como 400, pero solo se ven en una llamada directa al service: por HTTP siempre corta antes el FormRequest.\n\nATENCIÓN — LA UNICIDAD DEL CÓDIGO ES GLOBAL Y NO MIRA EL STATUS: un accesorio dado de baja NO libera su código, así que no se puede reutilizar el código de una unidad retirada. Es la diferencia deliberada con la placa de un vehículo, que un status inactive sí libera.",
@@ -7373,6 +7870,78 @@
                     }
                 },
                 "type": "object"
+            },
+            "AccessoryCharacteristic": {
+                "title": "Característica de accesorio",
+                "description": "Par nombre/valor libre que describe UN accesorio del inventario nacional: su PLACA, su TIPO DE COMBUSTIBLE, su MEDIDA. El conjunto de campos NO está fijado por el esquema: dos accesorios pueden describirse con listas completamente distintas sin migrar nada, y ninguno está obligado a tener ninguna característica.\n\nATENCIÓN — NO ES UN CATÁLOGO: no existe una tabla de nombres permitidos, ni autocompletado servido por la API, ni tipo declarado por característica. El nombre se teclea libre y el valor es SIEMPRE TEXTO: un valor \"12\" y un valor \"doce\" son igual de válidos, y ningún cliente debe asumir que puede operar aritméticamente con el value.\n\nATENCIÓN — LA NORMALIZACIÓN ES ASIMÉTRICA: el name se recorta, se le COLAPSAN los espacios internos y se pasa a MAYÚSCULAS —es un identificador, y al estar siempre en mayúsculas la unicidad resulta insensible a mayúsculas sin depender del collation—; el value SOLO se recorta por los extremos y NO cambia de caja ni pierde sus espacios internos, porque es contenido del usuario y subirlo a mayúsculas lo estropearía (\"Diésel\" no es \"DIÉSEL\"). Es deliberado, no un descuido.\n\nATENCIÓN — accessoryId sale como NÚMERO, no como objeto anidado: quien llega hasta aquí ya tiene el accesorio, porque tuvo que mandar su id para listar o para crear. NO hay accessoryName, ni accessory embebido, ni ningún otro dato del accesorio. Tampoco hay updatedAt: por la API no hay forma de saber cuándo se editó por última vez, ni existe historial de cambios.\n\nATENCIÓN — el vínculo con el accesorio es INMUTABLE: el PATCH no acepta accessory_id y mandarlo se IGNORA EN SILENCIO, así que este accessoryId es el mismo desde el alta hasta el borrado. Mover una característica de accesorio es borrarla y crearla de nuevo.\n\nLa unicidad del name es POR ACCESORIO, no global: dos accesorios distintos pueden tener ambos \"PLACA\" —lo normal—, pero uno solo no puede tener dos. Y la baja es FÍSICA: no hay status, no hay SoftDeletes y un DELETE hace desaparecer la fila de la tabla.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la fila (accessory_characteristics.id). Es el valor que va en el parámetro {accessoryCharacteristic} de las rutas de detalle, actualización y baja. NO es el id del accesorio: para eso está accessoryId. Como el borrado es FÍSICO, tras un DELETE este id deja de existir y cualquier lectura posterior devuelve 404, no una fila marcada como inactiva.",
+                        "type": "integer",
+                        "example": 4
+                    },
+                    "accessoryId": {
+                        "description": "Identificador del accesorio que esta característica describe (accessories.id), como NÚMERO y no como objeto anidado: NO hay accessoryName ni ningún otro dato del accesorio en la respuesta. Es el mismo valor que se envía como query param accessoryId en el listado y como accessory_id en el cuerpo del alta —ojo con la diferencia de caja entre los dos—. Es INMUTABLE: el PATCH no lo acepta y mandarlo se ignora en silencio, así que nunca cambia a lo largo de la vida de la fila. El estado del accesorio (active, inactive o under_repair) no interviene en nada: la ficha de una pieza retirada sigue siendo información válida.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "name": {
+                        "description": "Nombre de la característica, SIEMPRE EN MAYÚSCULAS y con los espacios internos colapsados a uno: enviar \"  placa   trasera \" guarda y devuelve \"PLACA TRASERA\". El cliente debe pintar SIEMPRE este name, no el que tecleó el usuario. Es único DENTRO DE SU ACCESORIO, no a nivel global: repetirlo en el mismo accesorio es un 400 del service (El accesorio ya tiene una característica con ese nombre) y repetirlo en otro accesorio es perfectamente válido. Al no haber catálogo, nada impide que un accesorio tenga \"PLACA\", otro \"PLACA TRASERA\" y un tercero \"NO. DE PLACA\": la normalización unifica caja y espacios, nunca sinónimos.",
+                        "type": "string",
+                        "example": "PLACA"
+                    },
+                    "value": {
+                        "description": "Valor de la característica, EXACTAMENTE COMO SE GUARDÓ: solo se le recortaron los extremos. ATENCIÓN — NO se pasa a mayúsculas y NO se le colapsan los espacios internos, al contrario que al name: enviar \"  Diésel \" devuelve \"Diésel\", y \"Acero   inoxidable\" conserva sus espacios. Es SIEMPRE TEXTO, sin tipo declarado ni unidad: una fecha, un número o un booleano viajan aquí como la cadena que tecleó el usuario, y convertirlos es cosa del cliente. Máximo 500 caracteres, que es también el ancho de la columna. No participa en ninguna búsqueda: el dominio no tiene filtro search.",
+                        "type": "string",
+                        "example": "P-123ABC"
+                    },
+                    "registeredBy": {
+                        "description": "ATENCIÓN — es el NOMBRE del administrador que capturó la característica, NO su id: la pantalla lo imprime y nadie navega a ese usuario. Sale de la relación registeredBy y nunca del cuerpo: se toma del usuario autenticado en el alta, y mandar registeredBy o registered_by en el JSON no cambia quién queda registrado. El PATCH NO lo reescribe, así que sigue apuntando a quien creó la fila aunque la haya editado después otro administrador. Es null solo si ese usuario ya no se puede resolver.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha en la que se capturó la fila, con el formato propio del proyecto d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM). ATENCIÓN — NO ES ISO 8601, por eso se documenta como string SIN format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. El recurso NO expone updatedAt, así que esta es la única marca de tiempo disponible y editar el value no la mueve.",
+                        "type": "string",
+                        "example": "20-08-2026 09:14:33 AM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "AccessoryCharacteristicListResponse": {
+                "title": "Listado de características sin paginar",
+                "description": "Respuesta de GET /api/accessory-characteristics cuando no se envía limit o cuando el limit no es numérico: se devuelven TODAS las características del accesorio pedido y el sobre NO incluye total, currentPage ni lastPage. Siempre ordenadas por id ASC —el orden en que se capturaron— y siempre de un solo accesorio: no existe un listado global de las características de todo el inventario. Un accesorio que existe pero no tiene ninguna característica devuelve 200 con data vacío; un accessoryId que no existe devuelve 404, nunca una lista vacía.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Características obtenidas correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AccessoryCharacteristic"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedAccessoryCharacteristicListResponse": {
+                "title": "Listado de características paginado",
+                "description": "Respuesta de GET /api/accessory-characteristics cuando se envía un limit numérico: los metadatos de paginación —total, currentPage y lastPage— salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, NO anidados bajo meta. El total cuenta las características de ESE accesorio, no del inventario entero.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/AccessoryCharacteristicListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
             },
             "Accessory": {
                 "title": "Accesorio",
@@ -8838,6 +9407,10 @@
         }
     },
     "tags": [
+        {
+            "name": "AccessoryCharacteristics",
+            "description": "Características de los accesorios del inventario nacional: pares nombre/valor libres —PLACA, TIPO DE COMBUSTIBLE, MEDIDA— con los que cada accesorio se describe a sí mismo. El conjunto de campos NO está fijado por el esquema: dos accesorios pueden llevar listas completamente distintas sin migrar nada, y ninguno está obligado a tener ninguna característica. NO ES UN CATÁLOGO: no hay tabla de nombres permitidos, ni autocompletado, ni tipo declarado —el valor es SIEMPRE texto—, ni filtro que vaya en la dirección contraria (no existe \"dame los accesorios cuya PLACA sea P-123ABC\"). Los cinco endpoints exigen token JWT (Authorization: Bearer {token}) y el reparto de permisos es asimétrico, como en Accessories: la LECTURA (index y show) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa; la ESCRITURA (store, update y destroy) es exclusiva del administrator (middleware role:administrator) y los otros tres reciben 403. NINGUNA ruta lleva carrier.required: como el inventario del que cuelgan, las características son un dato nacional y no tienen carrierId ni vehicleId. ATENCIÓN — EL RECURSO CUELGA DE UN ACCESORIO PERO LA RUTA NO ESTÁ ANIDADA: NO existe /api/accessories/{accessory}/characteristics; el vínculo viaja en el campo accessory_id del cuerpo del alta y en el query param accessoryId del listado, que es OBLIGATORIO —sin él la respuesta es 422, no un listado global del inventario entero—. ATENCIÓN — ESA DIFERENCIA DE CAJA ES REAL: accessoryId en camelCase en el query param, accessory_id en snake_case en el cuerpo del POST. ATENCIÓN — AccessoryResource NO CAMBIÓ con esta spec: GET /api/accessories y GET /api/accessories/{accessory} NO devuelven characteristics ni un contador, y las características se piden SIEMPRE aparte; una pantalla que liste 40 accesorios con sus características hace 41 peticiones, y es el precio asumido de no tocar un recurso ya publicado. Reglas que atraviesan el dominio: la NORMALIZACIÓN ES ASIMÉTRICA —el name se recorta, colapsa espacios internos y sube a MAYÚSCULAS; el value solo se recorta y conserva su caja y sus espacios—; el name es único POR ACCESORIO y su colisión sale por 400 del service, NO por 422, porque no hay regla unique en el FormRequest; el accessory_id es INMUTABLE y mandarlo en el PATCH se ignora en silencio; el registered_by sale del usuario autenticado y no se reescribe al editar; el status del accesorio NO INTERVIENE, así que uno inactive o under_repair lista, acepta y edita características igual; el orden del listado es fijo id ASC y NO hay más filtros que el accessoryId obligatorio —ni search, ni status, ni sortBy—; y el DELETE es un BORRADO FÍSICO, sin status, sin SoftDeletes y sin historial, de modo que un segundo DELETE del mismo id es 404. La salida va en camelCase con seis claves exactas, registeredBy es el NOMBRE del usuario y createdAt va en d-m-Y h:i:s A, que NO es ISO 8601; no hay updatedAt."
+        },
         {
             "name": "Accessories",
             "description": "Inventario nacional de accesorios: llantas, gatos hidráulicos, juegos de cadenas y demás material suelto. El accesorio NO pertenece a ninguna empresa transportista NI está asignado a ningún vehículo —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId ni vehicleId. Los cinco endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. ATENCIÓN — UNA FILA ES UNA UNIDAD FÍSICA: no hay campo quantity; dos llantas iguales son DOS registros con DOS códigos distintos, y contar existencias es contar filas. ATENCIÓN — currentValue ES DERIVADO Y DE SOLO SALIDA: no hay columna, ni job, ni caché; se recalcula en cada lectura con depreciación LINEAL (años = purchaseDate.diffInDays(hoy) / 365; depreciado = price * (annualDepreciation / 100) * años; currentValue = round(max(0, price - depreciado), 2)), así que el mismo accesorio devuelve un valor distinto cada día sin que nadie escriba en la tabla y NO se puede filtrar ni ordenar por él. Reglas que atraviesan el dominio: el name se guarda normalizado y EN MAYÚSCULAS con los espacios internos colapsados, mientras que el code se guarda en mayúsculas pero SIN colapsarlos —\"A 100\" y \"A100\" son códigos distintos—; ambos son únicos a nivel global y sus duplicados salen por 422 desde el FormRequest (sin la asimetría 422/400 de Locations), aunque el service repite esos mismos mensajes como 400 para las llamadas directas; la unicidad del code es CIEGA AL STATUS, de modo que un accesorio dado de baja NO libera su código, al contrario que la placa de un vehículo; el status es un ENUM DE TRES VALORES (active, inactive, under_repair) y NO un booleano, no se acepta en el alta y se mueve libremente por el PATCH, que es la única vía —NO existe /toggle-status—; y el DELETE es una BAJA LÓGICA que solo pone status en \"inactive\", con la fila viva y todavía visible en el listado. La salida va en camelCase, con price, annualDepreciation y currentValue como CADENAS de dos decimales (GTQ por convención), purchaseDate en d-m-Y y createdAt en d-m-Y h:i:s A, NUNCA ISO 8601; el recurso no expone updatedAt y registeredBy es el NOMBRE del usuario, no su id."
