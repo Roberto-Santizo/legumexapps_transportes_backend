@@ -4,6 +4,7 @@ namespace Tests\Doubles;
 
 use App\Errors\BadRequestError;
 use App\Interfaces\Storage\FileStorageServiceInterface;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use Override;
 
@@ -38,6 +39,27 @@ class InMemoryFileStorageService implements FileStorageServiceInterface
         $key = $directory.'/'.Str::uuid().'.'.$extension;
 
         $this->files[$key] = $contents;
+
+        return $key;
+    }
+
+    #[Override]
+    public function storeUpload(UploadedFile $file, string $directory): string
+    {
+        if ($this->failing) {
+            throw new BadRequestError('No se pudo almacenar el archivo');
+        }
+
+        $extension = $file->guessExtension() ?? 'bin';
+
+        if ($extension === 'jpeg') {
+            $extension = 'jpg';
+        }
+
+        $key = $directory.'/'.Str::uuid().'.'.$extension;
+
+        /** Kept byte for byte, exactly like the real implementation promises. */
+        $this->files[$key] = (string) $file->get();
 
         return $key;
     }
