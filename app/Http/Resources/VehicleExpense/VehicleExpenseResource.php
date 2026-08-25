@@ -19,7 +19,11 @@ use OpenApi\Attributes as OA;
 
     expenseDate y createdAt NO son lo mismo: expenseDate es el DÍA en que ocurrió el gasto (sin hora, y nunca en el futuro) y createdAt es el instante en que se capturó en el sistema. Un gasto de hace tres meses capturado hoy tiene expenseDate de hace tres meses y createdAt de hoy. Ninguna de las dos viaja en ISO 8601.
 
-    El gasto se BORRA DE VERDAD: no hay soft deletes, ni bitácora de ediciones, ni forma de recuperar un gasto eliminado. Tras un DELETE la fila desaparece de la base y cualquier petición posterior sobre ese id devuelve 404.
+    El gasto se BORRA DE VERDAD: no hay soft deletes, ni bitácora de ediciones, ni forma de recuperar un gasto eliminado. Tras un DELETE la fila desaparece de la base y cualquier petición posterior sobre ese id devuelve 404. El archivo de la factura se borra CON ELLA del almacenamiento, así que su invoiceUrl deja de resolver.
+
+    ATENCIÓN — LA FACTURACIÓN ES INMUTABLE: isInvoiced e invoiceUrl se fijan en el alta y no hay forma de cambiarlos. No existe un endpoint para marcar, desmarcar, reemplazar ni eliminar la factura, y mandar is_invoiced o invoice en el PATCH devuelve 200 sin guardar nada. La única corrección posible es borrar el gasto y volverlo a crear, perdiendo su id, su createdAt y su registeredBy original.
+
+    isInvoiced true con invoiceUrl null NO PUEDE EXISTIR: el archivo es obligatorio cuando el gasto se marca como facturado. Al revés sí es la norma: un gasto no facturado trae siempre invoiceUrl e invoiceType en null.
     TEXT,
     properties: [
         new OA\Property(
@@ -70,6 +74,28 @@ use OpenApi\Attributes as OA;
             description: 'Detalle libre del gasto, obligatorio y de hasta 1000 caracteres. Es donde caben hoy el taller, el número de factura y la pieza concreta, que no tienen columna propia: no existen los campos supplier ni invoiceNumber, así que buscar por proveedor no es posible.',
             type: 'string',
             example: 'Cuatro llantas nuevas, taller El Rodaje, factura A-9912',
+        ),
+        new OA\Property(
+            property: 'isInvoiced',
+            description: 'Si el gasto fue facturado. Es un BOOLEANO JSON DE VERDAD (true o false), nunca 1, 0 ni una cadena. Se fija en el alta con el campo is_invoiced del cuerpo —obligatorio— y ES INMUTABLE: el PATCH no lo acepta y mandarlo se ignora en silencio con 200. No es un estado de pago ni un módulo contable: es un sí o un no, sin número de factura, proveedor, NIT ni fecha propia, que siguen cabiendo en description.',
+            type: 'boolean',
+            example: true,
+        ),
+        new OA\Property(
+            property: 'invoiceUrl',
+            description: 'URL PÚBLICA Y ABSOLUTA del archivo de la factura, o null cuando el gasto no está facturado. Es un enlace directo al almacenamiento, servido desde el dominio del bucket y NO desde el de esta API: no lleva token, no caduca y quien lo tenga ve el archivo sin autenticarse, así que no conviene reenviarlo fuera de la aplicación. La API guarda internamente la key y no la URL, de modo que este valor puede cambiar de dominio sin que cambie el gasto: no sirve como identificador y no debe almacenarse en el cliente. Para pintar el archivo, usar invoiceType y no adivinar por la extensión de esta URL.',
+            type: 'string',
+            format: 'uri',
+            nullable: true,
+            example: 'https://bucket.s3.amazonaws.com/invoices/9f3a1c2e-4b5d-6e7f-8a9b-0c1d2e3f4a5b.pdf',
+        ),
+        new OA\Property(
+            property: 'invoiceType',
+            description: 'Extensión real del archivo adjunto: jpg, png o pdf, o null cuando no hay factura. Es lo que el cliente debe mirar para decidir si pinta una imagen o un enlace de descarga. Ojo: jpg y jpeg se guardan SIEMPRE como jpg, así que jpeg no es un valor posible. No es una columna de la base: se deriva del archivo guardado.',
+            type: 'string',
+            enum: ['jpg', 'png', 'pdf'],
+            nullable: true,
+            example: 'pdf',
         ),
         new OA\Property(
             property: 'registeredBy',
