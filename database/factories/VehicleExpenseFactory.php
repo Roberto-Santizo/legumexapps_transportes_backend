@@ -28,7 +28,25 @@ class VehicleExpenseFactory extends Factory
             'amount' => fake()->randomFloat(2, 100, 5000),
             'expense_date' => fake()->dateTimeBetween('-6 months', 'now')->format('Y-m-d'),
             'description' => fake()->sentence(),
+            'is_invoiced' => false,
+            'invoice' => null,
             'registered_by' => User::factory(),
         ];
+    }
+
+    /**
+     * An expense that was invoiced, with a sample key in `invoice`.
+     *
+     * The key is never uploaded anywhere: it only has to look like what
+     * storeUpload() hands back, so the Resource can derive its type.
+     *
+     * @return Factory<VehicleExpense>
+     */
+    public function invoiced(): Factory
+    {
+        return $this->state(fn (array $attributes): array => [
+            'is_invoiced' => true,
+            'invoice' => 'invoices/'.fake()->uuid().'.pdf',
+        ]);
     }
 }
