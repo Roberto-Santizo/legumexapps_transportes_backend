@@ -1,6 +1,6 @@
 # SPEC 19 — Factura de los gastos de vehículo
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 05, SPEC 14
 > **Fecha:** 2026-08-25
 > **Objetivo:** Registrar si un gasto de mantenimiento fue facturado y guardar el archivo de la factura —imagen o PDF— en el mismo instante del alta, sin que ninguno de los dos datos pueda cambiar después.
