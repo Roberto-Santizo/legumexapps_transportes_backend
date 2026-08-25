@@ -81,6 +81,7 @@ function validExpensePayload(int $vehicleId, array $overrides = []): array
         'amount' => 1250.5,
         'expense_date' => now()->subDay()->format('Y-m-d'),
         'description' => 'Cuatro llantas nuevas, taller El Rodaje, factura A-9912',
+        'is_invoiced' => false,
     ], $overrides);
 }
 

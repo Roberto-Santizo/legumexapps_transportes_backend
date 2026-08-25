@@ -84,24 +84,78 @@ class StoreVehicleExpenseRequest extends FormRequest
     }
 
     /**
-     * The six business fields are required, and none of them accepts null.
+     * Values accepted as a true `is_invoiced`, matching Laravel's own boolean rule.
+     *
+     * @var list<bool|int|string>
+     */
+    private const TRUE_VALUES = [true, 1, '1'];
+
+    /**
+     * Values accepted as a false `is_invoiced`.
+     *
+     * @var list<bool|int|string>
+     */
+    private const FALSE_VALUES = [false, 0, '0'];
+
+    /**
+     * Cast `is_invoiced` to a real boolean, but only when the key is present.
+     *
+     * Merging on absence would turn a missing flag into a false one and let the
+     * `required` rule pass, which is exactly what this spec refuses: whoever
+     * registers the expense always decides. Anything outside the accepted
+     * representations is left untouched so the `boolean` rule rejects it.
+     */
+    protected function prepareForValidation(): void
+    {
+        if (! $this->has('is_invoiced')) {
+            return;
+        }
+
+        $value = $this->input('is_invoiced');
+
+        if (in_array($value, self::TRUE_VALUES, true)) {
+            $this->merge(['is_invoiced' => true]);
+
+            return;
+        }
+
+        if (in_array($value, self::FALSE_VALUES, true)) {
+            $this->merge(['is_invoiced' => false]);
+        }
+    }
+
+    /**
+     * The seven business fields are required, and none of them accepts null.
      *
      * `vehicle_id` deliberately carries no `exists` rule: a vehicle that does
      * not exist is resolved by the service and answers 404, not 422, and one
      * belonging to another company answers 403.
      *
+     * `invoice` is only validated when `is_invoiced` is already normalized to
+     * true. `required_if` is not used on purpose: it compares loosely against
+     * the string 'true' and breaks with the '1' a multipart form sends. With a
+     * false flag the file carries no rules at all, so whatever arrives is
+     * discarded in silence instead of answering 422.
+     *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
-        return [
+        $rules = [
             'vehicle_id' => ['required', 'integer'],
             'category' => ['required', Rule::enum(VehicleExpenseCategory::class)],
             'nature' => ['required', Rule::enum(VehicleExpenseNature::class)],
             'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
             'expense_date' => ['required', 'date', 'before_or_equal:today'],
             'description' => ['required', 'string', 'max:1000'],
+            'is_invoiced' => ['required', 'boolean'],
         ];
+
+        if ($this->input('is_invoiced') === true) {
+            $rules['invoice'] = ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:3072'];
+        }
+
+        return $rules;
     }
 
     /**
@@ -126,6 +180,12 @@ class StoreVehicleExpenseRequest extends FormRequest
             'description.required' => 'La descripción es obligatoria',
             'description.string' => 'La descripción debe ser texto',
             'description.max' => 'La descripción no puede superar los 1000 caracteres',
+            'is_invoiced.required' => 'Debes indicar si el gasto fue facturado',
+            'is_invoiced.boolean' => 'La facturación debe ser verdadero o falso',
+            'invoice.required' => 'La factura es obligatoria cuando el gasto fue facturado',
+            'invoice.file' => 'La factura debe ser un archivo',
+            'invoice.mimes' => 'La factura debe ser un archivo jpg, jpeg, png o pdf',
+            'invoice.max' => 'La factura no puede pesar más de 3 MB',
         ];
     }
 }
