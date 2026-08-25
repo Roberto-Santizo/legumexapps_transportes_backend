@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\VehicleExpense;
 
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
@@ -146,8 +147,31 @@ class VehicleExpenseResource extends JsonResource
             'amount' => $this->amount,
             'expenseDate' => $this->expense_date?->format('d-m-Y'),
             'description' => $this->description,
+            /** Settled at creation time and immutable: the PATCH ignores both keys. */
+            'isInvoiced' => (bool) $this->is_invoiced,
+            /** Service location on purpose: a JsonResource is built with new, so nothing is injected into it. */
+            'invoiceUrl' => app(FileStorageServiceInterface::class)->url($this->invoice),
+            'invoiceType' => $this->invoiceType(),
             'registeredBy' => $this->registeredBy?->name,
             'createdAt' => $this->created_at?->format('d-m-Y h:i:s A'),
         ];
+    }
+
+    /**
+     * Extension of the stored invoice, or null when there is no file.
+     *
+     * Derived from the key instead of living in its own column: the truth is
+     * already in the extension, and a second copy is a second place where it
+     * can drift. Lowercase because that is how storeUpload() writes it.
+     */
+    private function invoiceType(): ?string
+    {
+        if ($this->invoice === null) {
+            return null;
+        }
+
+        $extension = pathinfo((string) $this->invoice, PATHINFO_EXTENSION);
+
+        return $extension === '' ? null : strtolower($extension);
     }
 }

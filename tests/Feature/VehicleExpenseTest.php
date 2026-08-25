@@ -480,7 +480,7 @@ it('registra un gasto de un carrier y devuelve 201 con el recurso', function () 
         ->assertJsonStructure([
             'statusCode',
             'message',
-            'data' => ['id', 'vehicleId', 'category', 'nature', 'amount', 'expenseDate', 'description', 'registeredBy', 'createdAt'],
+            'data' => ['id', 'vehicleId', 'category', 'nature', 'amount', 'expenseDate', 'description', 'isInvoiced', 'invoiceUrl', 'invoiceType', 'registeredBy', 'createdAt'],
         ]);
 
     $this->assertDatabaseHas('vehicle_expenses', [
@@ -687,6 +687,9 @@ it('devuelve el gasto buscado con la forma exacta del recurso', function () {
                 'amount' => '340.75',
                 'expenseDate' => '04-07-2026',
                 'description' => 'Cambio de aceite y filtro',
+                'isInvoiced' => false,
+                'invoiceUrl' => null,
+                'invoiceType' => null,
                 'registeredBy' => $carrier->owner->name,
                 'createdAt' => $expense->created_at->format('d-m-Y h:i:s A'),
             ],
