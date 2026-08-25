@@ -92,8 +92,7 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
             $query->where('expense_date', '<=', $dateTo);
         }
 
-        /** Tolerante como el resto: null significa «no filtrar», así que un isInvoiced=quizá devuelve el listado completo en vez de 422. */
-        $isInvoiced = filter_var($filters['isInvoiced'] ?? null, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        $isInvoiced = $this->normalizeInvoicedFilter($filters['isInvoiced'] ?? null);
 
         if ($isInvoiced !== null) {
             $query->where('is_invoiced', '=', $isInvoiced);
@@ -175,6 +174,24 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
         $this->fileStorage->delete($expense->invoice);
 
         return $expense;
+    }
+
+    /**
+     * Read the `isInvoiced` filter, or null when there is nothing to filter by.
+     *
+     * Tolerant like every other filter of the project: an unreadable value is
+     * ignored instead of answering 422, so the caller gets the full listing.
+     * The empty string is ruled out before filter_var, which reads it as a
+     * legitimate false — a front sending an empty parameter would silently see
+     * only the expenses without invoice.
+     */
+    private function normalizeInvoicedFilter(?string $value): ?bool
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
     }
 
     /**
