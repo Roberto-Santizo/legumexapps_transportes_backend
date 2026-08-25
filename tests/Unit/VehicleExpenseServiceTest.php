@@ -60,7 +60,7 @@ it('resuelve la implementación registrada en el provider', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla vehicle_expenses con sus nueve columnas', function () {
+it('crea la tabla vehicle_expenses con sus once columnas', function () {
     expect(Schema::hasTable('vehicle_expenses'))->toBeTrue()
         ->and(Schema::getColumnListing('vehicle_expenses'))->toEqualCanonicalizing([
             'id',
@@ -70,6 +70,8 @@ it('crea la tabla vehicle_expenses con sus nueve columnas', function () {
             'amount',
             'expense_date',
             'description',
+            'is_invoiced',
+            'invoice',
             'registered_by',
             'created_at',
             'updated_at',
