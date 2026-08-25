@@ -40,8 +40,12 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
     /**
      * Fields the update accepts.
      *
-     * `vehicle_id` and `registered_by` are deliberately absent: an expense
-     * never moves between vehicles, and it keeps the user that created it.
+     * Four fields are deliberately absent: `vehicle_id` and `registered_by`,
+     * because an expense never moves between vehicles and keeps the user that
+     * created it, plus `is_invoiced` and `invoice`, settled at creation time
+     * and immutable ever after. Sending any of them is ignored in silence with
+     * a 200: fixing a wrongly invoiced expense is deleting it and creating it
+     * again.
      */
     private const UPDATABLE_FIELDS = ['category', 'nature', 'amount', 'expense_date', 'description'];
 
@@ -86,6 +90,13 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
 
         if ($dateTo !== null) {
             $query->where('expense_date', '<=', $dateTo);
+        }
+
+        /** Tolerante como el resto: null significa «no filtrar», así que un isInvoiced=quizá devuelve el listado completo en vez de 422. */
+        $isInvoiced = filter_var($filters['isInvoiced'] ?? null, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+
+        if ($isInvoiced !== null) {
+            $query->where('is_invoiced', '=', $isInvoiced);
         }
 
         /** El acumulado se calcula sobre la consulta ya filtrada y ANTES de paginar: es la suma de todos los gastos que cumplen los filtros, no la de la página devuelta. */
@@ -153,6 +164,15 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
 
         /** El borrado es real: la fila desaparece y un segundo DELETE del mismo id responde 404. */
         $expense->delete();
+
+        /**
+         * Única excepción del proyecto a «el DELETE no toca el archivo»: aquí la
+         * fila desaparece de verdad, así que dejar la factura solo generaría
+         * basura que nadie podrá relacionar con nada. Se borra DESPUÉS de la
+         * fila y delete() nunca lanza, de modo que un fallo de limpieza no
+         * altera el 200 de una petición ya cumplida.
+         */
+        $this->fileStorage->delete($expense->invoice);
 
         return $expense;
     }

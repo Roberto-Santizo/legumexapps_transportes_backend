@@ -494,7 +494,7 @@ class VehicleExpenseController extends Controller
      * required one; the rest are tolerant and travel raw, so the service can
      * ignore whatever it cannot use.
      *
-     * @return array{vehicleId: int, category: string|null, nature: string|null, dateFrom: string|null, dateTo: string|null, limit: string|null}
+     * @return array{vehicleId: int, category: string|null, nature: string|null, dateFrom: string|null, dateTo: string|null, isInvoiced: string|null, limit: string|null}
      */
     private function filters(IndexVehicleExpenseRequest $request): array
     {
@@ -504,6 +504,7 @@ class VehicleExpenseController extends Controller
             'nature' => $this->queryString($request, 'nature'),
             'dateFrom' => $this->queryString($request, 'dateFrom'),
             'dateTo' => $this->queryString($request, 'dateTo'),
+            'isInvoiced' => $this->queryString($request, 'isInvoiced'),
             'limit' => $this->queryString($request, 'limit'),
         ];
     }
