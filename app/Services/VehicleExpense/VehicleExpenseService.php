@@ -7,10 +7,12 @@ use App\Enums\VehicleExpenseCategory;
 use App\Enums\VehicleExpenseNature;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
+use Illuminate\Http\UploadedFile;
 use Override;
 
 class VehicleExpenseService implements VehicleExpenseServiceInterface
@@ -42,6 +44,16 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
      * never moves between vehicles, and it keeps the user that created it.
      */
     private const UPDATABLE_FIELDS = ['category', 'nature', 'amount', 'expense_date', 'description'];
+
+    /**
+     * Directory every invoice file is stored under.
+     *
+     * Named after what it holds and not after the resource it hangs from, so
+     * another domain can drop its invoices here the day it has any.
+     */
+    private const INVOICE_DIRECTORY = 'invoices';
+
+    public function __construct(private readonly FileStorageServiceInterface $fileStorage) {}
 
     #[Override]
     public function getVehicleExpenses(User $user, array $filters): array
@@ -92,7 +104,10 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
     #[Override]
     public function createVehicleExpense(array $data, User $user): VehicleExpense
     {
+        /** El ámbito se resuelve ANTES de subir nada, para que un 403 no deje archivos huérfanos en el bucket. */
         $vehicle = $this->resolveVehicle($user, (int) $data['vehicle_id']);
+
+        $isInvoiced = ($data['is_invoiced'] ?? false) === true;
 
         /** registered_by sale del usuario autenticado y no del cuerpo: mandarlo en el body no cambia nada. */
         $expense = VehicleExpense::create([
@@ -102,6 +117,8 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
             'amount' => $data['amount'],
             'expense_date' => $data['expense_date'],
             'description' => $data['description'],
+            'is_invoiced' => $isInvoiced,
+            'invoice' => $this->storeInvoice($isInvoiced, $data['invoice'] ?? null),
             'registered_by' => $user->id,
         ]);
 
@@ -138,6 +155,24 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
         $expense->delete();
 
         return $expense;
+    }
+
+    /**
+     * Store the invoice file and return its key, or null when there is none.
+     *
+     * The boolean rules: with a false flag whatever arrived is discarded right
+     * here and nothing reaches the bucket, so nobody pays for an upload that
+     * will never be read. The file is persisted as-is — cropping an invoice to
+     * a square would make it unreadable — and the FormRequest is what
+     * guarantees it is there when the flag is true.
+     */
+    private function storeInvoice(bool $isInvoiced, mixed $invoice): ?string
+    {
+        if (! $isInvoiced || ! $invoice instanceof UploadedFile) {
+            return null;
+        }
+
+        return $this->fileStorage->storeUpload($invoice, self::INVOICE_DIRECTORY);
     }
 
     /**

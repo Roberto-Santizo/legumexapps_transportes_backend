@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\VehicleExpense;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\UploadedFile;
 
 interface VehicleExpenseServiceInterface
 {
@@ -46,8 +47,14 @@ interface VehicleExpenseServiceInterface
      * payload, and the vehicle's status is not checked: an inactive vehicle
      * accepts expenses, because the maintenance may predate its deactivation.
      *
-     * @param  array{vehicle_id: int, category: string, nature: string, amount: float, expense_date: string, description: string}  $data
-     *                                                                                                                                    amount travels in GTQ; expense_date is a Y-m-d day, never in the future.
+     * Invoicing is settled here and never again: with `is_invoiced` true the
+     * file is stored as-is under `invoices/` and its key kept in `invoice`;
+     * with it false the file is discarded without reaching the bucket and the
+     * column stays null. The vehicle is resolved before the upload, so a
+     * denied scope leaves no orphan file behind.
+     *
+     * @param  array{vehicle_id: int, category: string, nature: string, amount: float, expense_date: string, description: string, is_invoiced: bool, invoice?: UploadedFile}  $data
+     *                                                                                                                                                                               amount travels in GTQ; expense_date is a Y-m-d day, never in the future.
      *
      * @throws NotFoundError when the vehicle does not exist
      * @throws ForbiddenError when a carrier reaches a vehicle of another company
