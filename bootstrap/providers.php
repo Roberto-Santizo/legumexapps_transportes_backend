@@ -13,6 +13,7 @@ use App\Providers\Location\LocationProvider;
 use App\Providers\Pilot\PilotProvider;
 use App\Providers\Place\PlaceProvider;
 use App\Providers\Product\ProductProvider;
+use App\Providers\ShippingLine\ShippingLineProvider;
 use App\Providers\Storage\StorageProvider;
 use App\Providers\Vehicle\VehicleProvider;
 use App\Providers\VehicleExpense\VehicleExpenseProvider;
@@ -32,6 +33,7 @@ return [
     PilotProvider::class,
     PlaceProvider::class,
     ProductProvider::class,
+    ShippingLineProvider::class,
     StorageProvider::class,
     VehicleProvider::class,
     VehicleExpenseProvider::class,
