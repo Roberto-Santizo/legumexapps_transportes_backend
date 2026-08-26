@@ -1,6 +1,6 @@
 # SPEC 21 — Tipo de destino
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 15
 > **Fecha:** 2026-08-26
 > **Objetivo:** Añadir a los destinos una columna `type` con dos valores —`port` y `destination`—, obligatoria en el alta, editable en la edición y filtrable en el listado, sin que el tipo gobierne ninguna tarifa.
@@ -182,59 +182,59 @@ Cada paso deja el sistema funcionando y es commiteable por sí solo.
 
 **Estructura**
 
-- [ ] `locations` tiene una columna `type` de tipo `string`, no nullable, con default `destination`, y las otras ocho columnas quedan exactamente como las dejó SPEC 15.
-- [ ] Existe `App\Enums\LocationType` con exactamente dos casos: `Port = 'port'` y `Destination = 'destination'`.
-- [ ] `locations` no gana ningún índice nuevo, y los únicos de `name` y `google_place_id` siguen siendo globales.
-- [ ] `php artisan route:list --path=locations` muestra exactamente las mismas seis rutas de antes, con los mismos middlewares.
-- [ ] `LocationServiceInterface` mantiene los mismos siete métodos; ninguno se añade ni se borra.
-- [ ] `departure_points`, `DeparturePoint`, `DeparturePointService` y sus rutas no cambian en ninguna línea.
+- [x] `locations` tiene una columna `type` de tipo `string`, no nullable, con default `destination`, y las otras ocho columnas quedan exactamente como las dejó SPEC 15.
+- [x] Existe `App\Enums\LocationType` con exactamente dos casos: `Port = 'port'` y `Destination = 'destination'`.
+- [x] `locations` no gana ningún índice nuevo, y los únicos de `name` y `google_place_id` siguen siendo globales.
+- [x] `php artisan route:list --path=locations` muestra exactamente las mismas seis rutas de antes, con los mismos middlewares.
+- [x] `LocationServiceInterface` mantiene los mismos siete métodos; ninguno se añade ni se borra.
+- [x] `departure_points`, `DeparturePoint`, `DeparturePointService` y sus rutas no cambian en ninguna línea.
 
 **Migración de las filas existentes**
 
-- [ ] Tras `php artisan migrate`, todos los destinos ya registrados tienen `type = 'destination'` y ninguno queda en `null`.
-- [ ] El `down()` de la migración elimina la columna y deja la tabla como estaba.
+- [x] Tras `php artisan migrate`, todos los destinos ya registrados tienen `type = 'destination'` y ninguno queda en `null`.
+- [x] El `down()` de la migración elimina la columna y deja la tabla como estaba.
 
 **Alta**
 
-- [ ] `POST /api/locations` con `name`, `type`, `googlePlaceId`, `latitude` y `longitude` responde **201** y guarda el tipo enviado.
-- [ ] `POST` **sin** `type` responde **422** con «El tipo de destino es obligatorio».
-- [ ] `POST` con `type: "puerto"`, `type: "PORT"` o `type: ""` responde **422**: la validación es exacta y sensible a mayúsculas.
-- [ ] `POST` con `type: "port"` guarda un puerto sin ninguna comprobación adicional: no se valida el nombre, ni las coordenadas, ni nada relacionado con que sea puerto.
-- [ ] Un puerto y un destino **no** pueden compartir `name`: el segundo responde 422 igual que antes, porque la unicidad sigue siendo global.
+- [x] `POST /api/locations` con `name`, `type`, `googlePlaceId`, `latitude` y `longitude` responde **201** y guarda el tipo enviado.
+- [x] `POST` **sin** `type` responde **422** con «El tipo de destino es obligatorio».
+- [x] `POST` con `type: "puerto"`, `type: "PORT"` o `type: ""` responde **422**: la validación es exacta y sensible a mayúsculas.
+- [x] `POST` con `type: "port"` guarda un puerto sin ninguna comprobación adicional: no se valida el nombre, ni las coordenadas, ni nada relacionado con que sea puerto.
+- [x] Un puerto y un destino **no** pueden compartir `name`: el segundo responde 422 igual que antes, porque la unicidad sigue siendo global.
 
 **Edición**
 
-- [ ] `PATCH /api/locations/{location}` con `type: "port"` sobre un destino responde **200** y cambia el tipo.
-- [ ] Cambiar el tipo de un destino que **ya tiene tarifas** responde **200**; las tarifas quedan intactas y siguen cotizando igual.
-- [ ] `PATCH` con `type: ""` o con un valor fuera del enum responde **422**; omitir `type` deja el valor intacto.
-- [ ] El resto del `PATCH` no cambia: cuerpo vacío sigue siendo 200 sin cambios y `description: null` sigue borrando la descripción.
+- [x] `PATCH /api/locations/{location}` con `type: "port"` sobre un destino responde **200** y cambia el tipo.
+- [x] Cambiar el tipo de un destino que **ya tiene tarifas** responde **200**; las tarifas quedan intactas y siguen cotizando igual.
+- [x] `PATCH` con `type: ""` o con un valor fuera del enum responde **422**; omitir `type` deja el valor intacto.
+- [x] El resto del `PATCH` no cambia: cuerpo vacío sigue siendo 200 sin cambios y `description: null` sigue borrando la descripción.
 
 **Listado**
 
-- [ ] `?type=port` devuelve solo los puertos; `?type=destination` solo los destinos ordinarios.
-- [ ] `?type=puerto`, `?type=PORT` o `?type=` **se ignoran** y devuelven el listado completo, no una lista vacía ni un 422.
-- [ ] El filtro `type` se combina con `status`, `search` y `limit` sin interferir con ninguno.
-- [ ] El orden sigue siendo `id ASC` y la paginación opt-in sigue acotada a `[10, 100]`.
+- [x] `?type=port` devuelve solo los puertos; `?type=destination` solo los destinos ordinarios.
+- [x] `?type=puerto`, `?type=PORT` o `?type=` **se ignoran** y devuelven el listado completo, no una lista vacía ni un 422.
+- [x] El filtro `type` se combina con `status`, `search` y `limit` sin interferir con ninguno.
+- [x] El orden sigue siendo `id ASC` y la paginación opt-in sigue acotada a `[10, 100]`.
 
 **Salida**
 
-- [ ] `LocationResource` devuelve exactamente **once** claves en camelCase; las diez de SPEC 15 conservan nombre, formato y valor.
-- [ ] `type` sale como cadena cruda del enum (`"port"` o `"destination"`), sin traducir y sin envolver en objeto.
-- [ ] `latitude` y `longitude` siguen saliendo como cadena con ocho decimales, y las fechas en `d-m-Y h:i:s A`.
+- [x] `LocationResource` devuelve exactamente **once** claves en camelCase; las diez de SPEC 15 conservan nombre, formato y valor.
+- [x] `type` sale como cadena cruda del enum (`"port"` o `"destination"`), sin traducir y sin envolver en objeto.
+- [x] `latitude` y `longitude` siguen saliendo como cadena con ocho decimales, y las fechas en `d-m-Y h:i:s A`.
 
 **Roles**
 
-- [ ] Los cuatro roles autenticados siguen obteniendo **200** en `GET /api/locations` y ven el campo `type` sin diferencias.
-- [ ] `carrier`, `manager` y `pilot` siguen obteniendo **403** en `POST`, `PATCH`, `DELETE` y `toggle-status`; el tipo no cambia el ámbito de nadie.
+- [x] Los cuatro roles autenticados siguen obteniendo **200** en `GET /api/locations` y ven el campo `type` sin diferencias.
+- [x] `carrier`, `manager` y `pilot` siguen obteniendo **403** en `POST`, `PATCH`, `DELETE` y `toggle-status`; el tipo no cambia el ámbito de nadie.
 
 **Regresión y cierre**
 
-- [ ] `GET /api/freight-rates/quote` acepta los mismos parámetros y devuelve la misma forma que antes de esta spec; `FreightQuoteResource` **no** incluye `type`.
-- [ ] Crear o editar una tarifa sobre un destino de tipo `port` funciona igual que sobre uno `destination`.
-- [ ] `php artisan test --compact --filter='FreightRate|DeparturePoint'` pasa sin que ningún archivo de esos dominios haya cambiado.
-- [ ] `php artisan test --compact` pasa entera.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `storage/api-docs/api-docs.json` documenta `type` en el schema `Location`, en el body del alta y de la edición, y como query param del listado; `references/locations-api.md` avisa del cambio incompatible en el alta.
+- [x] `GET /api/freight-rates/quote` acepta los mismos parámetros y devuelve la misma forma que antes de esta spec; `FreightQuoteResource` **no** incluye `type`.
+- [x] Crear o editar una tarifa sobre un destino de tipo `port` funciona igual que sobre uno `destination`.
+- [x] `php artisan test --compact --filter='FreightRate|DeparturePoint'` pasa sin que ningún archivo de esos dominios haya cambiado.
+- [x] `php artisan test --compact` pasa entera.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `storage/api-docs/api-docs.json` documenta `type` en el schema `Location`, en el body del alta y de la edición, y como query param del listado; `references/locations-api.md` avisa del cambio incompatible en el alta.
 
 ---
 
