@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\LocationType;
 use App\Enums\UserRole;
 use App\Models\Location;
 use App\Models\User;
@@ -27,6 +28,8 @@ class LocationFactory extends Factory
                 'bodega de frio villa nueva',
             ]).' '.fake()->unique()->bothify('??##')),
             'description' => fake()->optional()->sentence(),
+            /** Por defecto un destino ordinario: los tests que crean destinos sin tipo siguen valiendo sin tocarse. */
+            'type' => LocationType::Destination,
             /** Los ids de Google empiezan por `ChIJ` y son opacos: aquí solo importa que sean únicos. */
             'google_place_id' => 'ChIJ'.fake()->unique()->regexify('[A-Za-z0-9_-]{23}'),
             /** Dentro de Guatemala: la latitud cabe en decimal(10,8) y la longitud en decimal(11,8). */
@@ -35,6 +38,16 @@ class LocationFactory extends Factory
             'status' => true,
             'registered_by' => User::factory()->state(['role' => UserRole::Administrator]),
         ];
+    }
+
+    /**
+     * Indicate that the location is a port.
+     */
+    public function port(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'type' => LocationType::Port,
+        ]);
     }
 
     /**

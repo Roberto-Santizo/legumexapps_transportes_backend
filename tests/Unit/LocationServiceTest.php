@@ -53,6 +53,7 @@ it('crea la tabla locations con sus columnas', function () {
             'id',
             'name',
             'description',
+            'type',
             'google_place_id',
             'latitude',
             'longitude',
