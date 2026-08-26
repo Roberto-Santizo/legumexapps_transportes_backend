@@ -17,10 +17,11 @@ interface LocationServiceInterface
      * status filter says otherwise, and an invalid filter is ignored instead of
      * emptying the listing.
      *
-     * @param  array{status?: string|null, search?: string|null, limit?: string|null}  $filters
-     *                                                                                           status: anything filter_var resolves to a boolean (true, false, 1, 0);
-     *                                                                                           search: LIKE term matched against the name, normalized to upper case;
-     *                                                                                           limit: page size requested by the client, clamped to [10, 100].
+     * @param  array{status?: string|null, type?: string|null, search?: string|null, limit?: string|null}  $filters
+     *                                                                                                               status: anything filter_var resolves to a boolean (true, false, 1, 0);
+     *                                                                                                               type: exact, case sensitive LocationType value (port, destination);
+     *                                                                                                               search: LIKE term matched against the name, normalized to upper case;
+     *                                                                                                               limit: page size requested by the client, clamped to [10, 100].
      * @return LengthAwarePaginator<int, Location>|Collection<int, Location>
      */
     public function getLocations(array $filters): LengthAwarePaginator|Collection;
@@ -57,9 +58,10 @@ interface LocationServiceInterface
      * This service never calls Google: the coordinates arrive already resolved by the
      * client, and the google place id is validated against nobody.
      *
-     * @param  array{name: string, description?: string|null, googlePlaceId: string, latitude: float|string, longitude: float|string}  $data
-     *                                                                                                                                        the keys arrive in camelCase, straight from the validated request;
-     *                                                                                                                                        registered_by comes from the given user, never from the body.
+     * @param  array{name: string, description?: string|null, type: string, googlePlaceId: string, latitude: float|string, longitude: float|string}  $data
+     *                                                                                                                                                      the keys arrive in camelCase, straight from the validated request;
+     *                                                                                                                                                      type is required and holds a raw LocationType value;
+     *                                                                                                                                                      registered_by comes from the given user, never from the body.
      */
     public function create(User $user, array $data): Location;
 
@@ -71,11 +73,13 @@ interface LocationServiceInterface
      * and checked for availability ignoring this same row, and so is a google place
      * id, which may be repointed at another place while the row keeps its id and its
      * freight rates. The coordinates may be corrected freely, and they are not
-     * cross-checked against the google place id. An empty payload is a no-op, not an
-     * error. Throws a NotFoundError when the row does not exist and a BadRequestError
-     * when the name or the google place id is already taken.
+     * cross-checked against the google place id. The type is a catalogue label with no
+     * guard of its own: it may be flipped even on a location that already has freight
+     * rates, which are left untouched and keep quoting the same. An empty payload is a
+     * no-op, not an error. Throws a NotFoundError when the row does not exist and a
+     * BadRequestError when the name or the google place id is already taken.
      *
-     * @param  array{name?: string, description?: string|null, googlePlaceId?: string, latitude?: float|string, longitude?: float|string, status?: bool}  $data
+     * @param  array{name?: string, description?: string|null, type?: string, googlePlaceId?: string, latitude?: float|string, longitude?: float|string, status?: bool}  $data
      */
     public function update(int $id, array $data): Location;
 
