@@ -5,6 +5,7 @@ use App\Providers\AccessoryCharacteristic\AccessoryCharacteristicProvider;
 use App\Providers\AppServiceProvider;
 use App\Providers\Auth\AuthProvider;
 use App\Providers\Carrier\CarrierProvider;
+use App\Providers\DeparturePoint\DeparturePointProvider;
 use App\Providers\FreightRate\FreightRateProvider;
 use App\Providers\FuelPrice\FuelPriceProvider;
 use App\Providers\Location\LocationProvider;
@@ -22,6 +23,7 @@ return [
     AppServiceProvider::class,
     AuthProvider::class,
     CarrierProvider::class,
+    DeparturePointProvider::class,
     FreightRateProvider::class,
     FuelPriceProvider::class,
     LocationProvider::class,
