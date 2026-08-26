@@ -1,6 +1,6 @@
 # SPEC 23 — Catálogo de navieras
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-08-26
 > **Objetivo:** Publicar un catálogo nacional de navieras con un único campo de negocio —`name` único y normalizado en mayúsculas—, lectura abierta a cualquier autenticado, escritura exclusiva del administrador y borrado con `SoftDeletes` sin vuelta atrás.
