@@ -810,8 +810,8 @@ it('devuelve el cliente ya con su deletedAt en la respuesta del DELETE', functio
 
     /**
      * El controller responde con la misma instancia que acaba de borrarse, así que su
-     * deleted_at ya está puesto. Es la única respuesta de la API con deletedAt no nulo:
-     * el docblock del Resource dice lo contrario y conviene leerlo con esta salvedad.
+     * deleted_at ya está puesto. Es la única respuesta de la API con deletedAt no nulo,
+     * tal como lo describe el docblock de ClientResource.
      */
     expect($data['deletedAt'])->toMatch(clientDatePattern())
         ->and(array_keys($data))->toBe(clientResourceKeys());

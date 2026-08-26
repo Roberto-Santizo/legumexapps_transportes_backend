@@ -2098,6 +2098,445 @@
                 ]
             }
         },
+        "/api/clients": {
+            "get": {
+                "tags": [
+                    "Clients"
+                ],
+                "summary": "Listar clientes",
+                "description": "Devuelve los clientes del catálogo nacional con el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque el cliente es un dato de Legumex y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.\n\nATENCIÓN — LOS CLIENTES BORRADOS NO APARECEN NUNCA Y NO HAY FORMA DE VERLOS. Aquí no funciona la costumbre de los otros catálogos, donde lo dado de baja sigue en el listado con status false y se filtra con status=true: este listado excluye siempre las filas borradas y NO EXISTE NINGÚN PARÁMETRO —ni status, ni withTrashed, ni onlyTrashed— que las devuelva. Un cliente que desapareció del listado está borrado, y solo se recupera desde la base de datos. El total de la paginación tampoco los cuenta.\n\nEl orden es fijo y no configurable: id ASC, es decir, el orden en que se dieron de alta. No hay sortBy ni sortDir.\n\nLos dos filtros —search y limit— se combinan entre sí y son TOLERANTES: un search en blanco o de solo espacios y un limit no numérico se ignoran en silencio y la lectura devuelve 200, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404, igual que un catálogo vacío. No hay filtro por estado —no existe—, ni por autor del alta, ni por rango de fechas: cualquier otro query param se ignora.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos APLANADOS EN LA RAÍZ, no bajo meta.",
+                "operationId": "indexClients",
+                "parameters": [
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Búsqueda parcial sobre el CÓDIGO Y EL NOMBRE a la vez (LIKE %TERM% sobre los dos, unidos por OR). El término se normaliza igual que un nombre —recorte, colapso de espacios y mayúsculas— y ambas columnas están siempre en mayúsculas, así que la búsqueda es insensible a mayúsculas: search=cli, search=CLI y search=Agro funcionan igual. No distingue en cuál de los dos campos casó: un término que aparezca en el código de un cliente y en el nombre de otro devuelve los dos. En blanco o de solo espacios se ignora y se devuelve el catálogo completo, nunca 422. NO alcanza a los clientes borrados, ni siquiera cuando el término coincidiría exactamente con su código.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "agro"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación —que es lo que quiere un selector de cliente—. Si es numérico se ACOTA al rango [10, 100]: limit=1 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con search.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Clientes obtenidos correctamente. Sin limit se devuelve ClientListResponse; con limit numérico, PaginatedClientListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Un catálogo vacío o un search sin coincidencias devuelven 200 con data vacío, nunca 404. El deletedAt de cada elemento es siempre null: los borrados no se listan.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ClientListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedClientListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Clients"
+                ],
+                "summary": "Registrar un cliente",
+                "description": "Da de alta un cliente nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer los clientes. No lleva carrier.required, porque el cliente no pertenece a ninguna empresa.\n\nEl cuerpo acepta SOLO DOS CAMPOS, code y name, y los dos son obligatorios. No hay dirección, NIT, teléfono, contacto ni status: es el alta más pequeña del proyecto. El registeredBy no se envía —se toma del usuario autenticado y se devuelve resuelto en registeredByName— y mandarlo en el cuerpo no tiene efecto.\n\nATENCIÓN — NO HAY status: NO SE PUEDE CREAR UN CLIENTE «INACTIVO» ni pausarlo después. Este catálogo no tiene el booleano de publicación de Products, Locations, Zones y Departure Points; un cliente existe o está borrado, y el borrado no se deshace por la API.\n\nLOS DOS CAMPOS SE NORMALIZAN, Y NO IGUAL: el name se recorta, se le COLAPSAN los espacios internos y se pasa a mayúsculas —\"  agro   del sur  \" crea \"AGRO DEL SUR\"—; el code solo se recorta y se pasa a mayúsculas, porque un código con cualquier espacio se rechaza con 422 en vez de arreglarse por dentro. El cliente debe pintar el code y el name de la respuesta, no los que tecleó el usuario.\n\nATENCIÓN — LOS DOS DUPLICADOS POSIBLES SON 400 DESDE EL SERVICE Y NUNCA 422, al revés que en Departure Points y Locations, donde el nombre repetido es 422. Ninguno de los dos campos lleva regla unique a propósito: LA REGLA unique DE LARAVEL NO VE LAS FILAS BORRADAS, así que dejaría pasar un código ocupado por un cliente eliminado y el alta reventaría contra el índice único con un 500. Mensajes literales: «Ya existe un cliente con ese código, que puede haber sido eliminado» y «Ya existe un cliente con ese nombre, que puede haber sido eliminado». Si el código y el nombre están ocupados a la vez, GANA EL MENSAJE DEL CÓDIGO, que se comprueba primero.\n\nATENCIÓN — EL BORRADO NO LIBERA NI EL CÓDIGO NI EL NOMBRE. Un cliente eliminado los sigue reservando para siempre, de modo que este 400 puede venir de una fila INVISIBLE EN TODOS LOS ENDPOINTS: no se lista, no se consulta por id y no hay parámetro que la muestre. El «que puede haber sido eliminado» del mensaje está precisamente para que el usuario no crea que el error miente. Reutilizar el código de un cliente borrado exige tocar la base de datos.",
+                "operationId": "storeClient",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreClientRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Cliente registrado correctamente, con el code y el name ya normalizados en mayúsculas, registeredByName el del administrador autenticado, createdAt y updatedAt con el formato d-m-Y h:i:s A y deletedAt en null.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Cliente registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Client"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida, nunca un valor mal formado: el código o el nombre ya están ocupados por otro cliente, VIVO O BORRADO. Mensajes literales: «Ya existe un cliente con ese código, que puede haber sido eliminado» y «Ya existe un cliente con ese nombre, que puede haber sido eliminado»; si chocan los dos a la vez, se devuelve el del código. ATENCIÓN — ES AQUÍ, Y NO EN EL 422, DONDE CAEN LOS DUPLICADOS: los FormRequests no llevan regla unique porque la de Laravel no vería las filas borradas. El ocupante puede ser un cliente eliminado que no aparece en ningún endpoint.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer los clientes—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors} y NO con el sobre {statusCode, message, data} del resto de la API. Casos posibles: falta el code o el name, o llegan vacíos o de solo espacios —el recorte los deja vacíos antes de validarse— (El código del cliente es obligatorio / El nombre del cliente es obligatorio); alguno no es texto (El código del cliente debe ser texto / El nombre del cliente debe ser texto); el code supera los 15 caracteres o el name los 255 (El código del cliente no puede superar los 15 caracteres / El nombre del cliente no puede superar los 255 caracteres); o el code TRAE ALGÚN ESPACIO O TABULADOR, aunque sea interior (El código no puede contener espacios). ATENCIÓN — un código o un nombre ya registrados NO caen aquí: son 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/clients/{client}": {
+            "get": {
+                "tags": [
+                    "Clients"
+                ],
+                "summary": "Obtener un cliente por id",
+                "description": "Devuelve un cliente concreto con el nombre del administrador que lo capturó.\n\nSolo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.\n\nATENCIÓN — UN CLIENTE BORRADO RESPONDE 404 CON EL MISMO MENSAJE QUE UN id INEXISTENTE, y es deliberado: quien lee no distingue «ya no está» de «nunca existió», porque distinguirlo revelaría qué ids llegaron a existir. La única operación que sí los diferencia es la escritura, que responde 400 «El cliente ya fue eliminado» sobre una fila borrada. Es lo contrario de Departure Points o Locations, donde una fila dada de baja se sigue consultando con 200.\n\nEl deletedAt de esta respuesta es SIEMPRE null: por definición, aquí solo se alcanzan clientes vivos.\n\nNo hay consulta por código ni por nombre: para buscar está el filtro search del listado, que barre los dos campos.",
+                "operationId": "showClient",
+                "parameters": [
+                    {
+                        "name": "client",
+                        "in": "path",
+                        "description": "Identificador numérico del cliente (clients.id). NO es el code del cliente —no existe consulta por código— y no se reutiliza: el id de un cliente borrado sigue ocupado en la base, pero ya no es alcanzable por esta ruta.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Cliente obtenido correctamente. Siempre un cliente vivo, con el code y el name en mayúsculas, deletedAt en null y las dos fechas con el formato d-m-Y h:i:s A, no ISO 8601.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Cliente obtenido correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Client"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ningún cliente alcanzable con ese id. ATENCIÓN — AQUÍ CAEN DOS CASOS INDISTINGUIBLES A PROPÓSITO: el id que nunca existió y el del cliente que fue borrado. El mensaje es el mismo en ambos: El cliente no existe. Si se necesita saber si la fila estuvo ahí, el PATCH y el DELETE responden 400 «El cliente ya fue eliminado» sobre una borrada.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Clients"
+                ],
+                "summary": "Eliminar un cliente",
+                "description": "ATENCIÓN — ESTE DELETE BORRA DE VERDAD, Y ES LA OPERACIÓN MÁS PELIGROSA DEL DOMINIO. No se parece al DELETE de Products, Locations, Zones o Departure Points, que solo ponen un status booleano en false y dejan la fila listándose y reactivable. Aquí es un soft delete real: el cliente DESAPARECE de GET /api/clients y de GET /api/clients/{client} —que pasa a responder 404—, NO hay ningún filtro que lo devuelva, NO existe endpoint /restore y NO HAY FORMA DE RECUPERARLO POR LA API. Deshacerlo exige tocar la base de datos.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nATENCIÓN — EL BORRADO NO LIBERA NI EL CÓDIGO NI EL NOMBRE. Los dos índices únicos siguen ocupados por la fila borrada para siempre, así que después de este DELETE NADIE PUEDE DAR DE ALTA OTRO CLIENTE CON ESE CÓDIGO O ESE NOMBRE: el alta responde 400 «Ya existe un cliente con ese código, que puede haber sido eliminado» contra una fila que ya no se ve por ninguna vía. Es lo contrario de la placa de un Vehicle, que un vehículo inactivo sí libera. Borrar para volver a crear con los mismos datos NO FUNCIONA.\n\nNO ES IDEMPOTENTE, y esa es su segunda diferencia con los catálogos booleanos: el segundo DELETE sobre el mismo id responde 400 «El cliente ya fue eliminado», no 200. Un id que nunca existió responde 404 «El cliente no existe». Distinguirlos es intencionado —igual que en FreightRates—, para que repetir la llamada no parezca un éxito.\n\nLA RESPUESTA ES LA ÚNICA DE LA API CON deletedAt NO NULO: devuelve la fila que se acaba de borrar, con su marca de tiempo en el formato d-m-Y h:i:s A. Conviene guardarla, porque después ya no se puede volver a leer.\n\nBorrar un cliente NO ROMPE NADA en el resto de la API: ninguna tabla del proyecto tiene client_id, así que no hay tarifas, cotizaciones ni viajes que dependan de él. El riesgo es la pérdida del dato, no una cascada.",
+                "operationId": "destroyClient",
+                "parameters": [
+                    {
+                        "name": "client",
+                        "in": "path",
+                        "description": "Identificador numérico del cliente (clients.id) que se va a borrar. Debe estar vivo: uno ya borrado responde 400 y uno inexistente 404. Tras el borrado, ese id deja de ser alcanzable por cualquier endpoint, aunque la fila siga en la base reservando su código y su nombre.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Cliente eliminado correctamente. data trae la fila recién borrada, y es la ÚNICA respuesta de toda la API en la que deletedAt viene con valor —con el formato d-m-Y h:i:s A— en vez de null. A partir de aquí el cliente ya no se lista ni se consulta por id, y su código y su nombre quedan ocupados para siempre.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Cliente eliminado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Client"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El cliente ya fue borrado antes: este DELETE NO ES IDEMPOTENTE y el segundo intento no responde 200. El mensaje devuelto es: El cliente ya fue eliminado. Es la respuesta que distingue «ya no está» de «nunca existió», que sería 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni borrada. El mensaje devuelto es: El cliente no existe. Un cliente ya borrado NO cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Clients"
+                ],
+                "summary": "Actualizar un cliente",
+                "description": "Corrige el código, el nombre o los dos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nLos dos campos son opcionales y solo se toca lo que venga: un PATCH que solo manda name no altera el código. Un CUERPO VACÍO responde 200 como no-op, devolviendo el cliente sin cambios, en vez de 422. Opcional no es vaciable: enviar un campo vacío —o de solo espacios— es 422, y ninguno acepta null.\n\nNo hay nada más que editar: este catálogo no tiene status, así que aquí no se pausa ni se reactiva nada, y NO EXISTE FORMA DE RESTAURAR UN CLIENTE BORRADO —ni con este PATCH ni con ningún otro endpoint—.\n\nATENCIÓN — SOBRE UN CLIENTE YA BORRADO ESTE ENDPOINT RESPONDE 400 «El cliente ya fue eliminado», NO 404. Es la asimetría deliberada del dominio: la lectura no distingue el borrado del inexistente (los dos son 404), la escritura sí, porque quien edita necesita saber que la fila estuvo ahí. Un id que nunca existió sigue siendo 404 aquí.\n\nMISMA REGLA DE DUPLICADOS QUE EL ALTA, Y SIGUE SIENDO 400 Y NUNCA 422: el código o el nombre de otro cliente —VIVO O BORRADO— responden «Ya existe un cliente con ese código/nombre, que puede haber sido eliminado», y si chocan los dos gana el del código. La comprobación IGNORA LA PROPIA FILA, así que reenviar el propio código y el propio nombre responde 200 y no choca consigo mismo.\n\nLos dos campos se normalizan igual que en el alta y con la misma asimetría: el name colapsa sus espacios internos y pasa a mayúsculas; el code solo se recorta y pasa a mayúsculas, y con cualquier espacio es 422.\n\nEl registeredBy NO SE REESCRIBE: sigue apuntando a quien dio de alta el cliente, aunque lo edite otro administrador, y mandarlo en el cuerpo se descarta sin error. El createdAt tampoco cambia; el updatedAt sí, salvo en el no-op del cuerpo vacío. No se guarda el valor anterior: no hay bitácora de cambios.",
+                "operationId": "updateClient",
+                "parameters": [
+                    {
+                        "name": "client",
+                        "in": "path",
+                        "description": "Identificador numérico del cliente (clients.id). Es también la fila que se ignora al revalidar la unicidad del código y la del nombre, de modo que reenviar los suyos propios no choca consigo misma. El id NO cambia al corregir el código: editar un cliente conserva su identidad y su historial.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateClientRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Cliente actualizado correctamente. data trae la fila ya modificada, con el code y el name normalizados en mayúsculas, el mismo registeredByName, el mismo createdAt, el updatedAt refrescado y deletedAt en null. Un cuerpo vacío también responde 200, con el cliente intacto.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Cliente actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Client"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dos causas distintas, ambas de negocio. (1) EL CLIENTE YA FUE BORRADO: mensaje «El cliente ya fue eliminado». Un cliente borrado no se edita ni se restaura por la API. (2) El código o el nombre enviados ya los ocupa OTRO cliente, vivo o borrado: «Ya existe un cliente con ese código, que puede haber sido eliminado» / «Ya existe un cliente con ese nombre, que puede haber sido eliminado», ganando el del código si chocan los dos. Reenviar el propio código o el propio nombre del cliente que se edita NO cae aquí: es 200.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni borrada. El mensaje devuelto es: El cliente no existe. ATENCIÓN — un cliente BORRADO no cae aquí: la escritura sí distingue los dos casos y responde 400 «El cliente ya fue eliminado», al contrario que el GET del detalle, que devuelve 404 en ambos.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors}. Casos posibles: se envía el code o el name vacíos o de solo espacios (El código del cliente es obligatorio / El nombre del cliente es obligatorio); alguno no es texto; el code supera los 15 caracteres o el name los 255; o el code trae algún espacio o tabulador (El código no puede contener espacios). Un cuerpo vacío NO produce 422, y un código o un nombre ya registrados tampoco: son 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/departure-points": {
             "get": {
                 "tags": [
@@ -7658,6 +8097,48 @@
                 },
                 "type": "object"
             },
+            "StoreClientRequest": {
+                "title": "Alta de cliente",
+                "description": "Cuerpo JSON para dar de alta un cliente del catálogo nacional. SOLO SE ACEPTAN DOS CAMPOS, code y name, y los dos son OBLIGATORIOS. No hay dirección, ni NIT, ni teléfono, ni contacto, ni status: es el alta más pequeña del proyecto. Cualquier otra clave que se envíe se descarta en silencio, sin error.\n\nEl registeredBy NO se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no cambia nada y el cliente queda registrado a nombre de quien hizo la petición.\n\nATENCIÓN — NO HAY status Y NO SE PUEDE CREAR UN CLIENTE «INACTIVO». Este catálogo no tiene el booleano de publicación que sí tienen Products, Locations, Zones y Departure Points: un cliente existe o está borrado, y el borrado no se deshace por la API.\n\nATENCIÓN — LOS DOS DUPLICADOS POSIBLES SE RESPONDEN CON 400 DESDE EL SERVICE, NUNCA CON 422, y es lo contrario de lo que hacen los otros catálogos. Ninguno de los dos campos lleva regla unique a propósito: la de Laravel NO VE LAS FILAS BORRADAS y dejaría pasar un código ocupado por un cliente eliminado, que después chocaría contra el índice único con un 500. Los mensajes son «Ya existe un cliente con ese código, que puede haber sido eliminado» y «Ya existe un cliente con ese nombre, que puede haber sido eliminado». Si el código y el nombre están ocupados a la vez, GANA EL MENSAJE DEL CÓDIGO: se comprueba primero.\n\nATENCIÓN — EL BORRADO NO LIBERA NI EL CÓDIGO NI EL NOMBRE. Un cliente eliminado los sigue reservando para siempre, así que el 400 puede venir de una fila que NO APARECE EN NINGÚN ENDPOINT: por eso el mensaje avisa de que el ocupante «puede haber sido eliminado». No existe forma de listar los borrados para averiguar cuál es.\n\nATENCIÓN — LOS DOS CAMPOS SE NORMALIZAN ANTES DE VALIDARSE, Y NO IGUAL. El name se recorta, se le colapsan los espacios internos y se pasa a mayúsculas; el code SOLO se recorta y se pasa a mayúsculas —no se le colapsa nada—, porque un código con espacios se rechaza con 422 en vez de arreglarse por dentro. El cliente debe pintar el code y el name de la respuesta, no los que tecleó el usuario.",
+                "required": [
+                    "code",
+                    "name"
+                ],
+                "properties": {
+                    "code": {
+                        "description": "Código del cliente. OBLIGATORIO, texto y de 15 caracteres como máximo —15 exactos se aceptan, 16 es 422 (El código del cliente no puede superar los 15 caracteres)—. Lo teclea el administrador: no se genera solo, al contrario que el code de un Carrier. Se guarda recortado y en MAYÚSCULAS, así que se puede enviar en minúsculas. ATENCIÓN — NO ADMITE NINGÚN ESPACIO NI TABULADOR, ni siquiera interior: \"CLI 001\" devuelve 422 con el mensaje literal «El código no puede contener espacios» en vez de guardarse como \"CLI001\", para que un error de captura se vea. Un código de SOLO espacios sale por code.required, porque el recorte lo deja vacío antes de validarse (El código del cliente es obligatorio). ATENCIÓN — si otro cliente ya lo usa, VIVO O BORRADO, la respuesta es 400 y NO 422.",
+                        "type": "string",
+                        "example": "cli-001",
+                        "maxLength": 15
+                    },
+                    "name": {
+                        "description": "Razón social del cliente. OBLIGATORIA, texto y de 255 caracteres como máximo (mensajes: El nombre del cliente es obligatorio / El nombre del cliente debe ser texto / El nombre del cliente no puede superar los 255 caracteres). Se guarda normalizada: recorte, COLAPSO DE LOS ESPACIOS INTERNOS a uno y mayúsculas, así que enviar \"  agro   del sur  \" crea el cliente \"AGRO DEL SUR\". Un nombre de solo espacios sale por name.required. ATENCIÓN — si otro cliente ya lo usa, VIVO O BORRADO, la respuesta es 400 y NO 422; y como la normalización ocurre antes de comparar, enviar \"agro del sur\" existiendo \"AGRO DEL SUR\" también choca. El límite de 255 es el de la columna, no una regla de negocio.",
+                        "type": "string",
+                        "example": "agroexportadora del sur",
+                        "maxLength": 255
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateClientRequest": {
+                "title": "Actualización de cliente",
+                "description": "Cuerpo JSON para corregir un cliente. Los dos únicos campos editables son code y name, ambos OPCIONALES: se toca solo lo que venga, así que un PATCH que solo manda name deja el código intacto. UN CUERPO VACÍO ES UN NO-OP CON 200 —devuelve el cliente sin cambios— en vez de 422, como en el resto de los PATCH del proyecto.\n\nOpcional no es lo mismo que vaciable: los dos campos son sometimes|required, de modo que omitir la clave conserva el valor anterior pero enviarla vacía —o con solo espacios, que la normalización recorta— es 422. NINGUNO DE LOS DOS ACEPTA null.\n\nEl registeredBy sigue sin aceptarse: mandarlo se descarta sin error y el autor del alta NO SE REESCRIBE, aunque edite otro administrador. Tampoco hay status que cambiar —este catálogo no lo tiene— ni forma de restaurar un cliente borrado.\n\nATENCIÓN — SOBRE UN CLIENTE YA BORRADO ESTE PATCH RESPONDE 400 «El cliente ya fue eliminado», NO 404. Es la única lectura de la API que distingue «ya no está» de «nunca existió»: el GET del detalle devuelve 404 en ambos casos a propósito.\n\nATENCIÓN — MISMA REGLA DE DUPLICADOS QUE EL ALTA, Y SIGUE SIENDO 400 Y NUNCA 422. Ninguno de los dos campos lleva regla unique, porque la de Laravel no ve las filas borradas; los choques los levanta el service con «Ya existe un cliente con ese código, que puede haber sido eliminado» y «Ya existe un cliente con ese nombre, que puede haber sido eliminado». La comprobación IGNORA LA PROPIA FILA, así que reenviar el propio código o el propio nombre responde 200 y no choca consigo mismo. Si los dos están ocupados, gana el mensaje del código.\n\nLos dos campos se normalizan antes de validarse con la MISMA ASIMETRÍA del alta: el name colapsa los espacios internos, el code no —un código con cualquier espacio es 422—.",
+                "properties": {
+                    "code": {
+                        "description": "Nuevo código del cliente. OPCIONAL: omitirlo conserva el actual. Si se envía no puede venir vacío (El código del cliente es obligatorio), ni superar los 15 caracteres (El código del cliente no puede superar los 15 caracteres), NI CONTENER NINGÚN ESPACIO O TABULADOR (El código no puede contener espacios). Se guarda recortado y en mayúsculas. Reenviar el propio código del cliente que se edita responde 200; usar el de OTRO cliente —vivo o borrado— responde 400, no 422.",
+                        "type": "string",
+                        "example": "cli-002",
+                        "maxLength": 15
+                    },
+                    "name": {
+                        "description": "Nueva razón social del cliente. OPCIONAL: omitirla conserva la actual. Si se envía no puede venir vacía (El nombre del cliente es obligatorio) ni superar los 255 caracteres (El nombre del cliente no puede superar los 255 caracteres). Se guarda recortada, con los espacios internos colapsados y en mayúsculas. Reenviar el propio nombre responde 200; usar el de OTRO cliente —vivo o borrado— responde 400, no 422, y la comparación es insensible a mayúsculas porque se hace ya normalizada.",
+                        "type": "string",
+                        "example": "agro del norte",
+                        "maxLength": 255
+                    }
+                },
+                "type": "object"
+            },
             "StoreDeparturePointRequest": {
                 "title": "Alta de punto de partida",
                 "description": "Cuerpo JSON para dar de alta un punto de partida —el lugar desde el que ARRANCA un viaje—. Los campos aceptados son name, description, googlePlaceId, latitude y longitude; todos son obligatorios salvo description.\n\nATENCIÓN — NO CONFUNDIR CON POST /api/locations. El cuerpo de las dos altas es IDÉNTICO campo por campo, así que equivocarse de endpoint NO produce ningún error: crea la fila en la tabla equivocada y responde 201. Aquí se dan de alta ORÍGENES (departure_points); los DESTINOS van en /api/locations.\n\nEl status NO se acepta: el punto nace siempre activo (true) y enviarlo se descarta sin error, así que no hay forma de crear un punto ya dado de baja. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador; mandarlo en el cuerpo no cambia nada.\n\nATENCIÓN — ASIMETRÍA DELIBERADA ENTRE LOS DOS DUPLICADOS POSIBLES. El name duplicado es 422 (regla unique del FormRequest, mensaje \"Ya existe un punto de partida con ese nombre\"); el googlePlaceId duplicado es 400 (regla de negocio del service, mensaje \"El lugar seleccionado ya está registrado en el punto de partida {NOMBRE}\"). El googlePlaceId se deja SIN regla unique a propósito: un 422 cortaría antes y el cliente nunca vería el nombre del punto que ya ocupa ese lugar, que es justo lo que hace útil el error.\n\nATENCIÓN — LA UNICIDAD ES POR TABLA Y NO SE CRUZA CON locations. Ni el name ni el googlePlaceId se comparan contra los destinos: el mismo nombre y el mismo lugar de Google pueden estar dados de alta a la vez como destino y como punto de partida, y el alta responde 201 sin ningún aviso. Es intencionado —un mismo almacén puede ser origen de unos viajes y destino de otros—, pero significa que un duplicado creado por equivocarse de endpoint no lo detecta nadie.\n\nATENCIÓN — el name se NORMALIZA antes de validarse y antes de guardarse: se recorta, se colapsan los espacios internos y se pasa a mayúsculas. Enviar \"bodega central\" crea el punto \"BODEGA CENTRAL\". Como la normalización ocurre ANTES de la regla de unicidad, enviar \"bodega central\" existiendo ya \"BODEGA CENTRAL\" devuelve 422, no 500 ni una fila duplicada. El googlePlaceId, en cambio, NO se toca: es opaco y sensible a mayúsculas, y pasarlo a mayúsculas apuntaría a otro lugar.\n\nATENCIÓN — LA API NUNCA LLAMA A GOOGLE. El front busca la dirección en GET /api/places, deja que el usuario elija y manda aquí el googlePlaceId y las coordenadas ya resueltos. No se comprueba que el place id exista, ni HAY VALIDACIÓN CRUZADA entre él y las coordenadas: se pueden dar de alta unas coordenadas de un sitio con el place id de otro y el alta responde 201 sin ningún aviso.",
@@ -8886,6 +9367,87 @@
                 "allOf": [
                     {
                         "$ref": "#/components/schemas/CarrierListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
+            "Client": {
+                "title": "Cliente",
+                "description": "Cliente del catálogo nacional: un código y un nombre, y nada más. Es el dominio MÁS PEQUEÑO del proyecto —solo dos campos de negocio— y NO pertenece a ninguna empresa transportista, por eso el recurso no expone carrierId ni carrierName y NINGUNA ruta del dominio lleva el middleware carrier.required. Su lectura está abierta a los cuatro roles: administrator, carrier, pilot y manager, incluido un carrier que todavía no ha registrado su empresa; la escritura es exclusiva del administrator.\n\nATENCIÓN — ESTE CATÁLOGO BORRA DE VERDAD, Y ES SU DIFERENCIA MÁS IMPORTANTE FRENTE A Products, Locations, Zones y Departure Points. En esos cuatro el DELETE es una baja lógica sobre un status booleano: la fila se queda, se sigue listando y se puede reactivar. Aquí el DELETE es un soft delete de verdad: la fila DESAPARECE del listado y del detalle, NO existe ningún filtro que la devuelva, NO hay endpoint /restore y NO HAY FORMA DE RECUPERARLA POR LA API. Un cliente borrado por error solo se recupera desde la base de datos. Por eso este recurso no tiene status y sí tiene deletedAt.\n\nATENCIÓN — EL BORRADO NO LIBERA NI EL code NI EL name. Los dos índices únicos siguen ocupados por la fila borrada, así que dar de alta un cliente con el código o el nombre de uno eliminado responde 400 —«Ya existe un cliente con ese código, que puede haber sido eliminado»— aunque ese cliente sea invisible en todos los endpoints. El «que puede haber sido eliminado» del mensaje está puesto justamente para explicar un choque contra una fila que el llamante no puede ver por ninguna vía.\n\nSolo hay DOS campos de negocio: code y name. No hay dirección, ni NIT, ni teléfono, ni contacto, ni status. NADA CUELGA TODAVÍA DE UN CLIENTE: ninguna tabla del proyecto tiene client_id, así que borrar uno no rompe ninguna otra entidad y el cliente no participa en tarifas, cotizaciones ni viajes.\n\nATENCIÓN — createdAt, updatedAt y deletedAt NO viajan en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Locations, Departure Points, Products y Zones. Por eso se documentan como string SIN format date-time: parsearlos como ISO falla.\n\nEl code y el name se devuelven SIEMPRE normalizados y EN MAYÚSCULAS. Son exactamente SIETE claves, en camelCase y en este orden: id, code, name, registeredByName, createdAt, updatedAt y deletedAt.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la fila (clients.id). Es el valor que va en el parámetro {client} de las rutas de detalle, actualización y baja. Sobrevive a la edición del código y del nombre: corregir cualquiera de los dos conserva el id. ATENCIÓN — sobrevive también al DELETE, porque la fila sigue en la base con su deleted_at puesto, pero ese id ya no es alcanzable: GET /api/clients/{client} responde 404 y PATCH o DELETE responden 400.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "code": {
+                        "description": "Código del cliente, SIEMPRE EN MAYÚSCULAS y de 15 caracteres como máximo. Lo teclea el administrador —no se genera solo, al contrario que el code de un Carrier— y se normaliza al crear y al actualizar recortando los extremos y pasando a mayúsculas. ATENCIÓN — NUNCA CONTIENE ESPACIOS: un código con cualquier espacio interior se rechaza con 422 en vez de colapsarlo, para que un error de captura se vea en lugar de convertirse en otro código. Es único, y esa unicidad es GLOBAL Y PERMANENTE: incluye a los clientes borrados, que lo siguen ocupando para siempre. Es también uno de los dos campos que barre el filtro search del listado.",
+                        "type": "string",
+                        "example": "CLI-001",
+                        "maxLength": 15
+                    },
+                    "name": {
+                        "description": "Razón social del cliente, SIEMPRE EN MAYÚSCULAS. Se normaliza al crear y al actualizar: se recortan los extremos, se colapsan los espacios internos a uno y se pasa a mayúsculas, así que enviar \"  agro   del sur  \" guarda y devuelve \"AGRO DEL SUR\". A diferencia del code, aquí los espacios interiores SÍ se colapsan en silencio: en un nombre son un descuido de tecleo, no un error de captura. Es único, con la misma unicidad global y permanente que el code —un cliente borrado lo sigue reservando— y al estar siempre en mayúsculas la comparación resulta insensible a mayúsculas sin depender del collation del motor. Es el otro campo que barre el filtro search.",
+                        "type": "string",
+                        "example": "AGROEXPORTADORA DEL SUR",
+                        "maxLength": 255
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del administrador que dio de alta el cliente, obtenido de la relación registeredBy. NO se envía en el cuerpo: sale siempre del usuario autenticado, y mandarlo en el JSON se descarta sin error. El PATCH NO lo reescribe, así que sigue apuntando a quien creó la fila aunque la haya editado otro administrador. No hay campo con el autor de la última edición ni bitácora de cambios: lo más cercano a una auditoría es updatedAt.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha de alta del cliente. ATENCIÓN — NO viaja en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Locations, Departure Points, Products y Zones. Por eso se documenta como string sin format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. Está pensado para mostrarse tal cual y no cambia nunca.",
+                        "type": "string",
+                        "example": "26-08-2026 08:45:12 PM",
+                        "nullable": true
+                    },
+                    "updatedAt": {
+                        "description": "Fecha del último cambio del código o del nombre; es lo más cercano a una auditoría que ofrece el dominio, porque no se guarda ningún valor anterior ni quién lo cambió. Mismo formato propio d-m-Y h:i:s A que createdAt, tampoco ISO 8601. Un PATCH con el cuerpo vacío es un no-op y no lo mueve.",
+                        "type": "string",
+                        "example": "26-08-2026 08:51:40 PM",
+                        "nullable": true
+                    },
+                    "deletedAt": {
+                        "description": "Fecha del borrado lógico del cliente. ATENCIÓN — ES null EN CUATRO DE LOS CINCO ENDPOINTS: en el listado, en el detalle, en el alta y en la actualización, porque ninguno de ellos puede alcanzar un cliente borrado. LA ÚNICA RESPUESTA DE LA API QUE LO DEVUELVE CON VALOR ES LA DEL PROPIO DELETE, que pinta la fila que se acaba de borrar. No sirve, por tanto, para descubrir clientes eliminados: no existe ningún parámetro que los liste. Mismo formato propio d-m-Y h:i:s A que las otras dos fechas. Su presencia en el recurso documenta hacia el front que este catálogo —al contrario que los otros seis— borra de verdad.",
+                        "type": "string",
+                        "example": "26-08-2026 09:14:03 PM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "ClientListResponse": {
+                "title": "Listado de clientes sin paginar",
+                "description": "Respuesta de GET /api/clients cuando no se envía limit o cuando el limit no es numérico: se devuelven todos los clientes que pasen el filtro search y el sobre NO incluye total, currentPage ni lastPage. Es la forma que quiere un selector de cliente que necesita la lista entera de una vez. Los clientes borrados NUNCA aparecen y no hay ningún filtro que los muestre. El orden es siempre id ASC.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Clientes obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Client"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedClientListResponse": {
+                "title": "Listado de clientes paginado",
+                "description": "Respuesta de GET /api/clients cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los clientes vivos: los borrados no entran en la cuenta.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/ClientListResponse"
                     },
                     {
                         "$ref": "#/components/schemas/PaginationMeta"
@@ -10227,6 +10789,10 @@
         {
             "name": "Carriers",
             "description": "Empresas transportistas y vinculación de pilotos. Todos los endpoints requieren token JWT (Authorization: Bearer {token}) y están filtrados por rol; además, los marcados con carrier.required exigen que el usuario autenticado esté vinculado a una empresa, salvo si es administrator o manager, que quedan exentos. El rol manager no puede llamar a ninguno de estos endpoints."
+        },
+        {
+            "name": "Clients",
+            "description": "Clientes: el catálogo nacional de las empresas a las que Legumex presta servicio, con SOLO DOS CAMPOS DE NEGOCIO —un código tecleado por el administrador y una razón social—. No hay dirección, NIT, teléfono, contacto ni estado de publicación. El cliente NO pertenece a ninguna empresa transportista, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los cinco endpoints exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con \"El token de sesión no es válido o ha expirado\". El reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización y borrado) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403 con \"No tienes permisos para acceder a este recurso\". ATENCIÓN — ESTE CATÁLOGO BORRA DE VERDAD Y ES EL AVISO CENTRAL DEL DOMINIO: en Products, Locations, Zones y Departure Points el DELETE es una baja lógica sobre un status booleano, la fila se queda, se sigue listando y se puede reactivar; aquí el DELETE es un soft delete real, la fila DESAPARECE del listado y del detalle, NO hay filtro que la devuelva, NO existe /restore y NO HAY FORMA DE RECUPERARLA POR LA API —solo desde la base de datos—. ATENCIÓN — EL BORRADO NO LIBERA NI EL code NI EL name: los dos índices únicos siguen ocupados para siempre por la fila borrada, así que un alta puede chocar con 400 contra un cliente que no aparece en ningún endpoint; de ahí el \"que puede haber sido eliminado\" de los dos mensajes de duplicado. Es el ÚNICO catálogo del proyecto SIN NINGUNA RUTA FIJA antes del apiResource: no hay /toggle-status —un cliente no se pausa, se borra— ni /restore, así que el comodín {client} no captura nada. Reglas que atraviesan el dominio: los DOS duplicados posibles se responden con 400 DESDE EL SERVICE y NUNCA con 422 —los FormRequests no llevan regla unique, porque la de Laravel no ve las filas borradas—, ganando el mensaje del código si ambos chocan; el code se guarda recortado y en MAYÚSCULAS y NO ADMITE NINGÚN ESPACIO (422, no colapso), mientras que el name sí colapsa sus espacios internos antes de pasar a mayúsculas; el registeredBy sale siempre del usuario autenticado y el PATCH no lo reescribe; el listado ordena por id ASC sin alternativa, filtra con un search tolerante sobre código Y nombre y pagina opt-in por limit acotado a [10, 100]; y createdAt, updatedAt y deletedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601. NADA CUELGA TODAVÍA DE UN CLIENTE: ninguna tabla del proyecto tiene client_id, así que borrar uno no rompe ninguna otra entidad y el cliente no participa en tarifas, cotizaciones ni viajes."
         },
         {
             "name": "Departure Points",
