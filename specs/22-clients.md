@@ -128,7 +128,7 @@ Siete claves, en camelCase:
 }
 ```
 
-- `deletedAt` es **siempre `null`** en toda respuesta que la API pueda devolver hoy: los borrados no salen por ningún endpoint. La clave existe para documentar el `SoftDeletes` hacia el front, y cuando trae valor sale en el mismo formato `d-m-Y h:i:s A` que las otras dos fechas.
+- `deletedAt` es `null` en **cuatro de los cinco endpoints** —`index`, `show`, `store` y `update`—, porque ninguno de ellos alcanza a un cliente borrado. La excepción es **la respuesta del propio `DELETE`**, que pinta la fila recién borrada y por tanto trae la marca de tiempo del borrado, en el mismo formato `d-m-Y h:i:s A` que las otras dos fechas. Es el único camino por el que un cliente ve esta clave con valor, y documenta hacia el front que este catálogo borra de verdad.
 - Sale `registeredByName`, no el `registered_by` crudo ni el objeto usuario. El service carga la relación con `with('registeredBy')` para que el listado no haga N+1.
 
 ### 4. Factory
@@ -245,7 +245,7 @@ Cada paso deja el sistema funcionando y es commiteable por sí solo.
 **Salida**
 
 - [ ] `ClientResource` devuelve exactamente las siete claves acordadas, en camelCase.
-- [ ] `deletedAt` sale como `null` en todas las respuestas que la API puede devolver.
+- [ ] `deletedAt` sale como `null` en `index`, `show`, `store` y `update`, y con la fecha del borrado en la respuesta del `DELETE`.
 - [ ] `registeredByName` trae el nombre del usuario y el listado **no hace N+1** (`with('registeredBy')`).
 - [ ] `createdAt` y `updatedAt` salen en `d-m-Y h:i:s A`.
 
