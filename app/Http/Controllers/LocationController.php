@@ -29,7 +29,7 @@ class LocationController extends Controller
 
         El orden es fijo y no configurable: id ASC, es decir, el orden en que se dieron de alta. No hay sortBy ni sortDir.
 
-        Los tres filtros —status, search y limit— se combinan entre sí y son TOLERANTES: un status que no resuelve a booleano, un search en blanco y un limit no numérico se ignoran en silencio y la lectura devuelve 200, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. No hay búsqueda por googlePlaceId, ni por proximidad geográfica, ni filtro por autor del alta o por rango de fechas: cualquier otro query param se ignora.
+        Los cuatro filtros —status, type, search y limit— se combinan entre sí y son TOLERANTES: un status que no resuelve a booleano, un type fuera del enum, un search en blanco y un limit no numérico se ignoran en silencio y la lectura devuelve 200, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. No hay búsqueda por googlePlaceId, ni por proximidad geográfica, ni filtro por autor del alta o por rango de fechas: cualquier otro query param se ignora.
 
         La forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos APLANADOS EN LA RAÍZ, no bajo meta.
         TEXT,
@@ -44,6 +44,13 @@ class LocationController extends Controller
                 schema: new OA\Schema(type: 'string', enum: ['true', 'false', '1', '0'], example: 'true'),
             ),
             new OA\Parameter(
+                name: 'type',
+                description: 'Filtra por tipo de destino. La coincidencia es EXACTA y SENSIBLE A MAYÚSCULAS —se resuelve con el enum—, así que solo type=port y type=destination filtran algo: type=PORT, type=puerto o type= vacío se ignoran sin error y devuelven el listado COMPLETO, igual que si se omitiera. El índice no tiene FormRequest, de modo que este filtro nunca provoca un 422. Se combina con status, search y limit sin interferir con ninguno. ATENCIÓN — los destinos anteriores a SPEC 21 se migraron TODOS a destination, así que hasta que se reclasifiquen a mano type=port puede devolver una lista vacía aunque el catálogo tenga puertos reales: es un dato pendiente de capturar, no un filtro roto.',
+                in: 'query',
+                required: false,
+                schema: new OA\Schema(type: 'string', enum: ['port', 'destination'], example: 'port'),
+            ),
+            new OA\Parameter(
                 name: 'search',
                 description: 'Búsqueda parcial sobre el nombre (LIKE %TERM%). El término se normaliza igual que el name —recorte, colapso de espacios y mayúsculas— y el name está siempre en mayúsculas, así que la búsqueda es insensible a mayúsculas: search=bode y search=BODE devuelven ambas BODEGA CENTRAL ESCUINTLA. En blanco o solo espacios se ignora y se devuelven todos los destinos. Solo busca por nombre: NO cubre la descripción, ni el googlePlaceId, ni el autor del alta.',
                 in: 'query',
@@ -52,7 +59,7 @@ class LocationController extends Controller
             ),
             new OA\Parameter(
                 name: 'limit',
-                description: 'Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación —que es lo que quiere un selector de destinos—. Si es numérico se ACOTA al rango [10, 100]: limit=5 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status y search.',
+                description: 'Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación —que es lo que quiere un selector de destinos—. Si es numérico se ACOTA al rango [10, 100]: limit=5 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con status, type y search.',
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', maximum: 100, minimum: 10, example: 10),
@@ -105,7 +112,7 @@ class LocationController extends Controller
         description: <<<'TEXT'
         Da de alta un destino nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer los destinos. No lleva carrier.required, porque el destino no pertenece a ninguna empresa.
 
-        El cuerpo acepta name, description, googlePlaceId, latitude y longitude; obligatorios todos menos description. El status NO se envía —el destino nace siempre activo— y el registeredBy tampoco: se toma del usuario autenticado y se devuelve resuelto en registeredByName. Mandar cualquiera de los dos en el cuerpo no tiene efecto.
+        El cuerpo acepta name, description, type, googlePlaceId, latitude y longitude; obligatorios todos menos description. ATENCIÓN — CAMBIO INCOMPATIBLE desde SPEC 21: el alta pasó de CUATRO a CINCO campos obligatorios al sumar type, y no hay periodo de gracia; un cliente que siga mandando los cuatro de antes recibe 422 con "El tipo de destino es obligatorio". El default destination de la columna existe para las filas ya migradas, no para que el alta pueda omitirlo. El status NO se envía —el destino nace siempre activo— y el registeredBy tampoco: se toma del usuario autenticado y se devuelve resuelto en registeredByName. Mandar cualquiera de los dos en el cuerpo no tiene efecto.
 
         El name se NORMALIZA: se recorta, se colapsan los espacios internos y se pasa a mayúsculas. Enviar "bodega central" devuelve un destino llamado "BODEGA CENTRAL"; el cliente debe pintar el name de la respuesta, no el que tecleó el usuario. La unicidad del nombre es GLOBAL e insensible a mayúsculas, porque se compara ya normalizado: enviar "bodega central" existiendo "BODEGA CENTRAL" devuelve 422, no 201 ni 500.
 
@@ -151,7 +158,7 @@ class LocationController extends Controller
             ),
             new OA\Response(
                 response: 422,
-                description: 'Datos inválidos. Casos típicos: falta el name o ya existe un destino con ese nombre una vez normalizado —incluido mandar "bodega central" existiendo "BODEGA CENTRAL"— (Ya existe un destino con ese nombre); falta el googlePlaceId o supera los 255 caracteres (El lugar de Google es obligatorio / El lugar de Google no puede superar los 255 caracteres); falta alguna coordenada, no es numérica o está fuera de rango (La latitud debe estar entre -90 y 90 / La longitud debe estar entre -180 y 180); o la descripción no es texto. ATENCIÓN — un googlePlaceId ya usado por otro destino NO cae aquí: es 400.',
+                description: 'Datos inválidos. Casos típicos: falta el type, o llega con un valor fuera del enum —la validación es exacta y sensible a mayúsculas, así que "PORT", "Port", "puerto" y "" caen aquí— (El tipo de destino es obligatorio / El tipo de destino no es válido); falta el name o ya existe un destino con ese nombre una vez normalizado —incluido mandar "bodega central" existiendo "BODEGA CENTRAL"— (Ya existe un destino con ese nombre); falta el googlePlaceId o supera los 255 caracteres (El lugar de Google es obligatorio / El lugar de Google no puede superar los 255 caracteres); falta alguna coordenada, no es numérica o está fuera de rango (La latitud debe estar entre -90 y 90 / La longitud debe estar entre -180 y 180); o la descripción no es texto. ATENCIÓN — un googlePlaceId ya usado por otro destino NO cae aquí: es 400.',
                 content: new OA\JsonContent(ref: '#/components/schemas/ValidationError'),
             ),
         ],
@@ -232,7 +239,7 @@ class LocationController extends Controller
         operationId: 'updateLocation',
         summary: 'Actualizar un destino',
         description: <<<'TEXT'
-        Modifica el nombre, la descripción, el lugar de Google, las coordenadas, el estado o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
+        Modifica el nombre, la descripción, el tipo, el lugar de Google, las coordenadas, el estado o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
 
         Todos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda description no altera el nombre, el lugar ni las coordenadas. Un CUERPO VACÍO responde 200 como no-op, devolviendo el destino sin cambios, en vez de 422.
 
@@ -451,12 +458,13 @@ class LocationController extends Controller
     /**
      * Collect the listing filters the service understands.
      *
-     * @return array{status: string|null, search: string|null, limit: string|null}
+     * @return array{status: string|null, type: string|null, search: string|null, limit: string|null}
      */
     private function filters(Request $request): array
     {
         return [
             'status' => $this->queryString($request, 'status'),
+            'type' => $this->queryString($request, 'type'),
             'search' => $this->queryString($request, 'search'),
             'limit' => $this->queryString($request, 'limit'),
         ];

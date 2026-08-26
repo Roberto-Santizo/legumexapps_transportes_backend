@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Location;
 
+use App\Enums\LocationType;
 use App\Models\Location;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -20,6 +21,8 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — EL googlePlaceId ES EDITABLE Y ESO ES UN RIESGO ASUMIDO. Reapuntar el destino a otro lugar conserva la fila, su id y TODAS SUS TARIFAS de flete, que es justo el motivo de permitirlo: corregir un lugar mal capturado sin perder el historial de precios. Pero NO HAY VALIDACIÓN CRUZADA con las coordenadas: cambiar el googlePlaceId sin tocar latitude ni longitude es válido, responde 200 y deja el pin apuntando al lugar anterior, SIN NINGÚN AVISO. Si se reapunta el lugar, hay que mandar también las coordenadas nuevas en el mismo PATCH.
 
+    ATENCIÓN — EL type SE CAMBIA SIN NINGUNA RESTRICCIÓN. Un destino con tarifas de flete colgando puede pasar a port y volver a destination, y la respuesta es 200 sin aviso: las tarifas quedan intactas y siguen cotizando igual. El tipo es una etiqueta de catálogo y no gobierna ningún precio, así que bloquear el cambio protegería de un riesgo que no existe e impediría corregir una etiqueta mal capturada. El valor anterior se pisa SIN BITÁCORA.
+
     El name se NORMALIZA igual que en el alta —recorte, colapso de espacios y mayúsculas—; el googlePlaceId no se toca. Las coordenadas se pueden corregir sueltas y NO influyen en el precio de ninguna cotización.
     TEXT,
     properties: [
@@ -36,6 +39,13 @@ use OpenApi\Attributes as OA;
             type: 'string',
             nullable: true,
             example: 'Entrada por el km 58, portón de carga 2',
+        ),
+        new OA\Property(
+            property: 'type',
+            description: 'Nuevo tipo de destino: port o destination. Semántica parcial de siempre: omitir la clave deja el tipo intacto y enviarla obliga a un valor del enum, así que "" o null son 422 (mensaje: El tipo de destino no es válido). La validación es EXACTA y SENSIBLE A MAYÚSCULAS: "PORT" o "puerto" también son 422. SIN NINGUNA RESTRICCIÓN: un destino que YA TIENE TARIFAS de flete puede pasar a port y volver, y la respuesta es 200 sin aviso; las tarifas quedan intactas y siguen cotizando igual, porque el tipo no gobierna ningún precio. Pisar el valor anterior NO deja rastro: no hay bitácora del cambio de tipo.',
+            type: 'string',
+            enum: ['port', 'destination'],
+            example: 'port',
         ),
         new OA\Property(
             property: 'googlePlaceId',
@@ -108,6 +118,8 @@ class UpdateLocationRequest extends FormRequest
         return [
             'name' => ['sometimes', 'string', 'max:255', Rule::unique('locations', 'name')->ignore($this->route('location'))],
             'description' => ['sometimes', 'nullable', 'string'],
+            /** Sin guarda de negocio detrás: el tipo se cambia aunque el destino ya tenga tarifas. */
+            'type' => ['sometimes', 'required', Rule::enum(LocationType::class)],
             /**
              * Sin regla unique a propósito: la unicidad del lugar la decide el service, que
              * responde 400 nombrando al destino que ya lo ocupa e ignora la propia fila, así
@@ -130,6 +142,8 @@ class UpdateLocationRequest extends FormRequest
             'name.max' => 'El nombre del destino no puede superar los 255 caracteres',
             'name.unique' => 'Ya existe un destino con ese nombre',
             'description.string' => 'La descripción debe ser texto',
+            'type.required' => 'El tipo de destino es obligatorio',
+            'type.enum' => 'El tipo de destino no es válido',
             'googlePlaceId.string' => 'El lugar de Google debe ser texto',
             'googlePlaceId.max' => 'El lugar de Google no puede superar los 255 caracteres',
             'latitude.numeric' => 'La latitud debe ser numérica',

@@ -41,6 +41,13 @@ use OpenApi\Attributes as OA;
             example: 'Entrada por el km 58, portón de carga 2',
         ),
         new OA\Property(
+            property: 'type',
+            description: 'Tipo de destino: "port" para un puerto y "destination" para un destino ordinario. Viaja como CADENA CRUDA DEL ENUM, en inglés y minúsculas, SIN TRADUCIR y sin envolver en objeto: mostrarlo como "Puerto" o "Destino" es responsabilidad del cliente. Es una ETIQUETA DE CATÁLOGO, no una regla de negocio: NO cambia el precio, NO aparece en GET /api/freight-rates/quote ni en FreightQuoteResource, NO restringe qué tarifas o qué productos se pueden asociar al destino y NO altera el ámbito por rol —los cuatro roles ven el campo igual—. Un puerto se cotiza exactamente como cualquier otro destino. Es obligatorio en el alta y editable sin restricción en el PATCH, incluso con tarifas colgando. ATENCIÓN — los destinos anteriores a SPEC 21 se migraron todos a "destination", así que hasta que se reclasifiquen a mano el filtro ?type=port puede devolver lista vacía aunque el catálogo tenga puertos reales.',
+            type: 'string',
+            enum: ['port', 'destination'],
+            example: 'destination',
+        ),
+        new OA\Property(
             property: 'googlePlaceId',
             description: 'Identificador del lugar en Google Places (place id), guardado TAL CUAL LLEGA: no se recorta, no se normaliza y ES SENSIBLE A MAYÚSCULAS, porque es un identificador opaco y cambiarle una letra apuntaría a otro lugar. Es único entre destinos, pero esa unicidad NO la impone el FormRequest sino el service, que responde 400 nombrando al destino que ya lo ocupa. Es EDITABLE: un PATCH puede reapuntar el destino a otro lugar conservando su id y sus tarifas, y no se valida contra latitude/longitude, así que puede quedar desalineado con el pin sin ningún aviso. Se obtiene de GET /api/places.',
             type: 'string',
@@ -124,6 +131,8 @@ class LocationResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'description' => $this->description,
+            /** Valor crudo del enum, sin traducir: la pantalla la decide el cliente. */
+            'type' => $this->type?->value,
             'googlePlaceId' => $this->google_place_id,
             'latitude' => $this->latitude,
             'longitude' => $this->longitude,

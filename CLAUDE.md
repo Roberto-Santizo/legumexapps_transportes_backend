@@ -18,9 +18,9 @@ Cada recurso se implementa con la misma cadena de archivos, agrupados en subcarp
 
 El service se inyecta **por parámetro del método del controller** (`public function login(LoginRequest $request, AuthServiceInterface $authService)`), no por constructor.
 
-En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`, `/{pilot}/salary`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
+En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`, `/directions`, `/{pilot}/salary`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
 
-Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `VehicleExpense`, `FuelPrice`, `Product`, `Zone`, `Location`, `FreightRate`, `Pilot`, `Place` (SPEC 01–15).
+Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `VehicleExpense`, `FuelPrice`, `Product`, `Zone`, `Location`, `FreightRate`, `Pilot`, `Place`, `Accessory`, `AccessoryCharacteristic`, `DeparturePoint` (SPEC 01–21).
 
 ## Respuestas y errores
 
@@ -82,6 +82,16 @@ Gastos de mantenimiento imputados a un vehículo. Enums `App\Enums\VehicleExpens
 - `vehicle_id` es **inmutable** (`UPDATABLE_FIELDS` no lo incluye) y `registered_by` sale del usuario autenticado y no se reescribe en el `update`. `DELETE` es **borrado real**: un gasto mal tecleado es basura, no historial. No hay bitácora de ediciones.
 - `Vehicle` **no gana** una relación `expenses()` y `GET /api/vehicles/{vehicle}` no cambió de forma.
 
+### Factura del gasto (SPEC 19)
+
+Segunda spec aditiva sobre un dominio publicado (tras SPEC 13) y **primera que toca el contrato de SPEC 05**: dos columnas en `vehicle_expenses` (`is_invoiced` boolean `default false`, `invoice` string nullable con la key completa) y ningún endpoint nuevo.
+
+- `is_invoiced` es **obligatorio en el `POST`** (cambio incompatible, sin periodo de gracia; el `default false` es relleno para las filas ya capturadas). Con `is_invoiced=true` y sin archivo → **422**; con `is_invoiced=false` un archivo enviado **se ignora en silencio** y no se sube nada.
+- El archivo se guarda **tal cual llega** (`mimes:jpg,jpeg,png,pdf`, `max:3072`) en `invoices/`: sin recorte ni recompresión, `ImageProcessorServiceInterface` no interviene. Por eso el contrato de almacenamiento gana `storeUpload(UploadedFile, directory)`.
+- Los dos campos son **inmutables**: el `PATCH` no los acepta y mandarlos se ignora con 200, como `vehicle_id`. Corregir un gasto mal facturado es borrarlo y recrearlo.
+- **`DELETE` borra también el objeto del bucket** — única excepción a «el `DELETE` no toca el archivo»: aquí la fila desaparece de verdad.
+- Filtro tolerante nuevo `isInvoiced` y tres claves nuevas en el Resource: `isInvoiced`, `invoiceUrl` (absoluta o `null`) e `invoiceType` (`jpg|png|pdf|null`, derivada de la extensión de la key, sin columna propia). El resto del contrato de SPEC 14 —roles, ámbito, orden, `totalAmount`— intacto.
+
 ## Dominio Pilots (salarios)
 
 Primer dominio publicado **sobre una tabla pivote existente**: `carrier_pilots` gana la columna `salary` (`decimal(10,2)` nullable, mensual y en GTQ por convención — la columna no lo dice) y la bitácora `carrier_pilot_salary_histories`.
@@ -96,15 +106,35 @@ Primer dominio publicado **sobre una tabla pivote existente**: `carrier_pilots` 
 - El UPDATE y la fila de bitácora corren en la **misma transacción**, con `lockForUpdate` sobre el pivote; `changed_by` sale del usuario autenticado, nunca del body. La bitácora es de solo escritura y solo lectura: `created_at` es la fecha de vigencia y no hay `reason`, `notes` ni `effective_from`. Se ordena por `id desc`, no por `created_at`, que empataría entre dos cambios del mismo segundo.
 - Listado e historial paginan opt-in con `limit`, como el resto del proyecto.
 
-## Catálogos nacionales (fuel prices, products, zones, locations, freight rates)
+## Dominio Accessories (SPEC 17)
 
-Cinco dominios que no pertenecen a ninguna empresa y comparten reglas:
+Inventario nacional de accesorios, **una fila por unidad física** (dos llantas iguales son dos registros; no hay `quantity`). Enum propio `App\Enums\AccessoryStatus` (active, inactive, under_repair) — mismos tres valores que `VehicleStatus` pero sin acoplar los dominios.
+
+- Catálogo nacional: sin `carrier_id` ni `vehicle_id`, ninguna ruta con `carrier.required`, lectura para cualquier autenticado y escritura solo `administrator`.
+- **Sin `/toggle-status`**: con tres estados un toggle no significa nada; el estado se mueve libremente por `PATCH` (sin reglas de transición) y no se acepta en el alta (nace `active`). `DELETE` es baja lógica a `inactive`, como en `Vehicle`, no la de los catálogos booleanos.
+- `name` único normalizado con `normalizeName()`; `code` único **global** —un `inactive` **no** lo libera, a diferencia de la placa— normalizado con `normalizeCode()`, que **no colapsa espacios interiores**: `A 100` y `A100` son códigos distintos. Ambos con índice único y revalidados en el service para dar 400 en español.
+- **`currentValue` es el primer campo calculado en lectura del proyecto**: vive solo en `AccessoryResource`, sin columna, sin job y sin caché. Depreciación **lineal** con antigüedad en fracción de días (`días / 365`, sin corrección por bisiesto) y **piso en `0.00`**: `round(max(0, price − price × annual_depreciation/100 × años), 2)`. Sale como string de dos decimales, igual que `price`. **No se puede filtrar ni ordenar por él**: la base no lo conoce.
+- `annual_depreciation` es editable y admite `0` (el accesorio vale su precio para siempre). `price` (`min:0.01`) y `purchase_date` (`before_or_equal:today`) son obligatorios en el alta. Filtros tolerantes `status` y `search` (`LIKE` sobre `name` **y** `code`), orden `id ASC`, paginación opt-in.
+
+## Dominio Accessory Characteristics (SPEC 18)
+
+Pares nombre/valor libres colgando de un accesorio: **el primer dominio cuyo conjunto de campos no lo fija el esquema**. Sin enum, sin `status` y sin `casts()` — el primer modelo del proyecto sin ninguno.
+
+- Repite el patrón de SPEC 14: **cuelga de un accesorio pero la ruta no está anidada** (no existe `/api/accessories/{accessory}/characteristics`); el vínculo viaja en `accessoryId` del body y en el query param **obligatorio** del listado — sin él **422**, con un id inexistente **404**, no lista vacía. Segundo FormRequest de índice del proyecto (`IndexAccessoryCharacteristicRequest`).
+- Unicidad de `name` **por accesorio** (índice único `(accessory_id, name)` + `ensureNameIsAvailable($accessoryId, $name, $ignoreId)`): dos accesorios distintos pueden tener ambos «PLACA».
+- **Normalización asimétrica**: `name` en MAYÚSCULAS con espacios colapsados; `value` **solo `trim`**, tal como se teclea. Todo es texto: no hay tipos, ni unidades, ni catálogo de nombres permitidos.
+- `accessory_id` inmutable en el `PATCH`; `DELETE` es **borrado físico**. El `status` del accesorio no importa: uno `inactive` o `under_repair` lista y acepta características igual. Sin filtros ni `search`; orden `id ASC` y paginación opt-in.
+- `AccessoryResource` **no cambia de forma**: el inventario no gana `characteristics` ni contador, y no se puede buscar accesorios por característica — el índice va siempre accesorio → características.
+
+## Catálogos nacionales (fuel prices, products, zones, locations, departure points, freight rates)
+
+Seis dominios que no pertenecen a ninguna empresa y comparten reglas:
 
 - **Ninguna ruta lleva `carrier.required`**: son datos nacionales. La lectura queda abierta a cualquier autenticado (`jwt.auth` a secas) y toda escritura es `role:administrator`. Única excepción: `GET /api/freight-rates/{id}` también es admin — quien no administra tarifas cotiza con `/quote`.
 - Las rutas fijas (`/current`, `/quote`, `/{id}/toggle-status`, `/{id}/deactivate`) van **antes** del `apiResource`, que se declara sobre `'/'` con `->parameters(['' => 'fuelPrice'])`.
 - `registered_by` sale siempre del usuario autenticado, nunca del body, y **no se reescribe** en `update`.
 - Los filtros de listado son tolerantes: un `status`/`locationId`/`lat,lng` inválido se **ignora** en vez de vaciar el listado (`filter_var(..., FILTER_NULL_ON_FAILURE)`).
-- El nombre único (`Product`, `Zone`, `Location`) se normaliza con `Model::normalizeName()` (trim + colapsar espacios + mayúsculas), compartido por FormRequest y service; el service revalida con `ensureNameIsAvailable($name, $ignoreId)` **aunque haya índice único**, para que una llamada directa dé 400 y no 500.
+- El nombre único (`Product`, `Zone`, `Location`, `DeparturePoint`, y fuera de aquí `Accessory`) se normaliza con `Model::normalizeName()` (trim + colapsar espacios + mayúsculas), compartido por FormRequest y service; el service revalida con `ensureNameIsAvailable($name, $ignoreId)` **aunque haya índice único**, para que una llamada directa dé 400 y no 500.
 
 ### Fuel Prices
 
@@ -127,7 +157,7 @@ Cinco dominios que no pertenecen a ninguna empresa y comparten reglas:
 - **Desde SPEC 15 las zonas no cotizan nada**: se dibujan en el mapa y ya. `getZoneContainingPoint()` se eliminó del contrato y del service al perder su consumidor; `whereContainsPoint()` se quedó. El resto del dominio (tabla, rutas, polígono, índice GiST) sigue exactamente como lo dejó SPEC 08, y **PostGIS sigue siendo requisito** del proyecto y de la suite.
 - Solape permitido. `color` por defecto `#3388FF` (el azul de Leaflet), en mayúsculas. `description` se borra mandando `null` (por eso `array_key_exists`, no `isset`).
 
-### Locations (SPEC 15)
+### Locations (SPEC 15 · SPEC 21)
 
 Destinos puntuales identificados por `google_place_id` y coordenadas. **Sustituyeron a la zona como eje de las tarifas**: primera spec que retira una capacidad publicada — cotizar por punto geográfico ya no existe.
 
@@ -135,6 +165,23 @@ Destinos puntuales identificados por `google_place_id` y coordenadas. **Sustituy
 - Forma idéntica a `Product`/`Zone`: escritura solo `administrator`, lectura para cualquier autenticado, filtros `status` y `search`, orden `id ASC`, paginación opt-in, `DELETE` como baja lógica **idempotente** y `/{location}/toggle-status` declarada antes del `apiResource`.
 - **La API nunca llama a Google**: el front busca en `GET /api/places`, elige, y manda `name`, `googlePlaceId`, `latitude` y `longitude` ya resueltos. `LocationService` no conoce `PlaceServiceInterface`.
 - `ensureGooglePlaceIdIsAvailable($googlePlaceId, $ignoreId)` es hermano de `ensureNameIsAvailable()`: 400 si otro destino ya ocupa ese lugar. El `google_place_id` se guarda **tal cual** (identificador opaco, sensible a mayúsculas) y **es editable**: reapuntar el destino conserva su `id` y sus tarifas. Coordenadas también editables; **no hay validación cruzada** entre `googlePlaceId` y el pin.
+- `getActiveLocationById(int $id): Location` (añadido por SPEC 16) es el séptimo método del contrato: 404 si no existe, **400 si existe pero está inactivo**. Lo consume `GET /api/places/directions`.
+
+**Tipo de destino (SPEC 21).** Columna `type` (`string` con enum `App\Enums\LocationType` — `port` | `destination`), añadida por migración aditiva: ni tabla, ni controller, ni ruta nuevos, como hizo SPEC 13 con la ficha del vehículo.
+
+- El `default('destination')` de la columna **sí es valor de negocio**, no relleno: todos los destinos anteriores a la spec son destinos ordinarios, así que no hubo backfill. Reclasificar los puertos es un `PATCH` a mano — mientras tanto `?type=port` puede devolver lista vacía con puertos reales en el catálogo.
+- **Es una etiqueta de catálogo, no una regla de negocio**: no cambia el precio, no aparece en `/quote` ni en `FreightQuoteResource`, no restringe qué tarifas se crean (`ensureLocationAndProductAreActive()` sigue mirando solo `status`) y no altera el ámbito por rol. Un puerto se cotiza como cualquier otro destino.
+- **Obligatorio en el `POST`** (de cuatro campos a cinco, cambio incompatible sin periodo de gracia) y editable en el `PATCH` como `sometimes|required`, **sin ninguna restricción**: un destino con tarifas colgando puede pasar a `port` y volver, con 200 y sin bitácora.
+- Filtro `type` en el listado: coincidencia exacta contra el valor del enum (`LocationType::tryFrom()`) y **tolerante** — `?type=PORT` o `?type=basura` se ignoran y devuelven el listado completo, nunca 422 ni lista vacía. No se valida en ningún FormRequest.
+- El Resource pasa de diez a once claves; `type` sale con el **valor crudo del enum** en inglés, sin traducir. La unicidad de `name` y `google_place_id` sigue siendo **global**, no por tipo, y `departure_points` **no** gana `type`: esa es la primera deriva estructural entre los dos catálogos.
+
+### Departure Points (SPEC 20)
+
+Puntos de partida anclados a Google Places. **Primer dominio que nace como copia declarada de otro**: misma forma que `Location` —tabla plana, `name` único en mayúsculas, `google_place_id` único, coordenadas `decimal(10,8)`/`(11,8)` que salen como string, `status` booleano, seis rutas con `/{departurePoint}/toggle-status` antes del `apiResource`, filtros `status`/`search`, orden `id ASC`, baja lógica idempotente—, sin tocar `locations` ni `freight_rates` en una línea.
+
+- La diferencia está en lo que le falta: **no tiene tarifas**, no participa en `/quote` y ninguna tabla apunta a él. Por eso su contrato **no incluye `getActiveDeparturePointById()`**: sin tarifas nadie necesita exigir que esté activo.
+- Misma asimetría de duplicados que SPEC 15: `name` repetido es **422** (regla `unique` del FormRequest); `googlePlaceId` repetido es **400** desde el service, con el mensaje que **nombra al ocupante**.
+- **Unicidad solo dentro de su tabla**: un mismo lugar de Google puede ser punto de partida y destino a la vez — no hay ninguna comprobación cruzada contra `locations`.
 
 ### Freight Rates
 
@@ -148,24 +195,34 @@ Destinos puntuales identificados por `google_place_id` y coordenadas. **Sustituy
 
 ## Dominio Places (Google Places)
 
-Primer dominio **sin tabla, sin modelo y sin migración** — un proxy de lectura — y el primero que sale por su cuenta a una API de terceros. Dos rutas con `jwt.auth` a secas, sin `role:` ni `carrier.required`: `GET /api/places?search=` (texto de 3 a 200 caracteres) y `GET /api/places/{place}`, declaradas con el mismo `apiResource('/')->parameters(['' => 'place'])->only(['index', 'show'])` de los catálogos.
+Primer dominio **sin tabla, sin modelo y sin migración** — un proxy de lectura — y el primero que sale por su cuenta a una API de terceros. Tres rutas con `jwt.auth` a secas, sin `role:` ni `carrier.required`: `GET /api/places?search=` (texto de 3 a 200 caracteres), `GET /api/places/{place}` y `GET /api/places/directions` (SPEC 16), declaradas con el mismo `apiResource('/')->parameters(['' => 'place'])->only(['index', 'show'])` de los catálogos — con `/directions` **antes** del resource, o el comodín `{place}` la captura y busca un lugar llamado "directions".
 
-- Contrato por capacidad, como en almacenamiento: `PlaceServiceInterface` (`searchPlaces`, `getPlaceById`) → `GooglePlacesService`, bindeado en `PlaceProvider`. El nombre del proveedor no aparece fuera de `app/Services/Place/`.
+- Contrato por capacidad, como en almacenamiento: `PlaceServiceInterface` (`searchPlaces`, `getPlaceById`, `getDirections`) → `GooglePlacesService`, bindeado en `PlaceProvider`. El nombre del proveedor no aparece fuera de `app/Services/Place/`.
 - Credencial en `services.google_places.key` (`GOOGLE_PLACES_API_KEY`), enviada en la cabecera `X-Goog-Api-Key` y **nunca en la query string**, que acabaría en los logs de cada proxy intermedio. Field masks siempre explícitas (`*` factura en el tramo más caro), `pageSize` 10, `languageCode=es`, `regionCode=GT` (sesga, no excluye), timeout de 10 s y **sin reintentos**: cada llamada se paga.
 - Error nuevo `App\Errors\ServiceUnavailableError` (503). Cualquier fallo del proveedor —timeout, DNS, credencial rechazada, cuerpo con forma inesperada— sale con **un único mensaje genérico**, para no filtrar el estado de la cuenta. Una lista parcialmente válida no se filtra ni se devuelve corta: invalida la llamada entera.
 - Búsqueda sin resultados es lista vacía, no error. En el detalle, id inexistente e id malformado (404 y 400 del proveedor) son ambos `NotFoundError`; el `location` anidado se aplana a `latitude`/`longitude`, y un 200 sin coordenadas es 503, no coordenadas nulas.
 - Su consumidor es el front: buscar dirección → elegir → dar de alta el destino con `POST /api/locations` (`googlePlaceId` + coordenadas) → cotizar con `GET /api/freight-rates/quote?locationId=`. Este dominio no cotiza nada ni persiste nada.
 
+### Ruta por carretera (SPEC 16)
+
+`GET /api/places/directions?locationId=&lat=&lng=` — **segunda llamada saliente del proyecto**, a `computeRoutes` de la Routes API de Google: misma credencial que Places pero **se factura aparte**. No persiste nada y no cotiza nada; el origen es un par de coordenadas sueltas, no una entidad del sistema.
+
+- Constantes propias en `GooglePlacesService`: field mask `routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline`, `travelMode: DRIVE`, `routingPreference: TRAFFIC_UNAWARE` (misma respuesta a cualquier hora), `polylineQuality: OVERVIEW`, `units: METRIC`, `computeAlternativeRoutes: false`. Timeout de 10 s y sin reintentos, como el resto del dominio.
+- `App\Services\Place\PolylineDecoder::decode()` traduce la polilínea codificada a pares `[lat, lng]`. Es el algoritmo que se prueba **sin red**, como la geometría de zonas se prueba sin PostGIS.
+- El controller recibe **los dos contratos por parámetro de método** (`PlaceServiceInterface` y `LocationServiceInterface`), resuelve el destino con `getActiveLocationById()` y pasa sus coordenadas al proveedor.
+- **Orden de fallo, cada paso con su mensaje**: `locationId` inexistente → 422 (`exists:` del FormRequest); destino inactivo → 400; Google sin rutas (200 con `{}` o `routes: []`) → **404**, porque el proveedor funcionó; cualquier otro fallo → 503 genérico. `duration` llega como cadena `"6300s"` (convención `protobuf.Duration`): se parsea quitando la `s`, y cualquier otra forma es 503.
+- `DirectionsResource` con seis claves: `locationId`, `locationName`, `distanceKilometers` (metros/1000, 2 decimales), `durationHours` (segundos/3600), `polyline` y `points`. Las dos primeras las pone el Resource: el contrato no sabe que existe un destino registrado.
+
 ## Almacenamiento de archivos
 
 - Dos contratos en `app/Interfaces/Storage/`, con sus reglas de sustitución escritas en el PHPDoc (qué lanza, qué acepta `null`, qué garantiza la salida), implementados en `app/Services/Storage/` y bindeados por `StorageProvider`:
-  - `FileStorageServiceInterface` → `S3FileStorageService`: `store(bytes, directory, extension)` / `delete(?key)` / `url(?key)`. Trabaja contra `Storage::disk()` **por defecto**, nunca contra `'s3'` escrito a mano (por eso el `Storage::fake()` de los tests lo intercepta). Sube con ACL `public-read` explícita; sin ella el objeto queda privado y la URL permanente da 403. Traduce tanto el `false` de retorno como cualquier `Throwable` a `BadRequestError`; `delete()` nunca lanza.
+  - `FileStorageServiceInterface` → `S3FileStorageService`: `store(bytes, directory, extension)` / `storeUpload(UploadedFile, directory)` / `delete(?key)` / `url(?key)`. `storeUpload()` (SPEC 19) persiste el archivo **tal cual llega**, sin pasar por el procesador de imágenes: una factura recortada a un cuadrado es ilegible. Trabaja contra `Storage::disk()` **por defecto**, nunca contra `'s3'` escrito a mano (por eso el `Storage::fake()` de los tests lo intercepta). Sube con ACL `public-read` explícita; sin ella el objeto queda privado y la URL permanente da 403. Traduce tanto el `false` de retorno como cualquier `Throwable` a `BadRequestError`; `delete()` nunca lanza.
   - `ImageProcessorServiceInterface` → `ImageProcessorService`: `normalizeSquare(UploadedFile)` devuelve `array{contents, extension}`. Recorte cuadrado centrado con `cover()` a **800×800** (Intervention Image, driver GD), recomprimido conservando el formato de entrada (jpg calidad 80 o png). `SIDE` y `JPEG_QUALITY` son constantes de clase, no configuración.
 - Ningún archivo fuera de `app/Services/Storage/` menciona `Storage::`, el nombre del disco ni `Intervention\`.
-- Los dos contratos se inyectan **por constructor** en los services de dominio (la regla de inyectar por parámetro es solo del controller), que aportan su propio prefijo con la constante `IMAGE_DIRECTORY` (`carriers`, `vehicles`).
-- La columna `image` guarda la **key completa** (`carriers/{uuid}.png`), no la URL: cambiar de proveedor no obliga a migrar datos. El Resource la resuelve a URL pública con `app(FileStorageServiceInterface::class)->url($this->image)` — localización de servicio consciente, porque un `JsonResource` se instancia con `new`.
-- Ciclo de vida: procesar → subir → persistir. En `update` con imagen nueva, el archivo anterior se borra **después** de guardar la fila. El `DELETE` no toca el archivo en ningún dominio.
-- Validación: `image` es `mimes:jpg,jpeg,png` + `max:3072` (3 MB, en kilobytes) en los cuatro FormRequests. Requiere `upload_max_filesize`/`post_max_size` ≥ 4M en cada entorno; si PHP corta antes, el error que ve el usuario es un `required` confuso.
+- Los dos contratos se inyectan **por constructor** en los services de dominio (la regla de inyectar por parámetro es solo del controller), que aportan su propio prefijo con una constante propia: `IMAGE_DIRECTORY` (`carriers`, `vehicles`) e `INVOICE_DIRECTORY` (`invoices`).
+- La columna del archivo (`image`, `invoice`) guarda la **key completa** (`carriers/{uuid}.png`), no la URL: cambiar de proveedor no obliga a migrar datos. El Resource la resuelve a URL pública con `app(FileStorageServiceInterface::class)->url($this->image)` — localización de servicio consciente, porque un `JsonResource` se instancia con `new`.
+- Ciclo de vida: procesar → subir → persistir. En `update` con imagen nueva, el archivo anterior se borra **después** de guardar la fila. El `DELETE` no toca el archivo en ningún dominio, **salvo el gasto de vehículo** (SPEC 19), donde la fila se borra de verdad y arrastra el objeto del bucket.
+- Validación: `image` es `mimes:jpg,jpeg,png` + `max:3072` (3 MB, en kilobytes) en los cuatro FormRequests; la factura del gasto añade `pdf` con el mismo tope. Requiere `upload_max_filesize`/`post_max_size` ≥ 4M en cada entorno; si PHP corta antes, el error que ve el usuario es un `required` confuso.
 
 ## Documentación OpenAPI
 
@@ -179,7 +236,7 @@ Primer dominio **sin tabla, sin modelo y sin migración** — un proxy de lectur
 - Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash), `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test) y `fakeDefaultDisk()` (sustituye el disco por defecto por un fake **con `url`**, porque uno pelado devolvería rutas relativas y la API promete URLs absolutas).
 - Dobles de los contratos sustituibles en `tests/Doubles/` (`InMemoryFileStorageService`, `StaticImageProcessorService`, `InMemoryPlaceService`): se bindean en el contenedor para probar sustituibilidad y los caminos de error sin decodificar imágenes de verdad ni llamar a Google.
 - Helpers locales por archivo de test (ver `tests/Feature/CarrierTest.php`): `userWithRole()`, `asUser()` (llama a `resetAuthState()` y adjunta el token) y un `<recurso>Endpoints()` que alimenta los datasets de middleware.
-- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service. Lo que no es service tiene su propio Unit test: `ZoneGeometryTest` (WKT ↔ GeoJSON), `ZoneResourceTest`, `FreightRateModelTest`. El proveedor externo se prueba en `GooglePlacesServiceTest` con `Http::fake()`.
+- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service. Lo que no es service tiene su propio Unit test: `ZoneGeometryTest` (WKT ↔ GeoJSON), `ZoneResourceTest`, `FreightRateModelTest`, `AccessoryResourceTest` (el `currentValue` derivado) y `PolylineDecoderTest` (la polilínea, sin red). El proveedor externo se prueba en `GooglePlacesServiceTest` con `Http::fake()`.
 - Ejecutar: `php artisan test --compact` (o `--filter=`).
 
 ## Flujo de trabajo

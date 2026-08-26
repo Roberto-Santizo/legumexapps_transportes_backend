@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\LocationType;
 use App\Enums\UserRole;
 use App\Errors\BadRequestError;
 use App\Errors\NotFoundError;
@@ -9,6 +10,7 @@ use App\Models\User;
 use App\Services\Location\LocationService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 function locationService(): LocationServiceInterface
@@ -31,6 +33,7 @@ function locationServiceData(array $overrides = []): array
 {
     return array_merge([
         'name' => 'bodega central',
+        'type' => 'destination',
         'googlePlaceId' => 'ChIJd8BlQ2BZwokRAFUEcm_qrcA',
         'latitude' => 14.6349,
         'longitude' => -90.5069,
@@ -53,6 +56,7 @@ it('crea la tabla locations con sus columnas', function () {
             'id',
             'name',
             'description',
+            'type',
             'google_place_id',
             'latitude',
             'longitude',
@@ -78,6 +82,30 @@ it('castea las coordenadas a decimal de ocho dígitos y el estado a booleano', f
     expect($location->latitude)->toBe('14.63490000')
         ->and($location->longitude)->toBe('-90.50690000')
         ->and($location->status)->toBeBool()->toBeTrue();
+});
+
+it('deja en destination la fila insertada directamente sin tipo, por el default de la columna', function () {
+    /** Inserción directa: es lo único contra lo que protege el default, porque el FormRequest ya exige el campo. */
+    DB::table('locations')->insert([
+        'name' => 'BODEGA MIGRADA',
+        'google_place_id' => 'ChIJfilaVieja0001',
+        'latitude' => 14.6349,
+        'longitude' => -90.5069,
+        'status' => true,
+        'registered_by' => locationServiceAdmin()->id,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $migrada = Location::query()->where('name', '=', 'BODEGA MIGRADA')->first();
+
+    expect($migrada->type)->toBe(LocationType::Destination)
+        ->and($migrada->getRawOriginal('type'))->toBe('destination');
+});
+
+it('castea el tipo al enum y ofrece el estado port en la factory', function () {
+    expect(Location::factory()->create()->fresh()->type)->toBe(LocationType::Destination)
+        ->and(Location::factory()->port()->create()->fresh()->type)->toBe(LocationType::Port);
 });
 
 /*
@@ -158,6 +186,16 @@ it('acepta dos googlePlaceId que solo difieren en la caja', function () {
 
     expect(Location::query()->count())->toBe(2);
 });
+
+it('persiste el tipo recibido tal cual llega', function (string $type, LocationType $esperado) {
+    $location = locationService()->create(locationServiceAdmin(), locationServiceData(['type' => $type]));
+
+    expect($location->type)->toBe($esperado)
+        ->and($location->fresh()->type)->toBe($esperado);
+})->with([
+    'puerto' => ['port', LocationType::Port],
+    'destino ordinario' => ['destination', LocationType::Destination],
+]);
 
 /*
 |--------------------------------------------------------------------------
@@ -244,6 +282,15 @@ it('acepta un body vacío como no-op', function () {
 it('lanza NotFoundError al editar un id inexistente', function () {
     locationService()->update(9999, ['name' => 'bodega central']);
 })->throws(NotFoundError::class, 'El destino no existe');
+
+it('cambia el tipo sin ninguna guarda y lo deja intacto cuando el update lo omite', function () {
+    $location = Location::factory()->create();
+
+    expect(locationService()->update($location->id, ['type' => 'port'])->type)->toBe(LocationType::Port)
+        ->and(locationService()->update($location->id, ['name' => 'bodega norte'])->type)->toBe(LocationType::Port)
+        ->and(locationService()->update($location->id, ['type' => 'destination'])->type)->toBe(LocationType::Destination)
+        ->and($location->fresh()->type)->toBe(LocationType::Destination);
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -366,4 +413,31 @@ it('carga el responsable del alta también en el detalle', function () {
     $location = Location::factory()->create();
 
     expect(locationService()->getLocationById($location->id)->relationLoaded('registeredBy'))->toBeTrue();
+});
+
+it('filtra por tipo con coincidencia exacta e ignora cualquier valor fuera del enum', function () {
+    Location::factory()->port()->count(2)->create();
+    Location::factory()->count(3)->create();
+
+    /** LocationType::tryFrom() es toda la tolerancia: lo que no encaja no filtra nada. */
+    expect(locationService()->getLocations(['type' => 'port']))->toHaveCount(2)
+        ->and(locationService()->getLocations(['type' => 'destination']))->toHaveCount(3)
+        ->and(locationService()->getLocations(['type' => 'PORT']))->toHaveCount(5)
+        ->and(locationService()->getLocations(['type' => 'puerto']))->toHaveCount(5)
+        ->and(locationService()->getLocations(['type' => '']))->toHaveCount(5)
+        ->and(locationService()->getLocations(['type' => null]))->toHaveCount(5)
+        ->and(locationService()->getLocations([]))->toHaveCount(5);
+});
+
+it('combina el filtro de tipo con el estado y con la búsqueda', function () {
+    Location::factory()->port()->active()->create(['name' => 'PUERTO QUETZAL']);
+    Location::factory()->port()->inactive()->create(['name' => 'PUERTO BARRIOS']);
+    Location::factory()->active()->create(['name' => 'BODEGA CENTRAL']);
+
+    $activos = locationService()->getLocations(['type' => 'port', 'status' => 'true']);
+
+    expect($activos)->toHaveCount(1)
+        ->and($activos->first()->name)->toBe('PUERTO QUETZAL')
+        ->and(locationService()->getLocations(['type' => 'port', 'search' => 'puerto']))->toHaveCount(2)
+        ->and(locationService()->getLocations(['type' => 'destination', 'search' => 'puerto']))->toHaveCount(0);
 });
