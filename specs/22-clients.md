@@ -1,6 +1,6 @@
 # SPEC 22 — Catálogo de clientes
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-08-26
 > **Objetivo:** Publicar un catálogo nacional de clientes con solo dos campos —`code` único y `name` único—, escritura exclusiva del administrador y borrado con `SoftDeletes` sin vuelta atrás.
@@ -32,7 +32,7 @@ Es el catálogo **más pequeño del proyecto** —dos columnas de negocio— y a
 - **`PATCH` edita los dos campos** (`code`, `name`), ambos `sometimes`. Cuerpo vacío responde 200 sin cambiar nada, como el resto de los `PATCH` del proyecto.
 - **Los borrados no se ven nunca por API**: el listado los excluye, `GET /{id}` de un borrado es **404**, y `PATCH` o `DELETE` sobre uno es **400 «El cliente ya fue eliminado»** —el service los resuelve con `withTrashed()` justo para poder distinguirlos de un id inexistente—.
 - **Listado** con filtro tolerante `search` (`LIKE %term%` sobre `code` **y** `name`, ya en mayúsculas), orden fijo **`id ASC`** y paginación **opt-in por `limit`** acotada a `[10, 100]`.
-- **`ClientResource` con siete claves**, incluida `deletedAt` (siempre `null` en toda respuesta que la API pueda devolver hoy).
+- **`ClientResource` con siete claves**, incluida `deletedAt` (`null` en `index`, `show`, `store` y `update`; con la fecha del borrado en la respuesta del `DELETE`).
 - Tests Pest delegados al agente `feature-tests` y documentación Swagger al agente `endpoint-docs`.
 - Resumen de integración para el frontend en `references/clients-api.md`.
 
@@ -188,72 +188,72 @@ Cada paso deja el sistema funcionando y es commiteable por sí solo.
 
 **Estructura**
 
-- [ ] Existe la tabla `clients` con `id`, `code`, `name`, `registered_by`, `created_at`, `updated_at` y `deleted_at`; índices únicos en `code` y `name`; `code` es `varchar(15)`; `deleted_at` es la única columna nullable.
-- [ ] Ninguna tabla existente cambió de columnas y ninguna tiene una FK a `clients`.
-- [ ] `php artisan route:list --path=clients` muestra exactamente **cinco** rutas, todas bajo `/api/clients`, y ninguna es `toggle-status` ni `restore`.
-- [ ] Ninguna ruta del dominio lleva `carrier.required`.
-- [ ] `ClientServiceInterface` tiene **cinco** métodos.
-- [ ] El modelo `Client` usa `SoftDeletes` y **no declara `casts()`**.
+- [x] Existe la tabla `clients` con `id`, `code`, `name`, `registered_by`, `created_at`, `updated_at` y `deleted_at`; índices únicos en `code` y `name`; `code` es `varchar(15)`; `deleted_at` es la única columna nullable.
+- [x] Ninguna tabla existente cambió de columnas y ninguna tiene una FK a `clients`.
+- [x] `php artisan route:list --path=clients` muestra exactamente **cinco** rutas, todas bajo `/api/clients`, y ninguna es `toggle-status` ni `restore`.
+- [x] Ninguna ruta del dominio lleva `carrier.required`.
+- [x] `ClientServiceInterface` tiene **cinco** métodos.
+- [x] El modelo `Client` usa `SoftDeletes` y **no declara `casts()`**.
 
 **Roles**
 
-- [ ] `administrator`, `carrier`, `manager` y `pilot` autenticados obtienen **200** en `GET /api/clients` y en `GET /api/clients/{id}`.
-- [ ] `carrier`, `manager` y `pilot` obtienen **403** en `POST`, `PATCH` y `DELETE`.
-- [ ] Sin token, las cinco rutas responden **401** con el sobre habitual.
+- [x] `administrator`, `carrier`, `manager` y `pilot` autenticados obtienen **200** en `GET /api/clients` y en `GET /api/clients/{id}`.
+- [x] `carrier`, `manager` y `pilot` obtienen **403** en `POST`, `PATCH` y `DELETE`.
+- [x] Sin token, las cinco rutas responden **401** con el sobre habitual.
 
 **Listado**
 
-- [ ] Devuelve los clientes ordenados por `id` ascendente.
-- [ ] **No incluye los clientes borrados**, ni con filtro ni sin él; no existe ningún parámetro que los muestre.
-- [ ] `?search=agro` encuentra `AGROEXPORTADORA DEL SUR S.A.` (insensible a mayúsculas por normalización del término).
-- [ ] `?search=CLI-001` encuentra el cliente por su **código**: el filtro busca en `code` y en `name`.
-- [ ] `?search=` o solo espacios no filtra nada y devuelve el catálogo completo.
-- [ ] Sin `limit` devuelve la colección completa; con `limit=5` pagina y el sobre trae `total`, `currentPage` y `lastPage` **en la raíz**, no bajo `meta`; `limit=1` se acota a 10 y `limit=500` a 100; `limit=abc` no pagina.
-- [ ] Un catálogo vacío responde **200** con `data` vacío.
+- [x] Devuelve los clientes ordenados por `id` ascendente.
+- [x] **No incluye los clientes borrados**, ni con filtro ni sin él; no existe ningún parámetro que los muestre.
+- [x] `?search=agro` encuentra `AGROEXPORTADORA DEL SUR S.A.` (insensible a mayúsculas por normalización del término).
+- [x] `?search=CLI-001` encuentra el cliente por su **código**: el filtro busca en `code` y en `name`.
+- [x] `?search=` o solo espacios no filtra nada y devuelve el catálogo completo.
+- [x] Sin `limit` devuelve la colección completa; con `limit=5` pagina y el sobre trae `total`, `currentPage` y `lastPage` **en la raíz**, no bajo `meta`; `limit=1` se acota a 10 y `limit=500` a 100; `limit=abc` no pagina.
+- [x] Un catálogo vacío responde **200** con `data` vacío.
 
 **Alta**
 
-- [ ] `POST` con `code` y `name` válidos responde **201**, con `registered_by` igual al usuario autenticado.
-- [ ] `name` se guarda y devuelve en MAYÚSCULAS con espacios internos colapsados: `"  agro   del sur "` → `"AGRO DEL SUR"`.
-- [ ] `code` se guarda y devuelve en MAYÚSCULAS y con los extremos recortados: `" cli-001 "` → `"CLI-001"`.
-- [ ] `code` con cualquier espacio interior (`"CLI 001"`) responde **422** con «El código no puede contener espacios».
-- [ ] `code` de más de 15 caracteres responde **422**; `name` de más de 255, también.
-- [ ] `code` o `name` ausentes responden **422**.
-- [ ] Enviar `registeredBy` en el body no cambia el autor.
-- [ ] `code` duplicado (comparado ya normalizado) responde **400** desde el service, no 422.
-- [ ] `name` duplicado (comparado ya normalizado) responde **400** desde el service, no 422.
-- [ ] Un `code` que pertenece a un cliente **borrado** responde **400**: el borrado no libera el código. Lo mismo con el `name`.
+- [x] `POST` con `code` y `name` válidos responde **201**, con `registered_by` igual al usuario autenticado.
+- [x] `name` se guarda y devuelve en MAYÚSCULAS con espacios internos colapsados: `"  agro   del sur "` → `"AGRO DEL SUR"`.
+- [x] `code` se guarda y devuelve en MAYÚSCULAS y con los extremos recortados: `" cli-001 "` → `"CLI-001"`.
+- [x] `code` con cualquier espacio interior (`"CLI 001"`) responde **422** con «El código no puede contener espacios».
+- [x] `code` de más de 15 caracteres responde **422**; `name` de más de 255, también.
+- [x] `code` o `name` ausentes responden **422**.
+- [x] Enviar `registeredBy` en el body no cambia el autor.
+- [x] `code` duplicado (comparado ya normalizado) responde **400** desde el service, no 422.
+- [x] `name` duplicado (comparado ya normalizado) responde **400** desde el service, no 422.
+- [x] Un `code` que pertenece a un cliente **borrado** responde **400**: el borrado no libera el código. Lo mismo con el `name`.
 
 **Detalle y edición**
 
-- [ ] `GET /api/clients/{id}` inexistente responde **404** con «El cliente no existe».
-- [ ] `GET /api/clients/{id}` de un cliente **borrado** responde **404**, no 400: para el lector no existe.
-- [ ] `PATCH` con cuerpo vacío responde **200** sin cambiar nada.
-- [ ] `PATCH` acepta `code` y `name` por separado o juntos; reenviar el propio `code` o el propio `name` **no** choca consigo mismo.
-- [ ] `PATCH` sobre un cliente borrado responde **400** con «El cliente ya fue eliminado».
-- [ ] `PATCH` **no** reescribe `registered_by`, aunque lo mande en el body.
-- [ ] `PATCH` aplica las mismas normalizaciones y las mismas reglas de formato que el alta.
+- [x] `GET /api/clients/{id}` inexistente responde **404** con «El cliente no existe».
+- [x] `GET /api/clients/{id}` de un cliente **borrado** responde **404**, no 400: para el lector no existe.
+- [x] `PATCH` con cuerpo vacío responde **200** sin cambiar nada.
+- [x] `PATCH` acepta `code` y `name` por separado o juntos; reenviar el propio `code` o el propio `name` **no** choca consigo mismo.
+- [x] `PATCH` sobre un cliente borrado responde **400** con «El cliente ya fue eliminado».
+- [x] `PATCH` **no** reescribe `registered_by`, aunque lo mande en el body.
+- [x] `PATCH` aplica las mismas normalizaciones y las mismas reglas de formato que el alta.
 
 **Baja**
 
-- [ ] `DELETE` responde **200**, deja `deleted_at` con fecha y el cliente **desaparece** del listado y del `show`.
-- [ ] Un segundo `DELETE` sobre el mismo cliente responde **400** con «El cliente ya fue eliminado», no 404 ni 200.
-- [ ] `DELETE` sobre un id inexistente responde **404**, distinguible del caso anterior.
-- [ ] La fila **sigue en la base** tras el `DELETE`: `Client::withTrashed()->find($id)` la encuentra.
-- [ ] **No existe ninguna forma de restaurarlo por API.**
+- [x] `DELETE` responde **200**, deja `deleted_at` con fecha y el cliente **desaparece** del listado y del `show`.
+- [x] Un segundo `DELETE` sobre el mismo cliente responde **400** con «El cliente ya fue eliminado», no 404 ni 200.
+- [x] `DELETE` sobre un id inexistente responde **404**, distinguible del caso anterior.
+- [x] La fila **sigue en la base** tras el `DELETE`: `Client::withTrashed()->find($id)` la encuentra.
+- [x] **No existe ninguna forma de restaurarlo por API.**
 
 **Salida**
 
-- [ ] `ClientResource` devuelve exactamente las siete claves acordadas, en camelCase.
-- [ ] `deletedAt` sale como `null` en `index`, `show`, `store` y `update`, y con la fecha del borrado en la respuesta del `DELETE`.
-- [ ] `registeredByName` trae el nombre del usuario y el listado **no hace N+1** (`with('registeredBy')`).
-- [ ] `createdAt` y `updatedAt` salen en `d-m-Y h:i:s A`.
+- [x] `ClientResource` devuelve exactamente las siete claves acordadas, en camelCase.
+- [x] `deletedAt` sale como `null` en `index`, `show`, `store` y `update`, y con la fecha del borrado en la respuesta del `DELETE`.
+- [x] `registeredByName` trae el nombre del usuario y el listado **no hace N+1** (`with('registeredBy')`).
+- [x] `createdAt` y `updatedAt` salen en `d-m-Y h:i:s A`.
 
 **Cierre**
 
-- [ ] `php artisan test --compact` pasa entera.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `storage/api-docs/api-docs.json` incluye las cinco rutas y existe `references/clients-api.md`.
+- [x] `php artisan test --compact` pasa entera.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `storage/api-docs/api-docs.json` incluye las cinco rutas y existe `references/clients-api.md`.
 
 ---
 
