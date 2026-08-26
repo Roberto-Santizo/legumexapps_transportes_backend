@@ -2,6 +2,7 @@
 
 namespace App\Services\Location;
 
+use App\Enums\LocationType;
 use App\Errors\BadRequestError;
 use App\Errors\NotFoundError;
 use App\Interfaces\Location\LocationServiceInterface;
@@ -35,6 +36,13 @@ class LocationService implements LocationServiceInterface
 
         if ($status !== null) {
             $query->where('status', '=', $status);
+        }
+
+        /** Coincidencia exacta y sensible a mayúsculas: un valor fuera del enum se ignora, como el status. */
+        $type = LocationType::tryFrom($filters['type'] ?? '');
+
+        if ($type !== null) {
+            $query->where('type', '=', $type);
         }
 
         $search = Location::normalizeName($filters['search'] ?? '');
@@ -97,6 +105,8 @@ class LocationService implements LocationServiceInterface
         $location = Location::create([
             'name' => $name,
             'description' => $data['description'] ?? null,
+            /** Etiqueta de catálogo: no se cruza con el nombre, ni con el lugar, ni con las coordenadas. */
+            'type' => $data['type'],
             'google_place_id' => $googlePlaceId,
             'latitude' => $data['latitude'],
             'longitude' => $data['longitude'],
@@ -125,6 +135,11 @@ class LocationService implements LocationServiceInterface
         /** La descripción se borra mandando null, así que no basta con isset(). */
         if (array_key_exists('description', $data)) {
             $location->description = $data['description'];
+        }
+
+        /** Sin guarda: el tipo se cambia aunque el destino ya tenga tarifas, que quedan intactas. */
+        if (isset($data['type'])) {
+            $location->type = $data['type'];
         }
 
         if (isset($data['googlePlaceId'])) {
