@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Location;
 
+use App\Enums\LocationType;
 use App\Models\Location;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -12,7 +13,9 @@ use OpenApi\Attributes as OA;
     schema: 'StoreLocationRequest',
     title: 'Alta de destino',
     description: <<<'TEXT'
-    Cuerpo JSON para dar de alta un destino nacional. Los campos aceptados son name, description, googlePlaceId, latitude y longitude; todos son obligatorios salvo description.
+    Cuerpo JSON para dar de alta un destino nacional. Los campos aceptados son name, description, type, googlePlaceId, latitude y longitude; todos son obligatorios salvo description.
+
+    ATENCIÓN — CAMBIO INCOMPATIBLE: el campo type es OBLIGATORIO desde SPEC 21 y no tiene periodo de gracia. Un cliente que siga mandando los cuatro campos de antes recibe 422 con "El tipo de destino es obligatorio". El default destination de la columna existe para las filas ya migradas, no para que el alta pueda omitirlo.
 
     El status NO se acepta: el destino nace siempre activo (true) y enviarlo se descarta sin error, así que no hay forma de crear un destino ya dado de baja. El registeredBy tampoco se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador; mandarlo en el cuerpo no cambia nada.
 
@@ -22,7 +25,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — NO HAY VALIDACIÓN CRUZADA entre el googlePlaceId y las coordenadas: nadie comprueba contra Google que latitude y longitude correspondan al lugar. Se pueden dar de alta unas coordenadas de un sitio con el place id de otro y el alta responde 201 sin ningún aviso. Las coordenadas, además, NO INFLUYEN EN EL PRECIO: la tarifa depende del destino elegido, no de dónde esté.
     TEXT,
-    required: ['name', 'googlePlaceId', 'latitude', 'longitude'],
+    required: ['name', 'type', 'googlePlaceId', 'latitude', 'longitude'],
     properties: [
         new OA\Property(
             property: 'name',
@@ -37,6 +40,13 @@ use OpenApi\Attributes as OA;
             type: 'string',
             nullable: true,
             example: 'Entrada por el km 58, portón de carga 2',
+        ),
+        new OA\Property(
+            property: 'type',
+            description: 'Tipo de destino: port para un puerto y destination para un destino ordinario. OBLIGATORIO desde SPEC 21 —CAMBIO INCOMPATIBLE respecto al alta anterior— y validado EXACTAMENTE contra el enum: es SENSIBLE A MAYÚSCULAS y no acepta traducciones, así que "PORT", "Port" o "puerto" devuelven 422 igual que un valor inventado (mensajes: El tipo de destino es obligatorio / El tipo de destino no es válido). Es una ETIQUETA DE CATÁLOGO, no una regla de negocio: no cambia el precio, no aparece en GET /api/freight-rates/quote, no restringe qué tarifas se pueden crear y no altera el ámbito por rol. Tampoco se cruza con nada: un destino llamado "TERMINAL DE CARGA PUERTO QUETZAL" puede darse de alta como destination sin ningún aviso.',
+            type: 'string',
+            enum: ['port', 'destination'],
+            example: 'destination',
         ),
         new OA\Property(
             property: 'googlePlaceId',
@@ -102,6 +112,8 @@ class StoreLocationRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255', Rule::unique('locations', 'name')],
             'description' => ['nullable', 'string'],
+            /** Coincidencia exacta contra el enum: sensible a mayúsculas y sin traducciones. */
+            'type' => ['required', Rule::enum(LocationType::class)],
             /**
              * Sin regla unique a propósito: la unicidad del lugar la decide el service, que
              * responde 400 nombrando al destino que ya lo ocupa. Un 422 aquí cortaría antes y
@@ -124,6 +136,8 @@ class StoreLocationRequest extends FormRequest
             'name.max' => 'El nombre del destino no puede superar los 255 caracteres',
             'name.unique' => 'Ya existe un destino con ese nombre',
             'description.string' => 'La descripción debe ser texto',
+            'type.required' => 'El tipo de destino es obligatorio',
+            'type.enum' => 'El tipo de destino no es válido',
             'googlePlaceId.required' => 'El lugar de Google es obligatorio',
             'googlePlaceId.string' => 'El lugar de Google debe ser texto',
             'googlePlaceId.max' => 'El lugar de Google no puede superar los 255 caracteres',
