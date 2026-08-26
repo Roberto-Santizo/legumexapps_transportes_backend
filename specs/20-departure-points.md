@@ -1,6 +1,6 @@
 # SPEC 20 — Puntos de partida
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 12, SPEC 15
 > **Fecha:** 2026-08-25
 > **Objetivo:** Publicar un catálogo nacional de puntos de partida anclados a un lugar de Google Places, con la misma forma que los destinos de SPEC 15 pero sin ninguna tarifa que cotizar.
