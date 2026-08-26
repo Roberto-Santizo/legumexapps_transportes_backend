@@ -5912,6 +5912,445 @@
                 ]
             }
         },
+        "/api/shipping-lines": {
+            "get": {
+                "tags": [
+                    "ShippingLines"
+                ],
+                "summary": "Listar navieras",
+                "description": "Devuelve las navieras del catálogo nacional con el nombre de quien las capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque la naviera es un dato de Legumex y no está acotada por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.\n\nATENCIÓN — LAS NAVIERAS BORRADAS NO APARECEN NUNCA Y NO HAY FORMA DE VERLAS. Aquí no funciona la costumbre de los otros catálogos, donde lo dado de baja sigue en el listado con status false y se filtra con status=true: este listado excluye siempre las filas borradas y NO EXISTE NINGÚN PARÁMETRO —ni status, ni withTrashed, ni onlyTrashed— que las devuelva. Una naviera que desapareció del listado está borrada, y solo se recupera desde la base de datos. El total de la paginación tampoco las cuenta.\n\nEl orden es fijo y no configurable: id ASC, es decir, el orden en que se dieron de alta. No hay sortBy ni sortDir.\n\nLos dos filtros —search y limit— se combinan entre sí y son TOLERANTES: un search en blanco o de solo espacios y un limit no numérico se ignoran en silencio y la lectura devuelve 200, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404, igual que un catálogo vacío. No hay filtro por estado —no existe—, ni por autor del alta, ni por rango de fechas: cualquier otro query param se ignora.\n\nLa forma de la respuesta depende del parámetro limit: sin limit se devuelven todos los registros y el sobre NO trae total, currentPage ni lastPage; con un limit numérico se devuelve el sobre paginado con esos tres campos APLANADOS EN LA RAÍZ, no bajo meta.",
+                "operationId": "indexShippingLines",
+                "parameters": [
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Búsqueda parcial sobre el NOMBRE (LIKE %TERM%), que es el único campo del dominio: no hay ningún otro por el que buscar. El término se normaliza igual que un nombre —recorte, colapso de espacios y mayúsculas— y la columna está siempre en mayúsculas, así que la búsqueda es insensible a mayúsculas: search=maersk, search=MAERSK y search=Maersk funcionan igual. En blanco o de solo espacios se ignora y se devuelve el catálogo completo, nunca 422. NO alcanza a las navieras borradas, ni siquiera cuando el término coincidiría exactamente con su nombre.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "maersk"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que activa la paginación. Si se omite, o si no es numérico (por ejemplo limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación —que es lo que quiere un selector de naviera—. Si es numérico se ACOTA al rango [10, 100]: limit=1 devuelve páginas de 10 y limit=500 devuelve páginas de 100. Se combina con search.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Navieras obtenidas correctamente. Sin limit se devuelve ShippingLineListResponse; con limit numérico, PaginatedShippingLineListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Un catálogo vacío o un search sin coincidencias devuelven 200 con data vacío, nunca 404. El deletedAt de cada elemento es siempre null: las borradas no se listan.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ShippingLineListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedShippingLineListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "ShippingLines"
+                ],
+                "summary": "Registrar una naviera",
+                "description": "Da de alta una naviera nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer las navieras. No lleva carrier.required, porque la naviera no pertenece a ninguna empresa.\n\nEl cuerpo acepta UN SOLO CAMPO, name, y es obligatorio. No hay sigla, ni contacto, ni teléfono, ni correo, ni país, ni web, ni notas, ni logo, ni status: es el alta más pequeña del proyecto. El registeredBy no se envía —se toma del usuario autenticado y se devuelve resuelto en registeredByName— y mandarlo en el cuerpo no tiene efecto.\n\nATENCIÓN — NO HAY status: NO SE PUEDE CREAR UNA NAVIERA «INACTIVA» ni pausarla después. Este catálogo no tiene el booleano de publicación de Products, Locations, Zones y Departure Points; una naviera existe o está borrada, y el borrado no se deshace por la API.\n\nEL NOMBRE SE NORMALIZA: se recorta, se le COLAPSAN los espacios internos y se pasa a mayúsculas —\"  maersk   line  \" crea \"MAERSK LINE\"—. El cliente debe pintar el name de la respuesta, no el que tecleó el usuario.\n\nATENCIÓN — EL DUPLICADO DE NOMBRE ES 400 DESDE EL SERVICE Y NUNCA 422, al revés que en Departure Points y Locations, donde el nombre repetido es 422. El campo no lleva regla unique a propósito: LA REGLA unique DE LARAVEL NO VE LAS FILAS BORRADAS, así que dejaría pasar un nombre ocupado por una naviera eliminada y el alta reventaría contra el índice único con un 500. Mensaje literal: «Ya existe una naviera con ese nombre, que puede haber sido eliminada».\n\nATENCIÓN — EL BORRADO NO LIBERA EL NOMBRE. Una naviera eliminada lo sigue reservando para siempre, de modo que este 400 puede venir de una fila INVISIBLE EN TODOS LOS ENDPOINTS: no se lista, no se consulta por id y no hay parámetro que la muestre. El «que puede haber sido eliminada» del mensaje está precisamente para que el usuario no crea que el error miente. Reutilizar el nombre de una naviera borrada exige tocar la base de datos, y como el nombre es el único campo del dominio, no queda ninguna variante legítima a la que recurrir.",
+                "operationId": "storeShippingLine",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreShippingLineRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Naviera registrada correctamente, con el name ya normalizado en mayúsculas, registeredByName el del administrador autenticado, createdAt y updatedAt con el formato d-m-Y h:i:s A y deletedAt en null.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Naviera registrada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/ShippingLine"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida, nunca un valor mal formado: el nombre ya está ocupado por otra naviera, VIVA O BORRADA. Mensaje literal: «Ya existe una naviera con ese nombre, que puede haber sido eliminada». ATENCIÓN — ES AQUÍ, Y NO EN EL 422, DONDE CAE EL DUPLICADO: el FormRequest no lleva regla unique porque la de Laravel no vería las filas borradas. La ocupante puede ser una naviera eliminada que no aparece en ningún endpoint.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer las navieras—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors} y NO con el sobre {statusCode, message, data} del resto de la API. Casos posibles: falta el name, o llega vacío o de solo espacios —el recorte lo deja vacío antes de validarse— (El nombre de la naviera es obligatorio); no es texto (El nombre de la naviera debe ser texto); o supera los 255 caracteres (El nombre de la naviera no puede superar los 255 caracteres). ATENCIÓN — un nombre ya registrado NO cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/shipping-lines/{shippingLine}": {
+            "get": {
+                "tags": [
+                    "ShippingLines"
+                ],
+                "summary": "Obtener una naviera por id",
+                "description": "Devuelve una naviera concreta con el nombre del administrador que la capturó.\n\nSolo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.\n\nATENCIÓN — UNA NAVIERA BORRADA RESPONDE 404 CON EL MISMO MENSAJE QUE UN id INEXISTENTE, y es deliberado: quien lee no distingue «ya no está» de «nunca existió», porque distinguirlo revelaría qué ids llegaron a existir. La única operación que sí los diferencia es la escritura, que responde 400 «La naviera ya fue eliminada» sobre una fila borrada. Es lo contrario de Departure Points o Locations, donde una fila dada de baja se sigue consultando con 200.\n\nEl deletedAt de esta respuesta es SIEMPRE null: por definición, aquí solo se alcanzan navieras vivas.\n\nNo hay consulta por nombre: para buscar está el filtro search del listado.",
+                "operationId": "showShippingLine",
+                "parameters": [
+                    {
+                        "name": "shippingLine",
+                        "in": "path",
+                        "description": "Identificador numérico de la naviera (shipping_lines.id). NO es su nombre —no existe consulta por nombre— y no se reutiliza: el id de una naviera borrada sigue ocupado en la base, pero ya no es alcanzable por esta ruta.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Naviera obtenida correctamente. Siempre una naviera viva, con el name en mayúsculas, deletedAt en null y las dos fechas con el formato d-m-Y h:i:s A, no ISO 8601.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Naviera obtenida correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/ShippingLine"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna naviera alcanzable con ese id. ATENCIÓN — AQUÍ CAEN DOS CASOS INDISTINGUIBLES A PROPÓSITO: el id que nunca existió y el de la naviera que fue borrada. El mensaje es el mismo en ambos: La naviera no existe. Si se necesita saber si la fila estuvo ahí, el PATCH y el DELETE responden 400 «La naviera ya fue eliminada» sobre una borrada.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "ShippingLines"
+                ],
+                "summary": "Eliminar una naviera",
+                "description": "ATENCIÓN — ESTE DELETE BORRA DE VERDAD, Y ES LA OPERACIÓN MÁS PELIGROSA DEL DOMINIO. No se parece al DELETE de Products, Locations, Zones o Departure Points, que solo ponen un status booleano en false y dejan la fila listándose y reactivable. Aquí es un soft delete real: la naviera DESAPARECE de GET /api/shipping-lines y de GET /api/shipping-lines/{shippingLine} —que pasa a responder 404—, NO hay ningún filtro que la devuelva, NO existe endpoint /restore y NO HAY FORMA DE RECUPERARLA POR LA API. Deshacerlo exige tocar la base de datos.\n\nEs EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nATENCIÓN — EL BORRADO NO LIBERA EL NOMBRE. El índice único sigue ocupado por la fila borrada para siempre, así que después de este DELETE NADIE PUEDE DAR DE ALTA OTRA NAVIERA CON ESE NOMBRE: el alta responde 400 «Ya existe una naviera con ese nombre, que puede haber sido eliminada» contra una fila que ya no se ve por ninguna vía. Es lo contrario de la placa de un Vehicle, que un vehículo inactivo sí libera, y aquí pesa más que en Clients: el nombre es el ÚNICO campo del dominio, así que no queda ningún otro identificador con el que volver a crearla. Borrar para volver a crear con los mismos datos NO FUNCIONA.\n\nNO ES IDEMPOTENTE, y esa es su segunda diferencia con los catálogos booleanos: el segundo DELETE sobre el mismo id responde 400 «La naviera ya fue eliminada», no 200. Un id que nunca existió responde 404 «La naviera no existe». Distinguirlos es intencionado —igual que en FreightRates—, para que repetir la llamada no parezca un éxito.\n\nLA RESPUESTA ES LA ÚNICA DEL DOMINIO CON deletedAt NO NULO: devuelve la fila que se acaba de borrar, con su marca de tiempo en el formato d-m-Y h:i:s A. Conviene guardarla, porque después ya no se puede volver a leer.\n\nBorrar una naviera NO ROMPE NADA en el resto de la API: ninguna tabla del proyecto tiene shipping_line_id, no hay navieras por destino ni tarifas por naviera, y tampoco está relacionada con los puertos —los destinos de tipo port de Locations—. El riesgo es la pérdida del dato, no una cascada.",
+                "operationId": "destroyShippingLine",
+                "parameters": [
+                    {
+                        "name": "shippingLine",
+                        "in": "path",
+                        "description": "Identificador numérico de la naviera (shipping_lines.id) que se va a borrar. Debe estar viva: una ya borrada responde 400 y una inexistente 404. Tras el borrado, ese id deja de ser alcanzable por cualquier endpoint, aunque la fila siga en la base reservando su nombre.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Naviera eliminada correctamente. data trae la fila recién borrada, y es la ÚNICA respuesta del dominio en la que deletedAt viene con valor —con el formato d-m-Y h:i:s A— en vez de null. A partir de aquí la naviera ya no se lista ni se consulta por id, y su nombre queda ocupado para siempre.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Naviera eliminada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/ShippingLine"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "La naviera ya fue borrada antes: este DELETE NO ES IDEMPOTENTE y el segundo intento no responde 200. El mensaje devuelto es: La naviera ya fue eliminada. Es la respuesta que distingue «ya no está» de «nunca existió», que sería 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni borrada. El mensaje devuelto es: La naviera no existe. Una naviera ya borrada NO cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "ShippingLines"
+                ],
+                "summary": "Actualizar una naviera",
+                "description": "Corrige el nombre de una naviera, que es lo único que hay que corregir. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.\n\nEl único campo es opcional y solo se toca lo que venga. Un CUERPO VACÍO responde 200 como no-op, devolviendo la naviera sin cambios, en vez de 422. Opcional no es vaciable: enviar el campo vacío —o de solo espacios— es 422, y no acepta null.\n\nNo hay nada más que editar: este catálogo no tiene status, así que aquí no se pausa ni se reactiva nada, y NO EXISTE FORMA DE RESTAURAR UNA NAVIERA BORRADA —ni con este PATCH ni con ningún otro endpoint—.\n\nATENCIÓN — SOBRE UNA NAVIERA YA BORRADA ESTE ENDPOINT RESPONDE 400 «La naviera ya fue eliminada», NO 404. Es la asimetría deliberada del dominio: la lectura no distingue la borrada de la inexistente (las dos son 404), la escritura sí, porque quien edita necesita saber que la fila estuvo ahí. Un id que nunca existió sigue siendo 404 aquí.\n\nMISMA REGLA DE DUPLICADOS QUE EL ALTA, Y SIGUE SIENDO 400 Y NUNCA 422: el nombre de otra naviera —VIVA O BORRADA— responde «Ya existe una naviera con ese nombre, que puede haber sido eliminada». La comprobación IGNORA LA PROPIA FILA, así que reenviar el propio nombre responde 200 y no choca consigo mismo.\n\nEl nombre se normaliza igual que en el alta: se recorta, se le colapsan los espacios internos y se pasa a mayúsculas.\n\nEl registeredBy NO SE REESCRIBE: sigue apuntando a quien dio de alta la naviera, aunque la edite otro administrador, y mandarlo en el cuerpo se descarta sin error. El createdAt tampoco cambia; el updatedAt sí, salvo en el no-op del cuerpo vacío. No se guarda el valor anterior: no hay bitácora de cambios.",
+                "operationId": "updateShippingLine",
+                "parameters": [
+                    {
+                        "name": "shippingLine",
+                        "in": "path",
+                        "description": "Identificador numérico de la naviera (shipping_lines.id). Es también la fila que se ignora al revalidar la unicidad del nombre, de modo que reenviar el suyo propio no choca consigo misma. El id NO cambia al corregir el nombre: editar una naviera conserva su identidad y su historial.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateShippingLineRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Naviera actualizada correctamente. data trae la fila ya modificada, con el name normalizado en mayúsculas, el mismo registeredByName, el mismo createdAt, el updatedAt refrescado y deletedAt en null. Un cuerpo vacío también responde 200, con la naviera intacta.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Naviera actualizada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/ShippingLine"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dos causas distintas, ambas de negocio. (1) LA NAVIERA YA FUE BORRADA: mensaje «La naviera ya fue eliminada». Una naviera borrada no se edita ni se restaura por la API. (2) El nombre enviado ya lo ocupa OTRA naviera, viva o borrada: «Ya existe una naviera con ese nombre, que puede haber sido eliminada». Reenviar el propio nombre de la naviera que se edita NO cae aquí: es 200.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni borrada. El mensaje devuelto es: La naviera no existe. ATENCIÓN — una naviera BORRADA no cae aquí: la escritura sí distingue los dos casos y responde 400 «La naviera ya fue eliminada», al contrario que el GET del detalle, que devuelve 404 en ambos.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors}. Casos posibles: se envía el name vacío o de solo espacios (El nombre de la naviera es obligatorio); no es texto (El nombre de la naviera debe ser texto); o supera los 255 caracteres (El nombre de la naviera no puede superar los 255 caracteres). Un cuerpo vacío NO produce 422, y un nombre ya registrado tampoco: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/vehicles": {
             "get": {
                 "tags": [
@@ -8539,6 +8978,35 @@
                 },
                 "type": "object"
             },
+            "StoreShippingLineRequest": {
+                "title": "Alta de naviera",
+                "description": "Cuerpo JSON para dar de alta una naviera del catálogo nacional. SOLO SE ACEPTA UN CAMPO, name, y es OBLIGATORIO. No hay sigla, ni contacto, ni teléfono, ni correo, ni país, ni web, ni notas, ni logo, ni status: es el alta más pequeña del proyecto, por debajo incluso de la de un Cliente. Cualquier otra clave que se envíe se descarta en silencio, sin error.\n\nEl registeredBy NO se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no cambia nada y la naviera queda registrada a nombre de quien hizo la petición.\n\nATENCIÓN — NO HAY status Y NO SE PUEDE CREAR UNA NAVIERA «INACTIVA». Este catálogo no tiene el booleano de publicación que sí tienen Products, Locations, Zones y Departure Points: una naviera existe o está borrada, y el borrado no se deshace por la API.\n\nATENCIÓN — EL ÚNICO DUPLICADO POSIBLE SE RESPONDE CON 400 DESDE EL SERVICE, NUNCA CON 422, y es lo contrario de lo que hacen los otros catálogos. El campo no lleva regla unique a propósito: la de Laravel NO VE LAS FILAS BORRADAS y dejaría pasar un nombre ocupado por una naviera eliminada, que después chocaría contra el índice único con un 500. El mensaje es «Ya existe una naviera con ese nombre, que puede haber sido eliminada».\n\nATENCIÓN — EL BORRADO NO LIBERA EL NOMBRE. Una naviera eliminada lo sigue reservando para siempre, así que el 400 puede venir de una fila que NO APARECE EN NINGÚN ENDPOINT: por eso el mensaje avisa de que la ocupante «puede haber sido eliminada». No existe forma de listar las borradas para averiguar cuál es, y como el nombre es el único identificador del dominio, no queda ningún otro dato por el que reconocerla.\n\nEL NOMBRE SE NORMALIZA ANTES DE VALIDARSE: se recorta, se le colapsan los espacios internos y se pasa a mayúsculas. El cliente debe pintar el name de la respuesta, no el que tecleó el usuario.",
+                "required": [
+                    "name"
+                ],
+                "properties": {
+                    "name": {
+                        "description": "Nombre de la naviera. OBLIGATORIO, texto y de 255 caracteres como máximo (mensajes: El nombre de la naviera es obligatorio / El nombre de la naviera debe ser texto / El nombre de la naviera no puede superar los 255 caracteres). ES EL ÚNICO CAMPO DEL CUERPO. Se guarda normalizado: recorte, COLAPSO DE LOS ESPACIOS INTERNOS a uno y mayúsculas, así que enviar \"  maersk   line  \" crea la naviera \"MAERSK LINE\" y se puede teclear en minúsculas. Un nombre de solo espacios sale por name.required, porque el recorte lo deja vacío antes de validarse. ATENCIÓN — si otra naviera ya lo usa, VIVA O BORRADA, la respuesta es 400 y NO 422; y como la normalización ocurre antes de comparar, enviar \"maersk line\" existiendo \"MAERSK LINE\" también choca. El límite de 255 es el de la columna, no una regla de negocio.",
+                        "type": "string",
+                        "example": "maersk line",
+                        "maxLength": 255
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateShippingLineRequest": {
+                "title": "Actualización de naviera",
+                "description": "Cuerpo JSON para corregir una naviera. El único campo editable es name, y es OPCIONAL: se toca solo lo que venga. UN CUERPO VACÍO ES UN NO-OP CON 200 —devuelve la naviera sin cambios— en vez de 422, como en el resto de los PATCH del proyecto.\n\nOpcional no es lo mismo que vaciable: el campo es sometimes|required, de modo que omitir la clave conserva el valor anterior pero enviarla vacía —o con solo espacios, que la normalización recorta— es 422. NO ACEPTA null.\n\nEl registeredBy sigue sin aceptarse: mandarlo se descarta sin error y el autor del alta NO SE REESCRIBE, aunque edite otro administrador. Tampoco hay status que cambiar —este catálogo no lo tiene— ni forma de restaurar una naviera borrada.\n\nATENCIÓN — SOBRE UNA NAVIERA YA BORRADA ESTE PATCH RESPONDE 400 «La naviera ya fue eliminada», NO 404. Es la asimetría deliberada del dominio: solo la escritura distingue «ya no está» de «nunca existió», porque el GET del detalle devuelve 404 en ambos casos a propósito.\n\nATENCIÓN — MISMA REGLA DE DUPLICADOS QUE EL ALTA, Y SIGUE SIENDO 400 Y NUNCA 422. El campo no lleva regla unique, porque la de Laravel no ve las filas borradas; el choque lo levanta el service con «Ya existe una naviera con ese nombre, que puede haber sido eliminada». La comprobación IGNORA LA PROPIA FILA, así que reenviar el propio nombre responde 200 y no choca consigo mismo.\n\nEl nombre se normaliza antes de validarse igual que en el alta: recorte, colapso de los espacios internos y mayúsculas.",
+                "properties": {
+                    "name": {
+                        "description": "Nuevo nombre de la naviera. OPCIONAL: omitirlo conserva el actual y responde 200 sin cambios. Si se envía no puede venir vacío ni de solo espacios (El nombre de la naviera es obligatorio), debe ser texto (El nombre de la naviera debe ser texto) y no puede superar los 255 caracteres (El nombre de la naviera no puede superar los 255 caracteres). Se guarda recortado, con los espacios internos colapsados y en mayúsculas. Reenviar el propio nombre de la naviera que se edita responde 200; usar el de OTRA naviera —viva o borrada— responde 400, no 422, y la comparación es insensible a mayúsculas porque se hace ya normalizada.",
+                        "type": "string",
+                        "example": "maersk line guatemala",
+                        "maxLength": 255
+                    }
+                },
+                "type": "object"
+            },
             "StoreVehicleExpenseRequest": {
                 "title": "Alta de gasto de vehículo",
                 "description": "Cuerpo para registrar un gasto de mantenimiento. Los SIETE campos son obligatorios y ninguno acepta null: omitir cualquiera devuelve 422. El único condicional es invoice, obligatorio solo cuando is_invoiced es verdadero.\n\nATENCIÓN — CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA: is_invoiced es obligatorio desde esta versión. Un alta que antes devolvía 201 con seis campos ahora devuelve 422 con el mensaje Debes indicar si el gasto fue facturado. No tiene valor por omisión de cara a la API: quien registra el gasto decide siempre.\n\nATENCIÓN — CUANDO SE ADJUNTA FACTURA EL CUERPO VA EN multipart/form-data, NO EN JSON. Un archivo no viaja en un cuerpo JSON. Sin factura (is_invoiced en false) sirven los dos formatos.\n\nATENCIÓN — EL CUERPO VA EN snake_case Y LA RESPUESTA VUELVE EN camelCase. Aquí se envían vehicle_id y expense_date, y el recurso devuelto trae vehicleId y expenseDate. No se puede reenviar un objeto VehicleExpense tal como salió de un GET: vehicleId y expenseDate no son campos válidos de este cuerpo, y los obligatorios vehicle_id y expense_date faltarían.\n\nNo existe validación cruzada entre category y nature: cualquiera de las 22 categorías se acepta con preventive y con corrective. Tampoco hay validación cruzada con el vehículo: su estado NO importa, y un vehículo con status inactive acepta gastos igual que uno active, porque el mantenimiento pudo ocurrir antes de la baja.\n\nCampos que NO se aceptan aquí y que enviarlos no hace nada: registered_by —sale siempre del usuario autenticado, así que mandar el id de otro usuario no lo cambia— y cualquier otro nombre desconocido, que se descarta en silencio.\n\nvehicle_id NO lleva regla exists: un vehículo inexistente lo resuelve el servicio y responde 404 (El vehículo no existe), y uno de otra empresa responde 403 (No puedes acceder a un vehículo que no pertenece a tu empresa transportista). Ninguno de los dos casos es un 422.",
@@ -10252,6 +10720,81 @@
                     }
                 ]
             },
+            "ShippingLine": {
+                "title": "Naviera",
+                "description": "Naviera del catálogo nacional: un nombre, y nada más. Es el dominio MÁS PEQUEÑO del proyecto —UN SOLO CAMPO DE NEGOCIO, por debajo incluso de los dos que tiene un Cliente— y NO pertenece a ninguna empresa transportista, por eso el recurso no expone carrierId ni carrierName y NINGUNA ruta del dominio lleva el middleware carrier.required. Su lectura está abierta a los cuatro roles: administrator, carrier, pilot y manager, incluido un carrier que todavía no ha registrado su empresa; la escritura es exclusiva del administrator.\n\nATENCIÓN — ESTE CATÁLOGO BORRA DE VERDAD, Y ES SU DIFERENCIA MÁS IMPORTANTE FRENTE A Products, Locations, Zones y Departure Points. En esos cuatro el DELETE es una baja lógica sobre un status booleano: la fila se queda, se sigue listando y se puede reactivar. Aquí el DELETE es un soft delete de verdad: la fila DESAPARECE del listado y del detalle, NO existe ningún filtro que la devuelva, NO hay endpoint /restore y NO HAY FORMA DE RECUPERARLA POR LA API. Una naviera borrada por error solo se recupera desde la base de datos. Por eso este recurso no tiene status y sí tiene deletedAt.\n\nATENCIÓN — EL BORRADO NO LIBERA EL name. El índice único sigue ocupado por la fila borrada, así que dar de alta una naviera con el nombre de una eliminada responde 400 —«Ya existe una naviera con ese nombre, que puede haber sido eliminada»— aunque esa naviera sea invisible en todos los endpoints. El «que puede haber sido eliminada» del mensaje está puesto justamente para explicar un choque contra una fila que el llamante no puede ver por ninguna vía. AQUÍ DUELE MÁS QUE EN Clients: allí quedaba un segundo identificador al que recurrir, aquí el nombre es lo único que hay.\n\nSolo hay UN campo de negocio: name. No hay sigla, ni contacto, ni teléfono, ni correo, ni país, ni web, ni notas, ni logo, ni status. NADA CUELGA TODAVÍA DE UNA NAVIERA: ninguna tabla del proyecto tiene shipping_line_id, no hay navieras por destino ni tarifas por naviera, y tampoco está relacionada con los puertos —los destinos de tipo port de Locations—, así que borrar una no rompe ninguna otra entidad.\n\nATENCIÓN — createdAt, updatedAt y deletedAt NO viajan en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points, Products y Zones. Por eso se documentan como string SIN format date-time: parsearlos como ISO falla.\n\nEl name se devuelve SIEMPRE normalizado y EN MAYÚSCULAS. Son exactamente SEIS claves, en camelCase y en este orden: id, name, registeredByName, createdAt, updatedAt y deletedAt.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la fila (shipping_lines.id). Es el valor que va en el parámetro {shippingLine} de las rutas de detalle, actualización y baja. Sobrevive a la edición del nombre: corregirlo conserva el id. ATENCIÓN — sobrevive también al DELETE, porque la fila sigue en la base con su deleted_at puesto, pero ese id ya no es alcanzable: GET /api/shipping-lines/{shippingLine} responde 404 y PATCH o DELETE responden 400.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "name": {
+                        "description": "Nombre de la naviera, SIEMPRE EN MAYÚSCULAS y de 255 caracteres como máximo. ES EL ÚNICO CAMPO DE NEGOCIO DEL DOMINIO y también su único identificador legible: no hay ningún otro dato que distinga dos navieras. Se normaliza al crear y al actualizar: se recortan los extremos, se colapsan los espacios internos a uno y se pasa a mayúsculas, así que enviar \"  maersk   line  \" guarda y devuelve \"MAERSK LINE\". Es único, y esa unicidad es GLOBAL Y PERMANENTE: incluye a las navieras borradas, que lo siguen ocupando para siempre. Al estar siempre en mayúsculas, la comparación resulta insensible a mayúsculas sin depender del collation del motor. Es también el campo —el único— que barre el filtro search del listado.",
+                        "type": "string",
+                        "example": "MAERSK LINE",
+                        "maxLength": 255
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del administrador que dio de alta la naviera, obtenido de la relación registeredBy. NO se envía en el cuerpo: sale siempre del usuario autenticado, y mandarlo en el JSON se descarta sin error. El PATCH NO lo reescribe, así que sigue apuntando a quien creó la fila aunque la haya editado otro administrador. No hay campo con el autor de la última edición ni bitácora de cambios: lo más cercano a una auditoría es updatedAt.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha de alta de la naviera. ATENCIÓN — NO viaja en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points, Products y Zones. Por eso se documenta como string sin format date-time: un cliente generado desde este schema que intentara parsearlo como ISO fallaría. Está pensado para mostrarse tal cual y no cambia nunca.",
+                        "type": "string",
+                        "example": "26-08-2026 08:45:12 PM",
+                        "nullable": true
+                    },
+                    "updatedAt": {
+                        "description": "Fecha del último cambio del nombre; es lo más cercano a una auditoría que ofrece el dominio, porque no se guarda ningún valor anterior ni quién lo cambió. Mismo formato propio d-m-Y h:i:s A que createdAt, tampoco ISO 8601. Un PATCH con el cuerpo vacío es un no-op y no lo mueve.",
+                        "type": "string",
+                        "example": "26-08-2026 08:51:40 PM",
+                        "nullable": true
+                    },
+                    "deletedAt": {
+                        "description": "Fecha del borrado lógico de la naviera. ATENCIÓN — ES null EN CUATRO DE LOS CINCO ENDPOINTS: en el listado, en el detalle, en el alta y en la actualización, porque ninguno de ellos puede alcanzar una naviera borrada. LA ÚNICA RESPUESTA DE LA API QUE LO DEVUELVE CON VALOR ES LA DEL PROPIO DELETE, que pinta la fila que se acaba de borrar. No sirve, por tanto, para descubrir navieras eliminadas: no existe ningún parámetro que las liste. Mismo formato propio d-m-Y h:i:s A que las otras dos fechas. Su presencia en el recurso documenta hacia el front que este catálogo —al contrario que los de status booleano— borra de verdad.",
+                        "type": "string",
+                        "example": "26-08-2026 09:14:03 PM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "ShippingLineListResponse": {
+                "title": "Listado de navieras sin paginar",
+                "description": "Respuesta de GET /api/shipping-lines cuando no se envía limit o cuando el limit no es numérico: se devuelven todas las navieras que pasen el filtro search y el sobre NO incluye total, currentPage ni lastPage. Es la forma que quiere un selector de naviera que necesita la lista entera de una vez. Las navieras borradas NUNCA aparecen y no hay ningún filtro que las muestre. El orden es siempre id ASC.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Navieras obtenidas correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ShippingLine"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedShippingLineListResponse": {
+                "title": "Listado de navieras paginado",
+                "description": "Respuesta de GET /api/shipping-lines cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo las navieras vivas: las borradas no entran en la cuenta.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/ShippingLineListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
             "VehicleExpense": {
                 "title": "Gasto de mantenimiento de un vehículo",
                 "description": "Gasto de mantenimiento imputado a un vehículo concreto: qué se hizo (category), si fue programado o por avería (nature), cuánto costó (amount, en quetzales), qué día ocurrió (expenseDate), el detalle libre (description) y quién lo capturó (registeredBy).\n\nATENCIÓN — LA SALIDA VA EN camelCase Y EL CUERPO QUE SE ENVÍA VA EN snake_case. No son los mismos nombres: aquí se lee vehicleId, expenseDate, registeredBy y createdAt, pero el POST y el PATCH esperan vehicle_id, expense_date y description. Copiar un objeto de esta respuesta y reenviarlo tal cual a POST /api/vehicle-expenses devuelve 422, porque vehicleId y expenseDate no son campos válidos del cuerpo y los obligatorios vehicle_id y expense_date faltarían. Los únicos nombres que coinciden en las dos direcciones son category, nature, amount y description.\n\nATENCIÓN — category y nature SON DOS EJES INDEPENDIENTES y no existe ninguna validación cruzada entre ellos: cualquiera de las 22 categorías admite tanto preventive como corrective. Cambiar llantas por desgaste programado es tires + preventive y cambiarlas por un reventón es tires + corrective; el backend acepta las dos combinaciones sin opinar. Es la misma relación que hay entre condition y status en el recurso Vehicle.\n\nexpenseDate y createdAt NO son lo mismo: expenseDate es el DÍA en que ocurrió el gasto (sin hora, y nunca en el futuro) y createdAt es el instante en que se capturó en el sistema. Un gasto de hace tres meses capturado hoy tiene expenseDate de hace tres meses y createdAt de hoy. Ninguna de las dos viaja en ISO 8601.\n\nEl gasto se BORRA DE VERDAD: no hay soft deletes, ni bitácora de ediciones, ni forma de recuperar un gasto eliminado. Tras un DELETE la fila desaparece de la base y cualquier petición posterior sobre ese id devuelve 404. El archivo de la factura se borra CON ELLA del almacenamiento, así que su invoiceUrl deja de resolver.\n\nATENCIÓN — LA FACTURACIÓN ES INMUTABLE: isInvoiced e invoiceUrl se fijan en el alta y no hay forma de cambiarlos. No existe un endpoint para marcar, desmarcar, reemplazar ni eliminar la factura, y mandar is_invoiced o invoice en el PATCH devuelve 200 sin guardar nada. La única corrección posible es borrar el gasto y volverlo a crear, perdiendo su id, su createdAt y su registeredBy original.\n\nisInvoiced true con invoiceUrl null NO PUEDE EXISTIR: el archivo es obligatorio cuando el gasto se marca como facturado. Al revés sí es la norma: un gasto no facturado trae siempre invoiceUrl e invoiceType en null.",
@@ -10821,6 +11364,10 @@
         {
             "name": "Products",
             "description": "Catálogo nacional de productos: la mercancía que se transporta. El producto NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos los transportistas—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los seis endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización, toggle de estado y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. Dos reglas atraviesan todo el dominio: el name se guarda SIEMPRE normalizado y en MAYÚSCULAS, con unicidad global insensible a mayúsculas, y el status es un BOOLEANO cuya baja es LÓGICA —DELETE pone status en false, la fila nunca desaparece—, al contrario que el DELETE de FuelPrices, que borra de verdad."
+        },
+        {
+            "name": "ShippingLines",
+            "description": "Navieras: el catálogo nacional de las líneas navieras con las que Legumex opera, con UN SOLO CAMPO DE NEGOCIO —el nombre—. Es el dominio más pequeño del proyecto: no hay código, ni sigla, ni contacto, ni teléfono, ni correo, ni país, ni web, ni notas, ni logo, ni estado de publicación. La naviera NO pertenece a ninguna empresa transportista, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los cinco endpoints exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con \"El token de sesión no es válido o ha expirado\". El reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización y borrado) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403 con \"No tienes permisos para acceder a este recurso\". ATENCIÓN — ESTE CATÁLOGO BORRA DE VERDAD Y ES EL AVISO CENTRAL DEL DOMINIO: en Products, Locations, Zones y Departure Points el DELETE es una baja lógica sobre un status booleano, la fila se queda, se sigue listando y se puede reactivar; aquí el DELETE es un soft delete real, la fila DESAPARECE del listado y del detalle, NO hay filtro que la devuelva, NO existe /restore y NO HAY FORMA DE RECUPERARLA POR LA API —solo desde la base de datos—. ATENCIÓN — EL BORRADO NO LIBERA EL NOMBRE: el índice único sigue ocupado para siempre por la fila borrada, así que un alta puede chocar con 400 contra una naviera que no aparece en ningún endpoint; de ahí el \"que puede haber sido eliminada\" del mensaje de duplicado, y aquí duele más que en Clients, donde quedaba un segundo identificador al que agarrarse: en este dominio el nombre es lo único que hay. No tiene NINGUNA RUTA FIJA antes del apiResource: no hay /toggle-status —una naviera no se pausa, se borra— ni /restore, así que el comodín {shippingLine} no captura nada. Reglas que atraviesan el dominio: el duplicado de nombre se responde con 400 DESDE EL SERVICE y NUNCA con 422 —el FormRequest no lleva regla unique, porque la de Laravel no ve las filas borradas—; el nombre se guarda recortado, con los espacios internos colapsados y EN MAYÚSCULAS; el registeredBy sale siempre del usuario autenticado y el PATCH no lo reescribe; el listado ordena por id ASC sin alternativa, filtra con un search tolerante sobre el nombre y pagina opt-in por limit acotado a [10, 100]; y createdAt, updatedAt y deletedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601. La lectura del detalle no distingue una naviera borrada de un id inexistente —las dos son 404—, mientras que el PATCH y el DELETE sí, con un 400 «La naviera ya fue eliminada». NADA CUELGA TODAVÍA DE UNA NAVIERA: ninguna tabla del proyecto tiene shipping_line_id, no hay navieras por destino ni tarifas por naviera, y no está relacionada con los puertos —los destinos de tipo port de Locations—, así que borrar una no rompe ninguna otra entidad."
         },
         {
             "name": "Vehicles",
