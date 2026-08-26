@@ -4,12 +4,16 @@ use App\Enums\UserRole;
 use App\Enums\VehicleExpenseCategory;
 use App\Enums\VehicleExpenseNature;
 use App\Enums\VehicleStatus;
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Models\Carrier;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
+use Tests\Doubles\InMemoryFileStorageService;
 use Tests\TestCase;
 
 /**
@@ -81,6 +85,7 @@ function validExpensePayload(int $vehicleId, array $overrides = []): array
         'amount' => 1250.5,
         'expense_date' => now()->subDay()->format('Y-m-d'),
         'description' => 'Cuatro llantas nuevas, taller El Rodaje, factura A-9912',
+        'is_invoiced' => false,
     ], $overrides);
 }
 
@@ -479,7 +484,7 @@ it('registra un gasto de un carrier y devuelve 201 con el recurso', function () 
         ->assertJsonStructure([
             'statusCode',
             'message',
-            'data' => ['id', 'vehicleId', 'category', 'nature', 'amount', 'expenseDate', 'description', 'registeredBy', 'createdAt'],
+            'data' => ['id', 'vehicleId', 'category', 'nature', 'amount', 'expenseDate', 'description', 'isInvoiced', 'invoiceUrl', 'invoiceType', 'registeredBy', 'createdAt'],
         ]);
 
     $this->assertDatabaseHas('vehicle_expenses', [
@@ -686,6 +691,9 @@ it('devuelve el gasto buscado con la forma exacta del recurso', function () {
                 'amount' => '340.75',
                 'expenseDate' => '04-07-2026',
                 'description' => 'Cambio de aceite y filtro',
+                'isInvoiced' => false,
+                'invoiceUrl' => null,
+                'invoiceType' => null,
                 'registeredBy' => $carrier->owner->name,
                 'createdAt' => $expense->created_at->format('d-m-Y h:i:s A'),
             ],
@@ -973,4 +981,483 @@ it('deja fuera de los gastos a un piloto aunque su empresa tenga el vehículo', 
     asUser(userWithRole(UserRole::Pilot))->getJson("/api/vehicle-expenses?vehicleId={$vehicle->id}")
         ->assertForbidden()
         ->assertJsonPath('message', 'No tienes permisos para acceder a este recurso');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Factura: alta
+|--------------------------------------------------------------------------
+*/
+
+it('rechaza con 422 un alta sin is_invoiced, aunque los otros seis campos sean válidos', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $payload = validExpensePayload($vehicle->id);
+    unset($payload['is_invoiced']);
+
+    asUser($carrier->owner)->postJson('/api/vehicle-expenses', $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['is_invoiced'])
+        ->assertJsonPath('errors.is_invoiced.0', 'Debes indicar si el gasto fue facturado');
+
+    expect(VehicleExpense::query()->count())->toBe(0);
+});
+
+it('rechaza con 422 un alta facturada sin archivo', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->postJson('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+    ]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['invoice'])
+        ->assertJsonPath('errors.invoice.0', 'La factura es obligatoria cuando el gasto fue facturado');
+
+    expect(VehicleExpense::query()->count())->toBe(0);
+});
+
+it('registra el gasto facturado con los tres formatos aceptados y guarda la key bajo invoices/', function (UploadedFile $file, string $extension) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => $file,
+    ]))
+        ->assertCreated()
+        ->assertJsonPath('data.isInvoiced', true)
+        ->assertJsonPath('data.invoiceType', $extension);
+
+    $key = VehicleExpense::query()->value('invoice');
+
+    expect($key)->toMatch('#^invoices/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.'.$extension.'$#');
+
+    Storage::assertExists($key);
+})->with([
+    'jpg' => [fn () => UploadedFile::fake()->image('factura.jpg'), 'jpg'],
+    'png' => [fn () => UploadedFile::fake()->image('factura.png'), 'png'],
+    'pdf' => [fn () => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'), 'pdf'],
+]);
+
+it('guarda la key y no la URL en la columna invoice', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]))->assertCreated();
+
+    expect(VehicleExpense::query()->value('invoice'))->toStartWith('invoices/')
+        ->not->toContain('http');
+});
+
+it('normaliza a jpg la extensión de un jpeg, nunca a jpeg', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.exe', 40, 'image/jpeg'),
+    ]))
+        ->assertCreated()
+        ->assertJsonPath('data.invoiceType', 'jpg');
+
+    expect(VehicleExpense::query()->value('invoice'))->toEndWith('.jpg');
+});
+
+it('guarda el archivo byte por byte, sin recortarlo ni recomprimirlo', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->image('factura.png', 1600, 900),
+    ]))->assertCreated();
+
+    $size = getimagesizefromstring(Storage::get(VehicleExpense::query()->value('invoice')));
+
+    expect($size[0])->toBe(1600)
+        ->and($size[1])->toBe(900);
+});
+
+it('registra el gasto no facturado sin archivo y deja invoice en null', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->postJson('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => false,
+    ]))
+        ->assertCreated()
+        ->assertJsonPath('data.isInvoiced', false)
+        ->assertJsonPath('data.invoiceUrl', null)
+        ->assertJsonPath('data.invoiceType', null);
+
+    expect(VehicleExpense::query()->value('invoice'))->toBeNull();
+});
+
+it('descarta en silencio el archivo cuando is_invoiced es falso y no sube nada al bucket', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => false,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]))
+        ->assertCreated()
+        ->assertJsonPath('data.isInvoiced', false)
+        ->assertJsonPath('data.invoiceUrl', null);
+
+    expect(VehicleExpense::query()->value('invoice'))->toBeNull()
+        ->and(Storage::allFiles())->toBe([]);
+});
+
+it('no valida el archivo cuando is_invoiced es falso, ni siquiera uno prohibido o enorme', function (UploadedFile $file) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => false,
+        'invoice' => $file,
+    ]))->assertCreated();
+
+    expect(Storage::allFiles())->toBe([]);
+})->with([
+    'ejecutable' => [fn () => UploadedFile::fake()->create('virus.exe', 10, 'application/octet-stream')],
+    'demasiado grande' => [fn () => UploadedFile::fake()->create('enorme.pdf', 4096, 'application/pdf')],
+]);
+
+it('rechaza con 422 una factura de un tipo no permitido', function (UploadedFile $file) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => $file,
+    ]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['invoice'])
+        ->assertJsonPath('errors.invoice.0', 'La factura debe ser un archivo jpg, jpeg, png o pdf');
+
+    expect(Storage::allFiles())->toBe([]);
+})->with([
+    'exe' => [fn () => UploadedFile::fake()->create('virus.exe', 10, 'application/octet-stream')],
+    'docx' => [fn () => UploadedFile::fake()->create('factura.docx', 10, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')],
+    'gif' => [fn () => UploadedFile::fake()->create('factura.gif', 10, 'image/gif')],
+]);
+
+it('rechaza con 422 una factura de más de 3 MB', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('grande.pdf', 4096, 'application/pdf'),
+    ]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['invoice'])
+        ->assertJsonPath('errors.invoice.0', 'La factura no puede pesar más de 3 MB');
+});
+
+it('acepta una factura de 3072 KB justos, porque el límite es inclusivo', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('justa.pdf', 3072, 'application/pdf'),
+    ]))->assertCreated();
+});
+
+it('acepta las representaciones booleanas de is_invoiced que manda un formulario', function (mixed $value, bool $stored) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $payload = validExpensePayload($vehicle->id, ['is_invoiced' => $value]);
+
+    if ($stored) {
+        $payload['invoice'] = UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf');
+    }
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', $payload)
+        ->assertCreated()
+        ->assertJsonPath('data.isInvoiced', $stored);
+
+    expect(VehicleExpense::query()->value('is_invoiced'))->toBe($stored);
+})->with([
+    'true' => [true, true],
+    'false' => [false, false],
+    'uno como cadena' => ['1', true],
+    'cero como cadena' => ['0', false],
+]);
+
+it('rechaza con 422 un is_invoiced que no es booleano', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->postJson('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => 'quizá',
+    ]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['is_invoiced'])
+        ->assertJsonPath('errors.is_invoiced.0', 'La facturación debe ser verdadero o falso');
+});
+
+it('no deja archivos subidos cuando un carrier registra sobre un vehículo ajeno', function () {
+    $carrier = Carrier::factory()->create();
+    $ajeno = Vehicle::factory()->create();
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($ajeno->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]))
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes acceder a un vehículo que no pertenece a tu empresa transportista');
+
+    expect(Storage::allFiles())->toBe([])
+        ->and(VehicleExpense::query()->count())->toBe(0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Factura: inmutabilidad
+|--------------------------------------------------------------------------
+*/
+
+it('ignora en silencio is_invoiced en el PATCH y responde 200 sin cambiar el valor', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = VehicleExpense::factory()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+        'is_invoiced' => false,
+    ]);
+
+    asUser($carrier->owner)->patchJson("/api/vehicle-expenses/{$expense->id}", ['is_invoiced' => true])
+        ->assertOk()
+        ->assertJsonPath('data.isInvoiced', false);
+
+    expect($expense->fresh()->is_invoiced)->toBeFalse();
+});
+
+it('ignora en silencio un archivo mandado en el PATCH y no sube nada al bucket', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = VehicleExpense::factory()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    asUser($carrier->owner)->patch("/api/vehicle-expenses/{$expense->id}", [
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.invoiceUrl', null);
+
+    expect($expense->fresh()->invoice)->toBeNull()
+        ->and(Storage::allFiles())->toBe([]);
+});
+
+it('deja la facturación intacta al editar el monto o la descripción', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = VehicleExpense::factory()->invoiced()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    $key = $expense->invoice;
+
+    asUser($carrier->owner)->patchJson("/api/vehicle-expenses/{$expense->id}", [
+        'amount' => 999.99,
+        'description' => 'Descripción corregida',
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.isInvoiced', true);
+
+    expect($expense->fresh()->is_invoiced)->toBeTrue()
+        ->and($expense->fresh()->invoice)->toBe($key);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Factura: salida del recurso
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve las tres claves de factura en el listado y en el detalle', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = VehicleExpense::factory()->invoiced()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    asUser($carrier->owner)->getJson("/api/vehicle-expenses?vehicleId={$vehicle->id}")
+        ->assertOk()
+        ->assertJsonStructure(['data' => [['isInvoiced', 'invoiceUrl', 'invoiceType']]])
+        ->assertJsonPath('data.0.isInvoiced', true)
+        ->assertJsonPath('data.0.invoiceType', 'pdf');
+
+    asUser($carrier->owner)->getJson("/api/vehicle-expenses/{$expense->id}")
+        ->assertOk()
+        ->assertJsonPath('data.isInvoiced', true)
+        ->assertJsonPath('data.invoiceType', 'pdf')
+        ->assertJsonPath('data.invoiceUrl', fn (?string $url): bool => is_string($url) && str_contains($url, $expense->invoice));
+});
+
+it('devuelve isInvoiced como booleano JSON y no como 1 o 0', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = VehicleExpense::factory()->invoiced()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    $value = asUser($carrier->owner)->getJson("/api/vehicle-expenses/{$expense->id}")
+        ->assertOk()
+        ->json('data.isInvoiced');
+
+    expect($value)->toBeBool()->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
+| Factura: filtro isInvoiced
+|--------------------------------------------------------------------------
+*/
+
+it('filtra el listado por isInvoiced y acumula solo lo filtrado en totalAmount', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    VehicleExpense::factory()->invoiced()->count(2)->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+        'amount' => 100,
+    ]);
+
+    VehicleExpense::factory()->count(3)->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+        'amount' => 10,
+    ]);
+
+    asUser($carrier->owner)->getJson("/api/vehicle-expenses?vehicleId={$vehicle->id}&isInvoiced=true")
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('totalAmount', '200.00');
+
+    asUser($carrier->owner)->getJson("/api/vehicle-expenses?vehicleId={$vehicle->id}&isInvoiced=false")
+        ->assertOk()
+        ->assertJsonCount(3, 'data')
+        ->assertJsonPath('totalAmount', '30.00');
+
+    asUser($carrier->owner)->getJson("/api/vehicle-expenses?vehicleId={$vehicle->id}")
+        ->assertOk()
+        ->assertJsonCount(5, 'data')
+        ->assertJsonPath('totalAmount', '230.00');
+});
+
+it('ignora un isInvoiced ilegible y devuelve el listado completo', function (string $value) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    VehicleExpense::factory()->invoiced()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    VehicleExpense::factory()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    asUser($carrier->owner)->getJson("/api/vehicle-expenses?vehicleId={$vehicle->id}&isInvoiced={$value}")
+        ->assertOk()
+        ->assertJsonCount(2, 'data');
+})->with(['quizá', 'vacío' => '', '2', 'null']);
+
+/*
+|--------------------------------------------------------------------------
+| Factura: borrado
+|--------------------------------------------------------------------------
+*/
+
+it('borra el objeto del bucket junto con el gasto facturado', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]))->assertCreated();
+
+    $expense = VehicleExpense::query()->firstOrFail();
+
+    Storage::assertExists($expense->invoice);
+
+    asUser($carrier->owner)->deleteJson("/api/vehicle-expenses/{$expense->id}")
+        ->assertOk();
+
+    Storage::assertMissing($expense->invoice);
+
+    $this->assertDatabaseMissing('vehicle_expenses', ['id' => $expense->id]);
+});
+
+it('borra un gasto no facturado sin intentar tocar el bucket', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = VehicleExpense::factory()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    asUser($carrier->owner)->deleteJson("/api/vehicle-expenses/{$expense->id}")
+        ->assertOk();
+
+    $this->assertDatabaseMissing('vehicle_expenses', ['id' => $expense->id]);
+});
+
+it('responde 200 al borrar aunque la limpieza del archivo falle', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = VehicleExpense::factory()->invoiced()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    /** La key nunca se subió, así que delete() devuelve false: la fila igual desaparece y la respuesta sigue siendo 200. */
+    asUser($carrier->owner)->deleteJson("/api/vehicle-expenses/{$expense->id}")
+        ->assertOk();
+
+    $this->assertDatabaseMissing('vehicle_expenses', ['id' => $expense->id]);
+
+    asUser($carrier->owner)->deleteJson("/api/vehicle-expenses/{$expense->id}")
+        ->assertNotFound();
+});
+
+it('propaga como 400 el fallo del almacenamiento al subir la factura', function () {
+    app()->instance(FileStorageServiceInterface::class, new InMemoryFileStorageService(failing: true));
+
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    asUser($carrier->owner)->post('/api/vehicle-expenses', validExpensePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]))
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'No se pudo almacenar el archivo');
+
+    expect(VehicleExpense::query()->count())->toBe(0);
 });

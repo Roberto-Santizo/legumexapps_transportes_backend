@@ -17,10 +17,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * which is not the same as the `created_at` timestamp telling when it was
  * captured. `category` and `nature` are independent axes: any category accepts
  * both a preventive and a corrective nature.
+ *
+ * `is_invoiced` and `invoice` are settled at creation time and never change:
+ * `invoice` holds the storage key of the attached file, an opaque string with
+ * no cast — the Resource resolves both its URL and its type.
  */
 #[Fillable([
     'vehicle_id', 'category', 'nature', 'amount',
-    'expense_date', 'description', 'registered_by',
+    'expense_date', 'description', 'is_invoiced', 'invoice', 'registered_by',
 ])]
 class VehicleExpense extends Model
 {
@@ -59,6 +63,7 @@ class VehicleExpense extends Model
             'nature' => VehicleExpenseNature::class,
             'amount' => 'decimal:2',
             'expense_date' => 'date',
+            'is_invoiced' => 'boolean',
         ];
     }
 }

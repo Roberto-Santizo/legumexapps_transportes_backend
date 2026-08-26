@@ -7,10 +7,12 @@ use App\Enums\VehicleExpenseCategory;
 use App\Enums\VehicleExpenseNature;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
+use Illuminate\Http\UploadedFile;
 use Override;
 
 class VehicleExpenseService implements VehicleExpenseServiceInterface
@@ -38,10 +40,24 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
     /**
      * Fields the update accepts.
      *
-     * `vehicle_id` and `registered_by` are deliberately absent: an expense
-     * never moves between vehicles, and it keeps the user that created it.
+     * Four fields are deliberately absent: `vehicle_id` and `registered_by`,
+     * because an expense never moves between vehicles and keeps the user that
+     * created it, plus `is_invoiced` and `invoice`, settled at creation time
+     * and immutable ever after. Sending any of them is ignored in silence with
+     * a 200: fixing a wrongly invoiced expense is deleting it and creating it
+     * again.
      */
     private const UPDATABLE_FIELDS = ['category', 'nature', 'amount', 'expense_date', 'description'];
+
+    /**
+     * Directory every invoice file is stored under.
+     *
+     * Named after what it holds and not after the resource it hangs from, so
+     * another domain can drop its invoices here the day it has any.
+     */
+    private const INVOICE_DIRECTORY = 'invoices';
+
+    public function __construct(private readonly FileStorageServiceInterface $fileStorage) {}
 
     #[Override]
     public function getVehicleExpenses(User $user, array $filters): array
@@ -76,6 +92,12 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
             $query->where('expense_date', '<=', $dateTo);
         }
 
+        $isInvoiced = $this->normalizeInvoicedFilter($filters['isInvoiced'] ?? null);
+
+        if ($isInvoiced !== null) {
+            $query->where('is_invoiced', '=', $isInvoiced);
+        }
+
         /** El acumulado se calcula sobre la consulta ya filtrada y ANTES de paginar: es la suma de todos los gastos que cumplen los filtros, no la de la página devuelta. */
         $totalAmount = (clone $query)->sum('amount');
 
@@ -92,7 +114,10 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
     #[Override]
     public function createVehicleExpense(array $data, User $user): VehicleExpense
     {
+        /** El ámbito se resuelve ANTES de subir nada, para que un 403 no deje archivos huérfanos en el bucket. */
         $vehicle = $this->resolveVehicle($user, (int) $data['vehicle_id']);
+
+        $isInvoiced = ($data['is_invoiced'] ?? false) === true;
 
         /** registered_by sale del usuario autenticado y no del cuerpo: mandarlo en el body no cambia nada. */
         $expense = VehicleExpense::create([
@@ -102,6 +127,8 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
             'amount' => $data['amount'],
             'expense_date' => $data['expense_date'],
             'description' => $data['description'],
+            'is_invoiced' => $isInvoiced,
+            'invoice' => $this->storeInvoice($isInvoiced, $data['invoice'] ?? null),
             'registered_by' => $user->id,
         ]);
 
@@ -137,7 +164,52 @@ class VehicleExpenseService implements VehicleExpenseServiceInterface
         /** El borrado es real: la fila desaparece y un segundo DELETE del mismo id responde 404. */
         $expense->delete();
 
+        /**
+         * Única excepción del proyecto a «el DELETE no toca el archivo»: aquí la
+         * fila desaparece de verdad, así que dejar la factura solo generaría
+         * basura que nadie podrá relacionar con nada. Se borra DESPUÉS de la
+         * fila y delete() nunca lanza, de modo que un fallo de limpieza no
+         * altera el 200 de una petición ya cumplida.
+         */
+        $this->fileStorage->delete($expense->invoice);
+
         return $expense;
+    }
+
+    /**
+     * Read the `isInvoiced` filter, or null when there is nothing to filter by.
+     *
+     * Tolerant like every other filter of the project: an unreadable value is
+     * ignored instead of answering 422, so the caller gets the full listing.
+     * The empty string is ruled out before filter_var, which reads it as a
+     * legitimate false — a front sending an empty parameter would silently see
+     * only the expenses without invoice.
+     */
+    private function normalizeInvoicedFilter(?string $value): ?bool
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    }
+
+    /**
+     * Store the invoice file and return its key, or null when there is none.
+     *
+     * The boolean rules: with a false flag whatever arrived is discarded right
+     * here and nothing reaches the bucket, so nobody pays for an upload that
+     * will never be read. The file is persisted as-is — cropping an invoice to
+     * a square would make it unreadable — and the FormRequest is what
+     * guarantees it is there when the flag is true.
+     */
+    private function storeInvoice(bool $isInvoiced, mixed $invoice): ?string
+    {
+        if (! $isInvoiced || ! $invoice instanceof UploadedFile) {
+            return null;
+        }
+
+        return $this->fileStorage->storeUpload($invoice, self::INVOICE_DIRECTORY);
     }
 
     /**

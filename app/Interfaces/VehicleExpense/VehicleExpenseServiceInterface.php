@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\VehicleExpense;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\UploadedFile;
 
 interface VehicleExpenseServiceInterface
 {
@@ -25,11 +26,12 @@ interface VehicleExpenseServiceInterface
      * Results are ordered by `expense_date` descending, with `id` descending
      * breaking the tie between two expenses of the same day.
      *
-     * @param  array{vehicleId: int, category?: string|null, nature?: string|null, dateFrom?: string|null, dateTo?: string|null, limit?: string|null}  $filters
-     *                                                                                                                                                           vehicleId: already validated as required by the FormRequest;
-     *                                                                                                                                                           category: value of VehicleExpenseCategory; nature: value of VehicleExpenseNature;
-     *                                                                                                                                                           dateFrom/dateTo: Y-m-d bounds on expense_date, both inclusive;
-     *                                                                                                                                                           limit: page size requested by the client, clamped to [10, 100].
+     * @param  array{vehicleId: int, category?: string|null, nature?: string|null, dateFrom?: string|null, dateTo?: string|null, isInvoiced?: string|null, limit?: string|null}  $filters
+     *                                                                                                                                                                                     vehicleId: already validated as required by the FormRequest;
+     *                                                                                                                                                                                     category: value of VehicleExpenseCategory; nature: value of VehicleExpenseNature;
+     *                                                                                                                                                                                     dateFrom/dateTo: Y-m-d bounds on expense_date, both inclusive;
+     *                                                                                                                                                                                     isInvoiced: truthy or falsy string, anything unreadable means «do not filter»;
+     *                                                                                                                                                                                     limit: page size requested by the client, clamped to [10, 100].
      * @return array{expenses: LengthAwarePaginator<int, VehicleExpense>|Collection<int, VehicleExpense>, totalAmount: string}
      *                                                                                                                         totalAmount is the sum of every expense matching the filters, formatted to two
      *                                                                                                                         decimals — not the sum of the returned page, and present with or without paging.
@@ -46,8 +48,14 @@ interface VehicleExpenseServiceInterface
      * payload, and the vehicle's status is not checked: an inactive vehicle
      * accepts expenses, because the maintenance may predate its deactivation.
      *
-     * @param  array{vehicle_id: int, category: string, nature: string, amount: float, expense_date: string, description: string}  $data
-     *                                                                                                                                    amount travels in GTQ; expense_date is a Y-m-d day, never in the future.
+     * Invoicing is settled here and never again: with `is_invoiced` true the
+     * file is stored as-is under `invoices/` and its key kept in `invoice`;
+     * with it false the file is discarded without reaching the bucket and the
+     * column stays null. The vehicle is resolved before the upload, so a
+     * denied scope leaves no orphan file behind.
+     *
+     * @param  array{vehicle_id: int, category: string, nature: string, amount: float, expense_date: string, description: string, is_invoiced: bool, invoice?: UploadedFile}  $data
+     *                                                                                                                                                                               amount travels in GTQ; expense_date is a Y-m-d day, never in the future.
      *
      * @throws NotFoundError when the vehicle does not exist
      * @throws ForbiddenError when a carrier reaches a vehicle of another company
@@ -84,6 +92,11 @@ interface VehicleExpenseServiceInterface
      * The deletion is real: the row is removed and a second delete of the same
      * id answers 404. The returned model is the already deleted one, kept so
      * the caller can render what disappeared.
+     *
+     * The invoice file goes with it, the only place in the project where a
+     * delete reaches the bucket: the row does not survive as a logical
+     * deletion, so keeping the file would only leave unreachable garbage. It
+     * is removed after the row, and a failed cleanup never alters the answer.
      *
      * @throws NotFoundError when the expense does not exist
      * @throws ForbiddenError when a carrier reaches an expense of another company

@@ -4,8 +4,10 @@ use App\Enums\UserRole;
 use App\Enums\VehicleExpenseCategory;
 use App\Enums\VehicleExpenseNature;
 use App\Enums\VehicleStatus;
+use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
 use App\Models\Carrier;
 use App\Models\User;
@@ -14,9 +16,12 @@ use App\Models\VehicleExpense;
 use App\Services\VehicleExpense\VehicleExpenseService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Tests\Doubles\InMemoryFileStorageService;
 
 function vehicleExpenseService(): VehicleExpenseServiceInterface
 {
@@ -47,6 +52,7 @@ function expenseServicePayload(int $vehicleId, array $overrides = []): array
         'amount' => 1250.5,
         'expense_date' => '2026-08-12',
         'description' => 'Cuatro llantas nuevas, taller El Rodaje, factura A-9912',
+        'is_invoiced' => false,
     ], $overrides);
 }
 
@@ -60,7 +66,7 @@ it('resuelve la implementación registrada en el provider', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla vehicle_expenses con sus nueve columnas', function () {
+it('crea la tabla vehicle_expenses con sus once columnas', function () {
     expect(Schema::hasTable('vehicle_expenses'))->toBeTrue()
         ->and(Schema::getColumnListing('vehicle_expenses'))->toEqualCanonicalizing([
             'id',
@@ -70,6 +76,8 @@ it('crea la tabla vehicle_expenses con sus nueve columnas', function () {
             'amount',
             'expense_date',
             'description',
+            'is_invoiced',
+            'invoice',
             'registered_by',
             'created_at',
             'updated_at',
@@ -683,4 +691,198 @@ it('lanza ForbiddenError cuando un carrier borra un gasto ajeno', function () {
         ->toThrow(ForbiddenError::class, 'No puedes acceder a un gasto que no pertenece a tu empresa transportista');
 
     $this->assertDatabaseHas('vehicle_expenses', ['id' => $ajeno->id]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Factura
+|--------------------------------------------------------------------------
+*/
+
+it('guarda la key bajo invoices/ y marca el gasto como facturado', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = vehicleExpenseService()->createVehicleExpense(expenseServicePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]), $carrier->owner);
+
+    expect($expense->is_invoiced)->toBeTrue()
+        ->and($expense->invoice)->toStartWith('invoices/')
+        ->and($expense->invoice)->toEndWith('.pdf');
+
+    Storage::assertExists($expense->invoice);
+});
+
+it('descarta el archivo sin subirlo cuando is_invoiced es falso', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = vehicleExpenseService()->createVehicleExpense(expenseServicePayload($vehicle->id, [
+        'is_invoiced' => false,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]), $carrier->owner);
+
+    expect($expense->is_invoiced)->toBeFalse()
+        ->and($expense->invoice)->toBeNull()
+        ->and(Storage::allFiles())->toBe([]);
+});
+
+it('no sube ningún archivo cuando el ámbito deniega el vehículo', function () {
+    $carrier = Carrier::factory()->create();
+    $ajeno = Vehicle::factory()->create();
+
+    expect(fn () => vehicleExpenseService()->createVehicleExpense(expenseServicePayload($ajeno->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]), $carrier->owner))
+        ->toThrow(ForbiddenError::class, 'No puedes acceder a un vehículo que no pertenece a tu empresa transportista');
+
+    expect(Storage::allFiles())->toBe([]);
+});
+
+it('ignora is_invoiced e invoice en la actualización', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = VehicleExpense::factory()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+        'is_invoiced' => false,
+    ]);
+
+    $updated = vehicleExpenseService()->updateVehicleExpense([
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+        'description' => 'Descripción corregida',
+    ], $expense->id, $carrier->owner);
+
+    expect($updated->is_invoiced)->toBeFalse()
+        ->and($updated->invoice)->toBeNull()
+        ->and($updated->description)->toBe('Descripción corregida')
+        ->and(Storage::allFiles())->toBe([]);
+});
+
+it('borra el objeto del bucket después de borrar la fila', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = vehicleExpenseService()->createVehicleExpense(expenseServicePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]), $carrier->owner);
+
+    $key = $expense->invoice;
+
+    vehicleExpenseService()->deleteVehicleExpense($expense->id, $carrier->owner);
+
+    Storage::assertMissing($key);
+
+    $this->assertDatabaseMissing('vehicle_expenses', ['id' => $expense->id]);
+});
+
+it('no rompe el borrado cuando la limpieza del archivo falla', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    /** La key apunta a un objeto que nunca se subió, así que delete() devuelve false sin lanzar. */
+    $expense = VehicleExpense::factory()->invoiced()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    $deleted = vehicleExpenseService()->deleteVehicleExpense($expense->id, $carrier->owner);
+
+    expect($deleted->id)->toBe($expense->id);
+
+    $this->assertDatabaseMissing('vehicle_expenses', ['id' => $expense->id]);
+});
+
+it('filtra el listado por isInvoiced y acumula solo lo filtrado', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    VehicleExpense::factory()->invoiced()->count(2)->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+        'amount' => 100,
+    ]);
+
+    VehicleExpense::factory()->count(3)->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+        'amount' => 10,
+    ]);
+
+    $facturados = vehicleExpenseService()->getVehicleExpenses($carrier->owner, [
+        'vehicleId' => $vehicle->id,
+        'isInvoiced' => 'true',
+    ]);
+
+    expect($facturados['expenses'])->toHaveCount(2)
+        ->and($facturados['totalAmount'])->toBe('200.00');
+
+    $noFacturados = vehicleExpenseService()->getVehicleExpenses($carrier->owner, [
+        'vehicleId' => $vehicle->id,
+        'isInvoiced' => 'false',
+    ]);
+
+    expect($noFacturados['expenses'])->toHaveCount(3)
+        ->and($noFacturados['totalAmount'])->toBe('30.00');
+});
+
+it('ignora un isInvoiced ilegible y devuelve el listado completo', function (?string $value) {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    VehicleExpense::factory()->invoiced()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    VehicleExpense::factory()->create([
+        'vehicle_id' => $vehicle->id,
+        'registered_by' => $carrier->owner->id,
+    ]);
+
+    $result = vehicleExpenseService()->getVehicleExpenses($carrier->owner, [
+        'vehicleId' => $vehicle->id,
+        'isInvoiced' => $value,
+    ]);
+
+    expect($result['expenses'])->toHaveCount(2);
+})->with(['quizá', 'vacío' => '', '2', 'nulo' => null]);
+
+it('sube la factura a través de cualquier implementación del contrato de almacenamiento', function () {
+    $doble = new InMemoryFileStorageService;
+
+    app()->instance(FileStorageServiceInterface::class, $doble);
+
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $expense = app(VehicleExpenseService::class)->createVehicleExpense(expenseServicePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]), $carrier->owner);
+
+    expect($doble->keys())->toBe([$expense->invoice])
+        ->and($expense->invoice)->toStartWith('invoices/')
+        ->and(Storage::allFiles())->toBe([]);
+});
+
+it('propaga como BadRequestError el fallo del almacenamiento al subir la factura', function () {
+    app()->instance(FileStorageServiceInterface::class, new InMemoryFileStorageService(failing: true));
+
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    expect(fn () => app(VehicleExpenseService::class)->createVehicleExpense(expenseServicePayload($vehicle->id, [
+        'is_invoiced' => true,
+        'invoice' => UploadedFile::fake()->create('factura.pdf', 40, 'application/pdf'),
+    ]), $carrier->owner))
+        ->toThrow(BadRequestError::class, 'No se pudo almacenar el archivo');
+
+    expect(VehicleExpense::query()->count())->toBe(0);
 });
