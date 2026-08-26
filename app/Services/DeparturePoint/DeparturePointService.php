@@ -2,9 +2,11 @@
 
 namespace App\Services\DeparturePoint;
 
+use App\Errors\BadRequestError;
 use App\Errors\NotFoundError;
 use App\Interfaces\DeparturePoint\DeparturePointServiceInterface;
 use App\Models\DeparturePoint;
+use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Override;
@@ -60,6 +62,151 @@ class DeparturePointService implements DeparturePointServiceInterface
         }
 
         return $departurePoint;
+    }
+
+    #[Override]
+    public function create(User $user, array $data): DeparturePoint
+    {
+        /** Se normaliza aquí aunque el FormRequest ya lo haya hecho: el service es llamable directamente. */
+        $name = DeparturePoint::normalizeName($data['name']);
+
+        $this->ensureNameIsAvailable($name);
+
+        /** El id de Google no se normaliza: es opaco y sensible a mayúsculas. */
+        $googlePlaceId = $data['googlePlaceId'];
+
+        $this->ensureGooglePlaceIdIsAvailable($googlePlaceId);
+
+        $departurePoint = DeparturePoint::create([
+            'name' => $name,
+            'description' => $data['description'] ?? null,
+            'google_place_id' => $googlePlaceId,
+            'latitude' => $data['latitude'],
+            'longitude' => $data['longitude'],
+            /** El estado no sale del body: un punto de partida nace siempre activo. */
+            'status' => true,
+            'registered_by' => $user->id,
+        ]);
+
+        return $departurePoint->load('registeredBy');
+    }
+
+    #[Override]
+    public function update(int $id, array $data): DeparturePoint
+    {
+        $departurePoint = $this->getDeparturePointById($id);
+
+        if (isset($data['name'])) {
+            $name = DeparturePoint::normalizeName($data['name']);
+
+            /** Se ignora la propia fila: reenviar su mismo nombre no puede chocar consigo misma. */
+            $this->ensureNameIsAvailable($name, $departurePoint->id);
+
+            $departurePoint->name = $name;
+        }
+
+        /** La descripción se borra mandando null, así que no basta con isset(). */
+        if (array_key_exists('description', $data)) {
+            $departurePoint->description = $data['description'];
+        }
+
+        if (isset($data['googlePlaceId'])) {
+            /**
+             * Reapuntar el punto a otro lugar conserva la fila y su id. No hay validación
+             * cruzada con las coordenadas: cambiar solo el lugar es válido y deja el pin
+             * anterior, que es el riesgo asumido a cambio de no perder el historial.
+             */
+            $this->ensureGooglePlaceIdIsAvailable($data['googlePlaceId'], $departurePoint->id);
+
+            $departurePoint->google_place_id = $data['googlePlaceId'];
+        }
+
+        if (isset($data['latitude'])) {
+            $departurePoint->latitude = $data['latitude'];
+        }
+
+        if (isset($data['longitude'])) {
+            $departurePoint->longitude = $data['longitude'];
+        }
+
+        if (isset($data['status'])) {
+            $departurePoint->status = $data['status'];
+        }
+
+        /** registered_by no se reescribe: sigue apuntando a quien dio de alta el punto. */
+        $departurePoint->save();
+
+        return $departurePoint->load('registeredBy');
+    }
+
+    #[Override]
+    public function toggleStatus(int $id): DeparturePoint
+    {
+        $departurePoint = $this->getDeparturePointById($id);
+
+        $departurePoint->status = ! $departurePoint->status;
+
+        $departurePoint->save();
+
+        return $departurePoint;
+    }
+
+    #[Override]
+    public function destroy(int $id): DeparturePoint
+    {
+        $departurePoint = $this->getDeparturePointById($id);
+
+        /** Baja lógica e idempotente: sobre un punto ya inactivo no falla y lo deja igual. */
+        $departurePoint->status = false;
+
+        $departurePoint->save();
+
+        return $departurePoint;
+    }
+
+    /**
+     * Refuse a name that another departure point already holds.
+     *
+     * Duplicates what the unique rule of the request and the unique index of the table
+     * already cover, on purpose: without it a direct call to the service would surface
+     * the index violation as a 500 instead of a business error.
+     * Throws a BadRequestError when the name is taken.
+     *
+     * @param  int|null  $ignoreId  row allowed to hold the name, so an update can resend its own.
+     */
+    private function ensureNameIsAvailable(string $name, ?int $ignoreId = null): void
+    {
+        $exists = DeparturePoint::query()
+            ->where('name', '=', $name)
+            ->when($ignoreId !== null, fn ($query) => $query->whereKeyNot($ignoreId))
+            ->exists();
+
+        if ($exists) {
+            throw new BadRequestError('Ya existe un punto de partida con ese nombre');
+        }
+    }
+
+    /**
+     * Refuse a google place id that another departure point already points at.
+     *
+     * Two rows aiming at the same place are a duplicate by definition. The row holding
+     * it is looked up rather than merely counted, so the error can name it and whoever
+     * captured the duplicate knows where to look. Only this table is consulted: the
+     * same place may also be registered as a location, and that is not a conflict.
+     * Throws a BadRequestError when the place is taken.
+     *
+     * @param  int|null  $ignoreId  row allowed to hold the place, so an update can resend its own.
+     */
+    private function ensureGooglePlaceIdIsAvailable(string $googlePlaceId, ?int $ignoreId = null): void
+    {
+        $departurePoint = DeparturePoint::query()
+            ->where('google_place_id', '=', $googlePlaceId)
+            ->when($ignoreId !== null, fn ($query) => $query->whereKeyNot($ignoreId))
+            ->first();
+
+        if ($departurePoint !== null) {
+            throw new BadRequestError('El lugar seleccionado ya está registrado en el punto de partida '.$departurePoint->name);
+        }
     }
 
     /**
