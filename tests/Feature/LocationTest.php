@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\LocationType;
 use App\Enums\UserRole;
+use App\Models\FreightRate;
 use App\Models\Location;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -80,17 +82,27 @@ if (! function_exists('asUser')) {
 }
 
 /**
- * The ten keys LocationResource promises, in the order the resource declares them.
+ * The eleven keys LocationResource promises, in the order the resource declares them.
  *
  * @return array<int, string>
  */
 function locationResourceKeys(): array
 {
+    return ['id', 'name', 'description', 'type', 'googlePlaceId', 'latitude', 'longitude', 'status', 'registeredByName', 'createdAt', 'updatedAt'];
+}
+
+/**
+ * The ten keys SPEC 15 published, which SPEC 21 must leave untouched.
+ *
+ * @return array<int, string>
+ */
+function locationSpec15ResourceKeys(): array
+{
     return ['id', 'name', 'description', 'googlePlaceId', 'latitude', 'longitude', 'status', 'registeredByName', 'createdAt', 'updatedAt'];
 }
 
 /**
- * A valid store payload, with the four mandatory fields already filled in.
+ * A valid store payload, with the five mandatory fields already filled in.
  *
  * @param  array<string, mixed>  $overrides
  * @return array<string, mixed>
@@ -99,6 +111,7 @@ function locationPayload(array $overrides = []): array
 {
     return array_merge([
         'name' => 'bodega central',
+        'type' => 'destination',
         'googlePlaceId' => 'ChIJd8BlQ2BZwokRAFUEcm_qrcA',
         'latitude' => 14.6349,
         'longitude' => -90.5069,
@@ -164,13 +177,29 @@ it('deja leer los destinos a cualquier rol, incluido un transportista sin empres
     asUser($user)->getJson("/api/locations/{$location->id}")->assertOk();
 })->with(locationNonAdminRoles());
 
+it('muestra el tipo del destino a los cuatro roles autenticados, sin diferencias', function (UserRole $role) {
+    $admin = userWithRole(UserRole::Administrator);
+    Location::factory()->port()->create(['name' => 'PUERTO QUETZAL', 'registered_by' => $admin->id]);
+    Location::factory()->create(['name' => 'BODEGA CENTRAL', 'registered_by' => $admin->id]);
+
+    /** El tipo es una etiqueta de catálogo: no oculta filas ni campos a nadie. */
+    $data = asUser(userWithRole($role))->getJson('/api/locations')->assertOk()->json('data');
+
+    expect(collect($data)->pluck('type')->all())->toBe(['port', 'destination']);
+})->with([
+    'administrator' => UserRole::Administrator,
+    'carrier' => UserRole::Carrier,
+    'pilot' => UserRole::Pilot,
+    'manager' => UserRole::Manager,
+]);
+
 /*
 |--------------------------------------------------------------------------
 | Alta
 |--------------------------------------------------------------------------
 */
 
-it('registra un destino con los cuatro campos obligatorios y lo hace nacer activo', function () {
+it('registra un destino con los cinco campos obligatorios y lo hace nacer activo', function () {
     $admin = userWithRole(UserRole::Administrator);
 
     $response = asUser($admin)->postJson('/api/locations', locationPayload())
@@ -338,6 +367,71 @@ it('registra al usuario autenticado aunque el body mande otro responsable', func
     ]);
 });
 
+it('registra un puerto cuando el alta manda type port', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))
+        ->postJson('/api/locations', locationPayload(['type' => 'port']))
+        ->assertCreated()
+        ->assertJsonPath('data.type', 'port');
+
+    $this->assertDatabaseHas('locations', [
+        'id' => $response->json('data.id'),
+        'name' => 'BODEGA CENTRAL',
+        'type' => 'port',
+    ]);
+});
+
+it('rechaza con 422 el alta sin type, que dejó de ser opcional', function () {
+    $payload = locationPayload();
+
+    unset($payload['type']);
+
+    /** Cambio incompatible asumido: el default de la columna es para las filas migradas, no para el alta. */
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/locations', $payload)
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['type' => 'El tipo de destino es obligatorio']);
+
+    expect(Location::query()->count())->toBe(0);
+});
+
+it('rechaza con 422 un tipo que no es exactamente uno de los dos valores del enum', function (string $type, string $mensaje) {
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/locations', locationPayload(['type' => $type]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['type' => $mensaje]);
+
+    expect(Location::query()->count())->toBe(0);
+})->with([
+    'traducido al español' => ['puerto', 'El tipo de destino no es válido'],
+    'en mayúsculas' => ['PORT', 'El tipo de destino no es válido'],
+    'cadena vacía' => ['', 'El tipo de destino es obligatorio'],
+]);
+
+it('no cruza el tipo con el nombre: un puerto capturado como destino se acepta sin aviso', function () {
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/locations', locationPayload([
+        'name' => 'terminal de carga puerto quetzal',
+        'type' => 'destination',
+    ]))
+        ->assertCreated()
+        ->assertJsonPath('data.name', 'TERMINAL DE CARGA PUERTO QUETZAL')
+        ->assertJsonPath('data.type', 'destination');
+});
+
+it('no deja que un puerto y un destino compartan nombre: la unicidad sigue siendo global', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    asUser($admin)->postJson('/api/locations', locationPayload(['name' => 'puerto quetzal', 'type' => 'port']))
+        ->assertCreated();
+
+    asUser($admin)->postJson('/api/locations', locationPayload([
+        'name' => 'Puerto Quetzal',
+        'type' => 'destination',
+        'googlePlaceId' => 'ChIJotroLugarDeGoogle0001',
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['name' => 'Ya existe un destino con ese nombre']);
+
+    expect(Location::query()->count())->toBe(1);
+});
+
 /*
 |--------------------------------------------------------------------------
 | Edición
@@ -429,6 +523,67 @@ it('acepta un PATCH con el cuerpo vacío como no-op', function () {
         ->assertJsonPath('data.name', $location->name)
         ->assertJsonPath('data.googlePlaceId', $location->google_place_id)
         ->assertJsonPath('data.status', $location->status);
+});
+
+it('cambia a puerto el tipo de un destino ordinario', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $location = Location::factory()->create(['registered_by' => $admin->id]);
+
+    expect($location->type)->toBe(LocationType::Destination);
+
+    asUser($admin)->patchJson("/api/locations/{$location->id}", ['type' => 'port'])
+        ->assertOk()
+        ->assertJsonPath('data.id', $location->id)
+        ->assertJsonPath('data.type', 'port');
+
+    $this->assertDatabaseHas('locations', ['id' => $location->id, 'type' => 'port']);
+});
+
+it('cambia el tipo de un destino que ya tiene tarifas sin tocar ninguna', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $location = Location::factory()->create(['registered_by' => $admin->id]);
+
+    /** Sin guarda: el tipo es una etiqueta y no gobierna ninguna tarifa. */
+    $tarifas = FreightRate::factory()->count(2)->sequence(
+        ['fuel_min' => 25, 'price_per_pound' => 0.35],
+        ['fuel_min' => 35, 'price_per_pound' => 0.45],
+    )->create(['location_id' => $location->id, 'registered_by' => $admin->id]);
+
+    asUser($admin)->patchJson("/api/locations/{$location->id}", ['type' => 'port'])
+        ->assertOk()
+        ->assertJsonPath('data.type', 'port');
+
+    expect(FreightRate::query()->where('location_id', '=', $location->id)->count())->toBe(2)
+        ->and($tarifas[0]->fresh()->price_per_pound)->toBe($tarifas[0]->price_per_pound)
+        ->and($tarifas[1]->fresh()->price_per_pound)->toBe($tarifas[1]->price_per_pound)
+        ->and($tarifas[0]->fresh()->location_id)->toBe($location->id);
+});
+
+it('rechaza con 422 un tipo vacío o fuera del enum en la edición', function (string $type, string $mensaje) {
+    $admin = userWithRole(UserRole::Administrator);
+    $location = Location::factory()->create(['registered_by' => $admin->id]);
+
+    asUser($admin)->patchJson("/api/locations/{$location->id}", ['type' => $type])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['type' => $mensaje]);
+
+    expect($location->fresh()->type)->toBe(LocationType::Destination);
+})->with([
+    'cadena vacía' => ['', 'El tipo de destino es obligatorio'],
+    'traducido al español' => ['puerto', 'El tipo de destino no es válido'],
+    'en mayúsculas' => ['PORT', 'El tipo de destino no es válido'],
+]);
+
+it('deja el tipo intacto cuando el PATCH no lo manda', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $location = Location::factory()->port()->create(['registered_by' => $admin->id]);
+
+    asUser($admin)->patchJson("/api/locations/{$location->id}", ['description' => 'entrada por el portón 4'])
+        ->assertOk()
+        ->assertJsonPath('data.description', 'entrada por el portón 4')
+        ->assertJsonPath('data.type', 'port');
+
+    expect($location->fresh()->type)->toBe(LocationType::Port);
 });
 
 /*
@@ -618,13 +773,61 @@ it('no dispara N+1 al listar destinos de muchos registradores', function () {
         ->and($sobreUsuarios->count())->toBeLessThanOrEqual(2);
 });
 
+it('filtra por tipo devolviendo solo los destinos de esa etiqueta', function (string $type, int $esperado) {
+    $admin = userWithRole(UserRole::Administrator);
+    Location::factory()->port()->count(2)->create(['registered_by' => $admin->id]);
+    Location::factory()->count(3)->create(['registered_by' => $admin->id]);
+
+    $data = asUser(userWithRole(UserRole::Pilot))->getJson('/api/locations?type='.$type)->assertOk()->json('data');
+
+    expect($data)->toHaveCount($esperado)
+        ->and(collect($data)->pluck('type')->unique()->values()->all())->toBe([$type]);
+})->with([
+    'puertos' => ['port', 2],
+    'destinos ordinarios' => ['destination', 3],
+]);
+
+it('ignora un filtro de tipo que no encaja con el enum y devuelve el listado completo', function (string $query) {
+    $admin = userWithRole(UserRole::Administrator);
+    Location::factory()->port()->create(['registered_by' => $admin->id]);
+    Location::factory()->count(2)->create(['registered_by' => $admin->id]);
+
+    /** Tolerante como el status: un filtro roto nunca vacía la pantalla ni responde 422. */
+    asUser($admin)->getJson('/api/locations?type='.$query)
+        ->assertOk()
+        ->assertJsonCount(3, 'data');
+})->with([
+    'traducido al español' => 'puerto',
+    'en mayúsculas' => 'PORT',
+    'vacío' => '',
+]);
+
+it('combina el filtro de tipo con el estado, la búsqueda y el limit sin interferir', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    Location::factory()->port()->active()->create(['name' => 'PUERTO QUETZAL', 'registered_by' => $admin->id]);
+    Location::factory()->port()->inactive()->create(['name' => 'PUERTO BARRIOS', 'registered_by' => $admin->id]);
+    Location::factory()->active()->create(['name' => 'BODEGA CENTRAL', 'registered_by' => $admin->id]);
+
+    $conEstado = asUser($admin)->getJson('/api/locations?type=port&status=true')->assertOk()->json('data');
+    $conBusqueda = asUser($admin)->getJson('/api/locations?type=port&search=barrios')->assertOk()->json('data');
+    $conLimit = asUser($admin)->getJson('/api/locations?type=port&limit=10')->assertOk();
+
+    expect($conEstado)->toHaveCount(1)
+        ->and($conEstado[0]['name'])->toBe('PUERTO QUETZAL')
+        ->and($conBusqueda)->toHaveCount(1)
+        ->and($conBusqueda[0]['name'])->toBe('PUERTO BARRIOS')
+        ->and($conLimit->json('data'))->toHaveCount(2)
+        ->and($conLimit->json('total'))->toBe(2)
+        ->and($conLimit->json('lastPage'))->toBe(1);
+});
+
 /*
 |--------------------------------------------------------------------------
 | Forma de la respuesta
 |--------------------------------------------------------------------------
 */
 
-it('devuelve las diez claves en camelCase y las fechas con el formato de la spec', function () {
+it('devuelve las once claves en camelCase y las fechas con el formato de la spec', function () {
     $admin = userWithRole(UserRole::Administrator);
     $location = Location::factory()->create(['registered_by' => $admin->id]);
 
@@ -666,3 +869,22 @@ it('devuelve las coordenadas con ocho decimales en todos los endpoints que respo
         ->and(asUser($admin)->patchJson("/api/locations/{$id}/toggle-status")->assertOk()->json('data.longitude'))->toBe('-90.50690000')
         ->and(asUser($admin)->deleteJson("/api/locations/{$id}")->assertOk()->json('data.longitude'))->toBe('-90.50690000');
 });
+
+it('devuelve las once claves del recurso con el tipo como cadena cruda del enum', function (string $estado, string $esperado) {
+    $admin = userWithRole(UserRole::Administrator);
+    $location = Location::factory()->{$estado}()->create(['registered_by' => $admin->id]);
+
+    $detalle = asUser($admin)->getJson("/api/locations/{$location->id}")->assertOk()->json('data');
+    $delListado = asUser($admin)->getJson('/api/locations')->assertOk()->json('data.0');
+
+    /** Las diez claves de SPEC 15 siguen ahí y `type` entra en cuarta posición, justo tras description. */
+    expect(array_keys($detalle))->toHaveCount(11)
+        ->and(array_keys($detalle))->toBe(locationResourceKeys())
+        ->and(array_keys($detalle))->toContain(...locationSpec15ResourceKeys())
+        ->and(array_keys($detalle)[3])->toBe('type')
+        ->and($detalle['type'])->toBeString()->toBe($esperado)
+        ->and($delListado['type'])->toBeString()->toBe($esperado);
+})->with([
+    'puerto' => ['port', 'port'],
+    'destino ordinario' => ['active', 'destination'],
+]);

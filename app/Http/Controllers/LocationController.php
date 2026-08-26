@@ -451,12 +451,13 @@ class LocationController extends Controller
     /**
      * Collect the listing filters the service understands.
      *
-     * @return array{status: string|null, search: string|null, limit: string|null}
+     * @return array{status: string|null, type: string|null, search: string|null, limit: string|null}
      */
     private function filters(Request $request): array
     {
         return [
             'status' => $this->queryString($request, 'status'),
+            'type' => $this->queryString($request, 'type'),
             'search' => $this->queryString($request, 'search'),
             'limit' => $this->queryString($request, 'limit'),
         ];
