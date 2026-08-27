@@ -21,6 +21,7 @@ use App\Models\Vehicle;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Override;
 
 class TripService implements TripServiceInterface
@@ -262,19 +263,89 @@ class TripService implements TripServiceInterface
     #[Override]
     public function assign(User $user, int $id, array $data): Trip
     {
-        throw new BadRequestError('Pendiente: paso 6 de la SPEC 24');
+        $carrier = $user->currentCarrier();
+
+        if ($carrier === null) {
+            throw new ForbiddenError('Necesitas pertenecer a una empresa transportista para asignar un viaje');
+        }
+
+        /**
+         * Todo el chequeo va dentro de la transacción y detrás del lock, no antes: si se
+         * leyera fuera, dos transportistas verían el mismo viaje libre y los dos pasarían
+         * la comprobación antes de que ninguno escribiera. Mismo patrón que FuelPrice al
+         * rotar el vigente.
+         */
+        $trip = DB::transaction(function () use ($user, $id, $data, $carrier) {
+            $trip = $this->resolveWritableTrip($id, lock: true);
+
+            $this->ensureCarrierCanAssign($carrier, $trip);
+
+            /**
+             * Congelar la tripulación al arrancar: cambiarle el piloto a un viaje ya
+             * iniciado dejaría un start_date puesto por alguien que ya no aparece.
+             */
+            if ($trip->status !== TripStatus::Pending) {
+                throw new BadRequestError('Solo se puede asignar un viaje pendiente');
+            }
+
+            $this->ensureCrewIsAssignable((int) $data['pilot_id'], (int) $data['vehicle_id']);
+
+            /** Los tres campos se escriben juntos: no existe un viaje con piloto y sin assigned_by. */
+            $trip->update([
+                'pilot_id' => (int) $data['pilot_id'],
+                'vehicle_id' => (int) $data['vehicle_id'],
+                /** Quién asignó sale del usuario autenticado, nunca del body. */
+                'assigned_by' => $user->id,
+            ]);
+
+            return $trip;
+        });
+
+        return $trip->load(self::RELATIONS);
     }
 
     #[Override]
     public function start(User $user, int $id): Trip
     {
-        throw new BadRequestError('Pendiente: paso 6 de la SPEC 24');
+        $trip = $this->resolveWritableTrip($id);
+
+        $this->ensureUserIsTheAssignedPilot($user, $trip, 'iniciar');
+
+        if ($trip->start_date !== null) {
+            throw new BadRequestError('El viaje ya fue iniciado');
+        }
+
+        /** La hora la pone el servidor: aceptarla del cuerpo permitiría declarar un arranque que no fue. */
+        $trip->update([
+            'start_date' => now(),
+            'status' => TripStatus::InRoute,
+        ]);
+
+        return $trip->load(self::RELATIONS);
     }
 
     #[Override]
     public function finish(User $user, int $id): Trip
     {
-        throw new BadRequestError('Pendiente: paso 6 de la SPEC 24');
+        $trip = $this->resolveWritableTrip($id);
+
+        $this->ensureUserIsTheAssignedPilot($user, $trip, 'finalizar');
+
+        if ($trip->end_date !== null) {
+            throw new BadRequestError('El viaje ya fue finalizado');
+        }
+
+        /** Un viaje no se cierra antes de empezar, por mucho que el administrador mueva el status a mano. */
+        if ($trip->start_date === null) {
+            throw new BadRequestError('El viaje no ha sido iniciado');
+        }
+
+        $trip->update([
+            'end_date' => now(),
+            'status' => TripStatus::Finished,
+        ]);
+
+        return $trip->load(self::RELATIONS);
     }
 
     /**
@@ -287,11 +358,18 @@ class TripService implements TripServiceInterface
      *
      * Throws a NotFoundError when the trip does not exist and a BadRequestError when it
      * has already been deleted.
+     *
+     * @param  bool  $lock  hold a row lock until the transaction ends; only assign() needs
+     *                      it, and only from inside its transaction, where it is what
+     *                      keeps two carriers from taking the same free trip at once.
      */
-    private function resolveWritableTrip(int $id): Trip
+    private function resolveWritableTrip(int $id, bool $lock = false): Trip
     {
         /** Con los borrados a la vista: sin ellos, el segundo DELETE solo podría ser un 404. */
-        $trip = Trip::withTrashed()->with(self::RELATIONS)->find($id);
+        $trip = Trip::withTrashed()
+            ->with(self::RELATIONS)
+            ->when($lock, fn (Builder $query) => $query->lockForUpdate())
+            ->find($id);
 
         if ($trip === null) {
             throw new NotFoundError('El viaje no existe');
@@ -385,6 +463,52 @@ class TripService implements TripServiceInterface
 
         if ($vehicle->carrier_id !== $pilotCarrier->id) {
             throw new BadRequestError('El piloto y el vehículo deben pertenecer a la misma empresa transportista');
+        }
+    }
+
+    /**
+     * Refuse a company that is not allowed to touch this trip's crew.
+     *
+     * A trip nobody has taken is free for **any** company —that is what the pool is—;
+     * once taken, only the company of its `assigned_by` may touch it again, whichever of
+     * its users calls. Freedom is decided on `assigned_by` alone and not on the pool
+     * test, so a trip the administrator moved out of `pending` while still unassigned
+     * falls through to the clearer 400 below instead of a misleading 403.
+     *
+     * There is no administrator branch on purpose: assigning is the act by which a
+     * company takes a trip, and an administrator doing it would be deciding for the
+     * carrier. The route already keeps him out; this guard would too.
+     *
+     * Throws a ForbiddenError when another company already took the trip.
+     */
+    private function ensureCarrierCanAssign(Carrier $carrier, Trip $trip): void
+    {
+        if ($trip->assigned_by === null) {
+            return;
+        }
+
+        if ($this->resolveAssignerCarrierId($trip) === $carrier->id) {
+            return;
+        }
+
+        throw new ForbiddenError('No puedes asignar un viaje que ya tomó otra empresa transportista');
+    }
+
+    /**
+     * Refuse anybody but the trip's own pilot.
+     *
+     * The two execution marks belong to whoever drives the trip: not to his company, not
+     * to another pilot of the same company and not to the administrator, who cannot
+     * reach these two routes at all.
+     *
+     * Throws a ForbiddenError when the caller is not the trip's pilot.
+     *
+     * @param  string  $action  Spanish infinitive used to build the message.
+     */
+    private function ensureUserIsTheAssignedPilot(User $user, Trip $trip, string $action): void
+    {
+        if ($trip->pilot_id !== $user->id) {
+            throw new ForbiddenError("No puedes {$action} un viaje que no tienes asignado");
         }
     }
 
