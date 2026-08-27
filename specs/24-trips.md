@@ -1,6 +1,6 @@
 # SPEC 24 — Viajes de exportación
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 03, SPEC 04, SPEC 15, SPEC 16, SPEC 20, SPEC 21, SPEC 22, SPEC 23
 > **Fecha:** 2026-08-27
 > **Objetivo:** Publicar el dominio `Trip` —el viaje que enlaza cliente, naviera, punto de partida y puerto de destino—, con alta y edición exclusivas del administrador, asignación de piloto y vehículo por el transportista, arranque y cierre por el piloto asignado, y un ámbito de lectura derivado de quién asignó.
@@ -291,7 +291,7 @@ Cada paso deja el sistema funcionando y es commiteable por sí solo.
 7. **Provider.** `app/Providers/Trip/TripProvider.php` con el `bind(TripServiceInterface::class, TripService::class)`, registrado en `bootstrap/providers.php`.
 
 8. **FormRequests**, los tres con `messages()` en español y `prepareForValidation()` que normaliza `order` y `container`:
-   - `StoreTripRequest` — los catorce campos obligatorios (`order`, cuatro FK, `destination`, `container`, `transport`, `recolectionDate`, `shipDate`, `polyline`, `observations`), con `exists:` en las FK, `date|after:now` en las dos fechas y `after_or_equal:recolectionDate` en `shipDate`. **No acepta `status`, `pilotId`, `vehicleId`, `assignedBy` ni `registeredBy`**: mandarlos se descarta sin error.
+   - `StoreTripRequest` — los doce campos obligatorios (`order`, cuatro FK, `destination`, `container`, `transport`, `recolectionDate`, `shipDate`, `polyline`, `observations`), con `exists:` en las FK, `date|after:now` en las dos fechas y `after_or_equal:recolectionDate` en `shipDate`. **No acepta `status`, `pilotId`, `vehicleId`, `assignedBy` ni `registeredBy`**: mandarlos se descarta sin error.
    - `UpdateTripRequest` — los mismos campos como `sometimes|required`, **más `status`** (`Rule::enum(TripStatus::class)`), **menos `pilotId` y `vehicleId`**.
    - `AssignTripRequest` — exactamente dos campos, los dos `required`: `pilotId` y `vehicleId`.
 
@@ -343,9 +343,9 @@ Cada paso deja el sistema funcionando y es commiteable por sí solo.
 
 **Alta**
 
-- [ ] `POST` con los catorce campos responde **201**, con `status = pending`, `registered_by` igual al usuario autenticado y `pilot_id`, `vehicle_id` y `assigned_by` en `null`.
+- [ ] `POST` con los doce campos responde **201**, con `status = pending`, `registered_by` igual al usuario autenticado y `pilot_id`, `vehicle_id` y `assigned_by` en `null`.
 - [ ] Mandar `status`, `pilotId`, `vehicleId`, `assignedBy` o `registeredBy` en el body **no cambia nada** y no da error.
-- [ ] Falta cualquiera de los catorce → **422**.
+- [ ] Falta cualquiera de los doce → **422**.
 - [ ] `order` y `container` se guardan en MAYÚSCULAS con espacios colapsados; `destination`, `transport` y `observations` conservan sus mayúsculas y minúsculas tal cual, con solo `trim`.
 - [ ] Dos viajes pueden tener el mismo `order` y el mismo `container`: no hay 400 ni 422.
 - [ ] `recolectionDate` o `shipDate` en el **pasado** → **422**.
