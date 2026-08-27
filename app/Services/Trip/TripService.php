@@ -61,9 +61,18 @@ class TripService implements TripServiceInterface
     private const DATE_FORMAT = 'Y-m-d';
 
     /**
-     * The four catalog foreign keys, revalidated on every write.
+     * The four catalog foreign keys, revalidated on every write, mapped to their column.
+     *
+     * The body speaks camelCase and the table snake_case, so every write goes through one
+     * of these maps instead of dumping the payload straight into the model: a key the
+     * contract does not name simply has nowhere to land.
      */
-    private const CATALOG_FIELDS = ['client_id', 'shipping_line_id', 'departure_point_id', 'location_id'];
+    private const CATALOG_FIELDS = [
+        'clientId' => 'client_id',
+        'shippingLineId' => 'shipping_line_id',
+        'departurePointId' => 'departure_point_id',
+        'locationId' => 'location_id',
+    ];
 
     /**
      * The two references normalized to upper case with collapsed inner whitespace.
@@ -86,9 +95,19 @@ class TripService implements TripServiceInterface
      * trip may go back to pending keeping both of its execution dates.
      */
     private const UPDATABLE_FIELDS = [
-        'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
-        'destination', 'container', 'transport',
-        'recolection_date', 'ship_date', 'polyline', 'observations', 'status',
+        'order' => 'order',
+        'clientId' => 'client_id',
+        'shippingLineId' => 'shipping_line_id',
+        'departurePointId' => 'departure_point_id',
+        'locationId' => 'location_id',
+        'destination' => 'destination',
+        'container' => 'container',
+        'transport' => 'transport',
+        'recolectionDate' => 'recolection_date',
+        'shipDate' => 'ship_date',
+        'polyline' => 'polyline',
+        'observations' => 'observations',
+        'status' => 'status',
     ];
 
     #[Override]
@@ -180,7 +199,7 @@ class TripService implements TripServiceInterface
     #[Override]
     public function create(User $user, array $data): Trip
     {
-        $catalogs = array_intersect_key($data, array_flip(self::CATALOG_FIELDS));
+        $catalogs = $this->mapCatalogs($data);
 
         $this->ensureCatalogsAreUsable($catalogs);
 
@@ -198,8 +217,8 @@ class TripService implements TripServiceInterface
             'destination' => $data['destination'],
             'transport' => $data['transport'],
             'observations' => $data['observations'],
-            'recolection_date' => $data['recolection_date'],
-            'ship_date' => $data['ship_date'],
+            'recolection_date' => $data['recolectionDate'],
+            'ship_date' => $data['shipDate'],
             /** La ruta ya resuelta por el frontend: este service nunca llama a Google. */
             'polyline' => $data['polyline'],
             /** Nace pendiente y sin dueño operativo: solo /assignment llena la tripulación. */
@@ -219,11 +238,18 @@ class TripService implements TripServiceInterface
     {
         $trip = $this->resolveWritableTrip($id);
 
-        $payload = array_intersect_key($data, array_flip(self::UPDATABLE_FIELDS));
+        /**
+         * Se traduce clave a clave contra el mapa: lo que el contrato no nombra —pilotId,
+         * vehicleId, assignedBy, registeredBy— no tiene columna donde caer y se ignora en
+         * silencio con 200, como el vehicle_id de un gasto.
+         */
+        $payload = [];
 
-        foreach (self::REFERENCE_FIELDS as $field) {
-            if (isset($payload[$field])) {
-                $payload[$field] = Trip::normalizeReference($payload[$field]);
+        foreach (self::UPDATABLE_FIELDS as $field => $column) {
+            if (array_key_exists($field, $data)) {
+                $payload[$column] = in_array($field, self::REFERENCE_FIELDS, true)
+                    ? Trip::normalizeReference($data[$field])
+                    : $data[$field];
             }
         }
 
@@ -232,9 +258,11 @@ class TripService implements TripServiceInterface
          * almacenado: aunque el cuerpo solo mueva una fecha, un viaje no puede quedarse
          * apuntando a un puerto que se desactivó desde que se dio de alta.
          */
+        $catalogColumns = array_values(self::CATALOG_FIELDS);
+
         $this->ensureCatalogsAreUsable([
-            ...$trip->only(self::CATALOG_FIELDS),
-            ...array_intersect_key($payload, array_flip(self::CATALOG_FIELDS)),
+            ...$trip->only($catalogColumns),
+            ...array_intersect_key($payload, array_flip($catalogColumns)),
         ]);
 
         /** Un cuerpo vacío es un no-op que igualmente responde 200. */
@@ -288,12 +316,12 @@ class TripService implements TripServiceInterface
                 throw new BadRequestError('Solo se puede asignar un viaje pendiente');
             }
 
-            $this->ensureCrewIsAssignable((int) $data['pilot_id'], (int) $data['vehicle_id']);
+            $this->ensureCrewIsAssignable((int) $data['pilotId'], (int) $data['vehicleId']);
 
             /** Los tres campos se escriben juntos: no existe un viaje con piloto y sin assigned_by. */
             $trip->update([
-                'pilot_id' => (int) $data['pilot_id'],
-                'vehicle_id' => (int) $data['vehicle_id'],
+                'pilot_id' => (int) $data['pilotId'],
+                'vehicle_id' => (int) $data['vehicleId'],
                 /** Quién asignó sale del usuario autenticado, nunca del body. */
                 'assigned_by' => $user->id,
             ]);
@@ -380,6 +408,23 @@ class TripService implements TripServiceInterface
         }
 
         return $trip;
+    }
+
+    /**
+     * Translate the four catalog ids of a payload from the body's names to the columns'.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{client_id: int, shipping_line_id: int, departure_point_id: int, location_id: int}
+     */
+    private function mapCatalogs(array $data): array
+    {
+        $catalogs = [];
+
+        foreach (self::CATALOG_FIELDS as $field => $column) {
+            $catalogs[$column] = (int) $data[$field];
+        }
+
+        return $catalogs;
     }
 
     /**

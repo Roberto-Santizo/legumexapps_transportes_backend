@@ -62,11 +62,11 @@ interface TripServiceInterface
      * or the shipping line have been deleted, when the location is not a port or is
      * inactive, or when the departure point is inactive.
      *
-     * @param  array{order: string, client_id: int, shipping_line_id: int, departure_point_id: int, location_id: int, destination: string, container: string, transport: string, recolection_date: string, ship_date: string, polyline: string, observations: string}  $data
-     *                                                                                                                                                                                                                                                                        recolection_date and ship_date arrive already validated as future dates, with
-     *                                                                                                                                                                                                                                                                        ship_date at or after recolection_date; polyline is the encoded route the
-     *                                                                                                                                                                                                                                                                        frontend resolved through GET /api/places/directions — this service never calls
-     *                                                                                                                                                                                                                                                                        Google, and never recomputes it.
+     * @param  array{order: string, clientId: int, shippingLineId: int, departurePointId: int, locationId: int, destination: string, container: string, transport: string, recolectionDate: string, shipDate: string, polyline: string, observations: string}  $data
+     *                                                                                                                                                                                                                                                                recolectionDate and shipDate arrive already validated as future dates, with
+     *                                                                                                                                                                                                                                                                shipDate at or after recolectionDate; polyline is the encoded route the
+     *                                                                                                                                                                                                                                                                frontend resolved through GET /api/places/directions — this service never calls
+     *                                                                                                                                                                                                                                                                Google, and never recomputes it.
      */
     public function create(User $user, array $data): Trip;
 
@@ -88,7 +88,7 @@ interface TripServiceInterface
      * Throws a NotFoundError when the trip does not exist, a BadRequestError when it
      * has already been deleted, and the same catalog BadRequestErrors as create().
      *
-     * @param  array{order?: string, client_id?: int, shipping_line_id?: int, departure_point_id?: int, location_id?: int, destination?: string, container?: string, transport?: string, recolection_date?: string, ship_date?: string, polyline?: string, observations?: string, status?: string}  $data
+     * @param  array{order?: string, clientId?: int, shippingLineId?: int, departurePointId?: int, locationId?: int, destination?: string, container?: string, transport?: string, recolectionDate?: string, shipDate?: string, polyline?: string, observations?: string, status?: string}  $data
      */
     public function update(int $id, array $data): Trip;
 
@@ -126,8 +126,8 @@ interface TripServiceInterface
      *
      * There is no way to undo it: neither field ever goes back to null.
      *
-     * @param  array{pilot_id: int, vehicle_id: int}  $data
-     *                                                       both are required: a trip is never assigned a pilot without a vehicle.
+     * @param  array{pilotId: int, vehicleId: int}  $data
+     *                                                     both are required: a trip is never assigned a pilot without a vehicle.
      */
     public function assign(User $user, int $id, array $data): Trip;
 
