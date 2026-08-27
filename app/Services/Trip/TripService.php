@@ -59,6 +59,37 @@ class TripService implements TripServiceInterface
      */
     private const DATE_FORMAT = 'Y-m-d';
 
+    /**
+     * The four catalog foreign keys, revalidated on every write.
+     */
+    private const CATALOG_FIELDS = ['client_id', 'shipping_line_id', 'departure_point_id', 'location_id'];
+
+    /**
+     * The two references normalized to upper case with collapsed inner whitespace.
+     *
+     * `destination`, `transport` and `observations` are deliberately not here: they keep
+     * the casing they were typed with.
+     */
+    private const REFERENCE_FIELDS = ['order', 'container'];
+
+    /**
+     * The fields the administrator's general PATCH is allowed to write.
+     *
+     * Four are deliberately absent. `pilot_id` and `vehicle_id`, because assigning is
+     * what /assignment is for and it belongs to the carrier, not to the administrator;
+     * `assigned_by` and `registered_by`, because the two authors are never rewritten.
+     * Sending any of them is ignored in silence with a 200, exactly like `vehicle_id`
+     * on a vehicle expense.
+     *
+     * `status` **is** here, and it is not checked against any transition: a finished
+     * trip may go back to pending keeping both of its execution dates.
+     */
+    private const UPDATABLE_FIELDS = [
+        'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
+        'destination', 'container', 'transport',
+        'recolection_date', 'ship_date', 'polyline', 'observations', 'status',
+    ];
+
     #[Override]
     public function getTrips(User $user, array $filters): LengthAwarePaginator|Collection
     {
@@ -148,19 +179,84 @@ class TripService implements TripServiceInterface
     #[Override]
     public function create(User $user, array $data): Trip
     {
-        throw new BadRequestError('Pendiente: paso 5 de la SPEC 24');
+        $catalogs = array_intersect_key($data, array_flip(self::CATALOG_FIELDS));
+
+        $this->ensureCatalogsAreUsable($catalogs);
+
+        /**
+         * Se construye campo a campo en vez de volcar $data: así los tres campos de
+         * tripulación se descartan por construcción, aunque el FormRequest cambie o
+         * alguien llame al service directamente.
+         */
+        $trip = Trip::create([
+            ...$catalogs,
+            /** Se normaliza aquí aunque el FormRequest ya lo haya hecho: el service es llamable directamente. */
+            'order' => Trip::normalizeReference($data['order']),
+            'container' => Trip::normalizeReference($data['container']),
+            /** Los tres de texto libre entran tal como se teclearon: solo el trim del FormRequest. */
+            'destination' => $data['destination'],
+            'transport' => $data['transport'],
+            'observations' => $data['observations'],
+            'recolection_date' => $data['recolection_date'],
+            'ship_date' => $data['ship_date'],
+            /** La ruta ya resuelta por el frontend: este service nunca llama a Google. */
+            'polyline' => $data['polyline'],
+            /** Nace pendiente y sin dueño operativo: solo /assignment llena la tripulación. */
+            'status' => TripStatus::Pending,
+            'pilot_id' => null,
+            'vehicle_id' => null,
+            'assigned_by' => null,
+            /** El autor sale del usuario autenticado, nunca del body. */
+            'registered_by' => $user->id,
+        ]);
+
+        return $trip->load(self::RELATIONS);
     }
 
     #[Override]
     public function update(int $id, array $data): Trip
     {
-        throw new BadRequestError('Pendiente: paso 5 de la SPEC 24');
+        $trip = $this->resolveWritableTrip($id);
+
+        $payload = array_intersect_key($data, array_flip(self::UPDATABLE_FIELDS));
+
+        foreach (self::REFERENCE_FIELDS as $field) {
+            if (isset($payload[$field])) {
+                $payload[$field] = Trip::normalizeReference($payload[$field]);
+            }
+        }
+
+        /**
+         * Los catálogos se revalidan siempre, con lo que llega fusionado sobre lo
+         * almacenado: aunque el cuerpo solo mueva una fecha, un viaje no puede quedarse
+         * apuntando a un puerto que se desactivó desde que se dio de alta.
+         */
+        $this->ensureCatalogsAreUsable([
+            ...$trip->only(self::CATALOG_FIELDS),
+            ...array_intersect_key($payload, array_flip(self::CATALOG_FIELDS)),
+        ]);
+
+        /** Un cuerpo vacío es un no-op que igualmente responde 200. */
+        if ($payload !== []) {
+            $trip->update($payload);
+        }
+
+        return $trip->load(self::RELATIONS);
     }
 
     #[Override]
     public function destroy(int $id): Trip
     {
-        throw new BadRequestError('Pendiente: paso 5 de la SPEC 24');
+        $trip = $this->resolveWritableTrip($id);
+
+        /**
+         * Borrado lógico: la fila sigue viva —y por eso las guardas de Client y de
+         * ShippingLine miran withTrashed()—, pero desaparece de la API para siempre y el
+         * segundo intento lo corta resolveWritableTrip() con un 400.
+         */
+        $trip->delete();
+
+        return $trip;
     }
 
     #[Override]
