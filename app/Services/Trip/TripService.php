@@ -10,6 +10,7 @@ use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
 use App\Interfaces\Trip\TripServiceInterface;
+use App\Models\Carrier;
 use App\Models\Client;
 use App\Models\DeparturePoint;
 use App\Models\Location;
@@ -18,6 +19,7 @@ use App\Models\Trip;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Override;
 
@@ -41,16 +43,106 @@ class TripService implements TripServiceInterface
         'pilot', 'vehicle', 'assignedBy', 'registeredBy',
     ];
 
+    /**
+     * The five listing filters that are a plain id, mapped to their column.
+     */
+    private const ID_FILTERS = [
+        'clientId' => 'client_id',
+        'shippingLineId' => 'shipping_line_id',
+        'locationId' => 'location_id',
+        'pilotId' => 'pilot_id',
+        'vehicleId' => 'vehicle_id',
+    ];
+
+    /**
+     * The only shape the two date filters are read in.
+     */
+    private const DATE_FORMAT = 'Y-m-d';
+
     #[Override]
     public function getTrips(User $user, array $filters): LengthAwarePaginator|Collection
     {
-        throw new BadRequestError('Pendiente: paso 4 de la SPEC 24');
+        /**
+         * Sin withTrashed(): el scope del trait deja fuera a los borrados y no hay ningún
+         * filtro que los devuelva. Para el listado, un viaje borrado no existe.
+         */
+        $query = Trip::query()->with(self::RELATIONS);
+
+        /**
+         * El ámbito va **antes** que los filtros del usuario, y no después: si se aplicara
+         * al final, un `?status=pending` desde otra empresa revelaría los viajes que ya
+         * tomó la primera. Cada filtro de aquí abajo solo puede recortar lo que el ámbito
+         * ya dejó pasar.
+         */
+        $this->applyScope($query, $user);
+
+        $status = isset($filters['status']) ? TripStatus::tryFrom($filters['status']) : null;
+
+        if ($status !== null) {
+            $query->where('status', '=', $status->value);
+        }
+
+        /** Los cinco filtros por id comparten regla: numérico se aplica, cualquier otra cosa se ignora. */
+        foreach (self::ID_FILTERS as $filter => $column) {
+            if (isset($filters[$filter]) && is_numeric($filters[$filter])) {
+                $query->where($column, '=', (int) $filters[$filter]);
+            }
+        }
+
+        $dateFrom = $this->normalizeDate($filters['dateFrom'] ?? null);
+
+        if ($dateFrom !== null) {
+            $query->whereDate('recolection_date', '>=', $dateFrom);
+        }
+
+        $dateTo = $this->normalizeDate($filters['dateTo'] ?? null);
+
+        if ($dateTo !== null) {
+            /** Por día completo: un viaje de las 18:00 entra en un dateTo de ese mismo día. */
+            $query->whereDate('recolection_date', '<=', $dateTo);
+        }
+
+        /**
+         * El término se normaliza como una referencia —colapsando espacios y en mayúsculas—;
+         * `order` y `container` están siempre en mayúsculas, así que con eso basta para ser
+         * insensible a mayúsculas.
+         */
+        $search = Trip::normalizeReference($filters['search'] ?? '');
+
+        if ($search !== '') {
+            /** Agrupado, o el OR se saltaría el ámbito y los filtros anteriores. */
+            $query->where(function ($builder) use ($search) {
+                $builder->where('order', 'LIKE', '%'.$search.'%')
+                    ->orWhere('container', 'LIKE', '%'.$search.'%');
+            });
+        }
+
+        /** Orden fijo: lo próximo a recoger primero, y el id desempata entre dos del mismo instante. */
+        $query->orderByDesc('recolection_date')->orderByDesc('id');
+
+        $perPage = $this->resolvePerPage($filters['limit'] ?? null);
+
+        return $perPage === null ? $query->get() : $query->paginate($perPage);
     }
 
     #[Override]
     public function getTripById(User $user, int $id): Trip
     {
-        throw new BadRequestError('Pendiente: paso 4 de la SPEC 24');
+        /**
+         * Deliberadamente sin withTrashed(): quien lee no distingue un viaje borrado de uno
+         * que nunca existió, y los dos casos salen por el mismo 404. La distinción solo la
+         * hace resolveWritableTrip(), para dar un 400 con sentido a quien intenta escribir.
+         */
+        $trip = Trip::query()->with(self::RELATIONS)->find($id);
+
+        if ($trip === null) {
+            throw new NotFoundError('El viaje no existe');
+        }
+
+        /** Existe pero puede no ser suyo: fuera de ámbito es 403, no 404. */
+        $this->ensureUserCanSeeTrip($user, $trip);
+
+        return $trip;
     }
 
     #[Override]
@@ -239,6 +331,83 @@ class TripService implements TripServiceInterface
         }
 
         throw new ForbiddenError('No puedes acceder a un viaje que no pertenece a tu empresa transportista');
+    }
+
+    /**
+     * Narrow a listing query down to what the given user is allowed to see.
+     *
+     * The SQL counterpart of ensureUserCanSeeTrip(), and the same matrix: an
+     * administrator and a manager get no condition at all; a pilot gets his own trips,
+     * with the pool deliberately left out —he does not pick trips, they are handed to
+     * him—; anybody else gets the pool **or** whatever their own company assigned.
+     *
+     * The company comparison lands on the users of that company, not on the caller
+     * alone: a trip taken by a colleague is visible to every member, and it stays
+     * visible after that colleague leaves.
+     *
+     * @param  Builder<Trip>  $query
+     */
+    private function applyScope(Builder $query, User $user): void
+    {
+        if (in_array($user->role, [UserRole::Administrator, UserRole::Manager], true)) {
+            return;
+        }
+
+        if ($user->role === UserRole::Pilot) {
+            $query->where('pilot_id', '=', $user->id);
+
+            return;
+        }
+
+        $carrier = $user->currentCarrier();
+        $carrierUserIds = $carrier === null ? [] : $this->resolveCarrierUserIds($carrier);
+
+        /** Agrupado: sin el paréntesis el OR se llevaría por delante los filtros del usuario. */
+        $query->where(function ($builder) use ($carrierUserIds) {
+            $builder->where(function ($pool) {
+                $pool->where('status', '=', TripStatus::Pending->value)
+                    ->whereNull('pilot_id')
+                    ->whereNull('vehicle_id');
+            });
+
+            if ($carrierUserIds !== []) {
+                $builder->orWhereIn('assigned_by', $carrierUserIds);
+            }
+        });
+    }
+
+    /**
+     * List every user id belonging to the given company, owner and pilots alike.
+     *
+     * Feeds the scope condition: `assigned_by` stores a user, so turning the company
+     * into its members is what lets the comparison be about the company.
+     *
+     * @return list<int>
+     */
+    private function resolveCarrierUserIds(Carrier $carrier): array
+    {
+        return [$carrier->user_id, ...$carrier->pilots()->pluck('users.id')->all()];
+    }
+
+    /**
+     * Read a date filter, returning null for anything that is not exactly a Y-m-d date.
+     *
+     * Tolerant on purpose, like every other filter of the project: a malformed value is
+     * ignored and the listing comes back whole, instead of empty or with a 422.
+     */
+    private function normalizeDate(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $date = \DateTimeImmutable::createFromFormat('!'.self::DATE_FORMAT, $value);
+
+        if ($date === false || $date->format(self::DATE_FORMAT) !== $value) {
+            return null;
+        }
+
+        return $date->format(self::DATE_FORMAT);
     }
 
     /**
