@@ -7,6 +7,7 @@ use App\Http\Requests\Trip\AssignTripRequest;
 use App\Http\Requests\Trip\StoreTripRequest;
 use App\Http\Requests\Trip\UpdateTripRequest;
 use App\Http\Resources\PaginatedResource;
+use App\Http\Resources\Trip\TripListResource;
 use App\Http\Resources\Trip\TripResource;
 use App\Interfaces\Trip\TripServiceInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -40,7 +41,7 @@ use OpenApi\Attributes as OA;
 
     EL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [10, 100].
 
-    LA SALIDA: 31 claves en camelCase, con las seis relaciones como par id + nombre PLANO, nunca anidadas. points es un campo calculado en lectura, sin columna y sin caché. Las siete fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.
+    LA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 15 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 31 claves en camelCase, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.
 
     IMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto.
     TEXT,
@@ -52,7 +53,7 @@ class TripController extends Controller
         operationId: 'indexTrips',
         summary: 'Listar viajes',
         description: <<<'TEXT'
-        Devuelve los viajes que el usuario autenticado tiene derecho a ver, con las seis relaciones ya resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles y los cuatro obtienen 200; lo que cambia es QUÉ FILAS DEVUELVE.
+        Devuelve los viajes que el usuario autenticado tiene derecho a ver, con las relaciones ya resueltas como NOMBRE PLANO. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles y los cuatro obtienen 200; lo que cambia es QUÉ FILAS DEVUELVE.
 
         ATENCIÓN — DOS USUARIOS DISTINTOS RECIBEN LISTADOS DISTINTOS SOBRE LOS MISMOS DATOS. administrator y manager ven TODOS los viajes. Un carrier ve la BOLSA —los pending con pilotId y vehicleId en null, que están libres para cualquier empresa— MÁS los que asignó su propia empresa; en cuanto la empresa A toma un viaje, ese viaje DESAPARECE del listado de la empresa B. Un pilot ve SOLO aquellos donde pilotId es él: LA BOLSA NO LE APARECE, porque él no elige viajes, se los asignan. La comparación de empresa se hace sobre los usuarios de la empresa de assignedBy, así que un compañero ve el viaje que tomó otro.
 
@@ -61,6 +62,8 @@ class TripController extends Controller
         ATENCIÓN — LOS VIAJES BORRADOS NO APARECEN NUNCA Y NO HAY FORMA DE VERLOS: no existe withTrashed, ni onlyTrashed, ni un status que los recupere, ni endpoint /restore. El total de la paginación tampoco los cuenta.
 
         LOS OCHO FILTROS SON TOLERANTES y se combinan entre sí: un status fuera del enum, un id no numérico, una fecha que no sea exactamente Y-m-d o un search en blanco SE IGNORAN EN SILENCIO y la lectura devuelve 200 con el listado completo, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. Cualquier otro query param se ignora.
+
+        ATENCIÓN — EL LISTADO NO DEVUELVE EL RECURSO COMPLETO. Cada elemento es un TripListItem de 15 CLAVES, no el Trip de 31 del detalle: no vienen los ids de las relaciones (shippingLineId, locationId, pilotId, vehicleId…), ni clientId ni clientName, ni destination, ni transport, ni polyline, NI points, ni createdAt, updatedAt o deletedAt. De cada relación sale solo su nombre. Para pintar el mapa, filtrar por un id que salga de una fila o ver el resto de campos hay que pedir GET /api/trips/{trip}.
 
         El orden es FIJO y no configurable: recolection_date DESC —lo próximo a recoger primero— y, a igualdad, id DESC. No hay sortBy ni sortDir.
 
@@ -134,7 +137,7 @@ class TripController extends Controller
             ),
             new OA\Parameter(
                 name: 'limit',
-                description: 'Tamaño de página. Su presencia es lo que ACTIVA la paginación. Si se omite, o si no es numérico (limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se ACOTA al rango [10, 100]: limit=1 devuelve páginas de 10 y limit=500 devuelve páginas de 100. ATENCIÓN — cada elemento decodifica su propia polilínea en points, así que un limit=100 decodifica cien polilíneas por petición.',
+                description: 'Tamaño de página. Su presencia es lo que ACTIVA la paginación. Si se omite, o si no es numérico (limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se ACOTA al rango [10, 100]: limit=1 devuelve páginas de 10 y limit=500 devuelve páginas de 100. El listado NO decodifica polilíneas —points solo existe en el detalle—, así que un limit alto no encarece la respuesta por ese lado.',
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', maximum: 100, minimum: 10, example: 10),
@@ -150,7 +153,7 @@ class TripController extends Controller
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Viajes obtenidos correctamente. Sin limit se devuelve TripListResponse; con limit numérico, PaginatedTripListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Un listado vacío —porque el ámbito no deja ver ninguno o porque los filtros no casan— devuelve 200 con data vacío, nunca 404 ni 403. El deletedAt de cada elemento es siempre null: los borrados no se listan.',
+                description: 'Viajes obtenidos correctamente. Sin limit se devuelve TripListResponse; con limit numérico, PaginatedTripListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Cada elemento es un TripListItem de 15 claves, NO el Trip de 31 del detalle. Un listado vacío —porque el ámbito no deja ver ninguno o porque los filtros no casan— devuelve 200 con data vacío, nunca 404 ni 403. Los viajes borrados no se listan, y por eso el listado tampoco trae deletedAt.',
                 content: new OA\JsonContent(
                     oneOf: [
                         new OA\Schema(ref: '#/components/schemas/TripListResponse'),
@@ -171,8 +174,8 @@ class TripController extends Controller
             $trips = $tripService->getTrips(auth('api')->user(), $this->filters($request));
 
             $data = $trips instanceof LengthAwarePaginator
-                ? new PaginatedResource($trips, TripResource::class)
-                : TripResource::collection($trips);
+                ? new PaginatedResource($trips, TripListResource::class)
+                : TripListResource::collection($trips);
 
             return ResponseHandler::success($data, 'Viajes obtenidos correctamente', 200);
         } catch (\Throwable $th) {

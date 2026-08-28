@@ -20,15 +20,15 @@ use OpenApi\Attributes as OA;
  * 12 hour clock and AM/PM—, not ISO 8601: parsing them as ISO fails. `startDate` and
  * `endDate` stay null until the pilot actually starts and closes the trip.
  *
- * `deletedAt` is null on seven of the eight endpoints, because none of them can reach
- * a deleted trip. The exception is the response of the DELETE itself, which paints the
- * row that was just soft deleted.
+ * `deletedAt` is null on six of the seven endpoints that paint it, because none of them
+ * can reach a deleted trip. The exception is the response of the DELETE itself, which
+ * paints the row that was just soft deleted.
  */
 #[OA\Schema(
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 31 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en los ocho endpoints del dominio.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 31 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
@@ -253,26 +253,6 @@ use OpenApi\Attributes as OA;
         ),
     ],
     type: 'object',
-)]
-#[OA\Schema(
-    schema: 'TripListResponse',
-    title: 'Listado de viajes sin paginar',
-    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
-    properties: [
-        new OA\Property(property: 'statusCode', type: 'integer', example: 200),
-        new OA\Property(property: 'message', type: 'string', example: 'Viajes obtenidos correctamente'),
-        new OA\Property(property: 'data', type: 'array', items: new OA\Items(ref: '#/components/schemas/Trip')),
-    ],
-    type: 'object',
-)]
-#[OA\Schema(
-    schema: 'PaginatedTripListResponse',
-    title: 'Listado de viajes paginado',
-    description: 'Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. ATENCIÓN — cada elemento decodifica su propia polilínea en points, así que un limit=100 decodifica cien polilíneas por petición.',
-    allOf: [
-        new OA\Schema(ref: '#/components/schemas/TripListResponse'),
-        new OA\Schema(ref: '#/components/schemas/PaginationMeta'),
-    ],
 )]
 class TripResource extends JsonResource
 {

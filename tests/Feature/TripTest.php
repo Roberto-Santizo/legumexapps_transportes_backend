@@ -234,6 +234,27 @@ function tripResourceKeys(): array
 }
 
 /**
+ * The 15 keys `TripListResource` promises, in the order the resource declares them.
+ *
+ * El listado es una vista de tabla: no trae los ids de las relaciones, ni `clientName`,
+ * ni `destination`, ni `transport`, ni `polyline`, ni `points`, ni las tres marcas de
+ * tiempo de la fila. Para todo eso está el detalle.
+ *
+ * @return array<int, string>
+ */
+function tripListResourceKeys(): array
+{
+    return [
+        'id', 'order', 'status',
+        'shippingLineName', 'departurePointName', 'locationName',
+        'container',
+        'recolectionDate', 'shipDate', 'startDate', 'endDate',
+        'observations',
+        'pilotName', 'vehiclePlate', 'registeredByName',
+    ];
+}
+
+/**
  * La expresión del formato de fecha `d-m-Y h:i:s A` que promete el TripResource.
  */
 function tripDatePattern(): string
@@ -333,8 +354,9 @@ it('deja ver al transportista la bolsa de viajes pendientes y sin tripulación',
 
     expect($data)->toHaveCount(1)
         ->and($data[0]['id'])->toBe($enLaBolsa->id)
-        ->and($data[0]['pilotId'])->toBeNull()
-        ->and($data[0]['vehicleId'])->toBeNull()
+        /** El listado no trae pilotId ni vehicleId: la bolsa se reconoce por los nombres en null. */
+        ->and($data[0]['pilotName'])->toBeNull()
+        ->and($data[0]['vehiclePlate'])->toBeNull()
         ->and($data[0]['status'])->toBe('pending')
         ->and(collect($data)->pluck('id')->all())->not->toContain($deOtraEmpresa->id);
 });
@@ -1474,7 +1496,7 @@ it('no pagina cuando el limit no es numérico', function () {
         ->and($response->json('data'))->toHaveCount(11);
 });
 
-it('no dispara N+1 al listar viajes con sus ocho relaciones', function () {
+it('no dispara N+1 al listar viajes con sus seis relaciones', function () {
     Trip::factory()->count(10)->assigned()->create();
 
     /** El token se emite antes de escuchar: sus claims consultan la empresa del usuario. */
@@ -1494,7 +1516,8 @@ it('no dispara N+1 al listar viajes con sus ocho relaciones', function () {
 
     /** Una consulta por el listado y una por cada relación cargada con with(). */
     expect($porTabla('trips'))->toBe(1)
-        ->and($porTabla('clients'))->toBe(1)
+        /** El listado no pinta el cliente, así que tampoco lo carga. */
+        ->and($porTabla('clients'))->toBe(0)
         ->and($porTabla('shipping_lines'))->toBe(1)
         ->and($porTabla('departure_points'))->toBe(1)
         ->and($porTabla('locations'))->toBe(1)
@@ -1677,7 +1700,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve las 31 claves en camelCase en el listado y en el detalle', function () {
+it('devuelve 15 claves en el listado y las 31 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -1686,8 +1709,27 @@ it('devuelve las 31 claves en camelCase en el listado y en el detalle', function
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
     expect(tripResourceKeys())->toHaveCount(31)
-        ->and(array_keys($delListado))->toBe(tripResourceKeys())
+        ->and(tripListResourceKeys())->toHaveCount(15)
+        ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripResourceKeys());
+});
+
+it('deja fuera del listado las claves que solo pinta el detalle', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+    tripAssignedTo($team, ['registered_by' => $admin->id]);
+
+    $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
+
+    expect(array_diff(tripResourceKeys(), tripListResourceKeys()))->not->toBeEmpty()
+        ->and($delListado)->not->toHaveKeys([
+            'clientId', 'clientName',
+            'shippingLineId', 'departurePointId', 'locationId',
+            'destination', 'transport',
+            'polyline', 'points',
+            'pilotId', 'vehicleId', 'assignedById', 'assignedByName',
+            'createdAt', 'updatedAt', 'deletedAt',
+        ]);
 });
 
 it('devuelve las seis relaciones como par id + nombre plano, nunca como objeto anidado', function () {
@@ -1755,7 +1797,7 @@ it('devuelve el estado con el valor crudo del enum en inglés', function (string
     expect(asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data.status'))->toBe($estado);
 })->with(['pending', 'in_route', 'finished']);
 
-it('devuelve deletedAt en null en los siete endpoints que no son el DELETE', function () {
+it('devuelve deletedAt en null en los seis endpoints que lo pintan y no son el DELETE', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
 
@@ -1764,7 +1806,8 @@ it('devuelve deletedAt en null en los siete endpoints que no son el DELETE', fun
         ->assertJsonPath('data.deletedAt', null)
         ->json('data.id');
 
-    expect(asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0.deletedAt'))->toBeNull()
+    /** El listado ni siquiera trae la clave: los borrados no se listan. */
+    expect(asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0'))->not->toHaveKey('deletedAt')
         ->and(asUser($admin)->getJson("/api/trips/{$id}")->assertOk()->json('data.deletedAt'))->toBeNull()
         ->and(asUser($admin)->patchJson("/api/trips/{$id}", ['order' => 'ord-2026-9999'])->assertOk()->json('data.deletedAt'))->toBeNull()
         ->and(asUser($team['owner'])->patchJson("/api/trips/{$id}/assignment", [

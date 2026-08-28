@@ -37,11 +37,20 @@ class TripService implements TripServiceInterface
     private const MAX_PER_PAGE = 100;
 
     /**
-     * The eight relations every read carries, so a listing never falls into N+1.
+     * The eight relations a detail read carries, so painting a trip never falls into N+1.
      */
     private const RELATIONS = [
         'client', 'shippingLine', 'departurePoint', 'location',
         'pilot', 'vehicle', 'assignedBy', 'registeredBy',
+    ];
+
+    /**
+     * The six relations the listing actually paints: `TripListResource` names them and
+     * drops `client` and `assignedBy`, so a page does not load what nobody reads.
+     */
+    private const LIST_RELATIONS = [
+        'shippingLine', 'departurePoint', 'location',
+        'pilot', 'vehicle', 'registeredBy',
     ];
 
     /**
@@ -117,7 +126,7 @@ class TripService implements TripServiceInterface
          * Sin withTrashed(): el scope del trait deja fuera a los borrados y no hay ningún
          * filtro que los devuelva. Para el listado, un viaje borrado no existe.
          */
-        $query = Trip::query()->with(self::RELATIONS);
+        $query = Trip::query()->with(self::LIST_RELATIONS);
 
         /**
          * El ámbito va **antes** que los filtros del usuario, y no después: si se aplicara
