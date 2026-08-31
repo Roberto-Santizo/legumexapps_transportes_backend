@@ -291,12 +291,15 @@ it('devuelve una Collection sin limit y un LengthAwarePaginator con él', functi
         ->and(tripService()->getTrips($admin, ['limit' => '10']))->toBeInstanceOf(LengthAwarePaginator::class);
 });
 
-it('acota el tamaño de página a [10, 100]', function (string $limit, int $esperado) {
+it('acota el tamaño de página a [1, 100], sin el piso de 10 del resto del proyecto', function (string $limit, int $esperado) {
     $paginator = tripService()->getTrips(tripServiceUser(UserRole::Administrator), ['limit' => $limit]);
 
     expect($paginator->perPage())->toBe($esperado);
 })->with([
-    'por debajo del mínimo' => ['1', 10],
+    'un tamaño pequeño se respeta tal cual' => ['5', 5],
+    'el mínimo' => ['1', 1],
+    'cero sube al mínimo' => ['0', 1],
+    'negativo sube al mínimo' => ['-20', 1],
     'dentro del rango' => ['25', 25],
     'por encima del máximo' => ['500', 100],
 ]);

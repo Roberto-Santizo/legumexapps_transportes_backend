@@ -27,9 +27,14 @@ use Override;
 class TripService implements TripServiceInterface
 {
     /**
-     * Smallest page size accepted, so nobody sweeps the table row by row.
+     * Smallest page size accepted.
+     *
+     * A one is deliberately **not** the ten the rest of the project uses: a page of
+     * trips is a board the frontend paints whole, so asking for five has to give five
+     * and not a silently rounded ten. The floor only rules out a zero or a negative
+     * page size, which the paginator cannot honour at all.
      */
-    private const MIN_PER_PAGE = 10;
+    private const MIN_PER_PAGE = 1;
 
     /**
      * Largest page size accepted, so nobody asks for the whole table at once.
@@ -715,7 +720,8 @@ class TripService implements TripServiceInterface
      * Resolve the page size requested by the client.
      *
      * A missing or non numeric limit means "do not paginate"; a numeric one is clamped
-     * to [10, 100].
+     * to [1, 100]: the requested size is honoured as it comes and only the ceiling
+     * still bites, so nobody asks for the whole table at once.
      */
     private function resolvePerPage(?string $limit): ?int
     {

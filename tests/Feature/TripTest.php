@@ -208,10 +208,11 @@ function tripPayload(array $overrides = []): array
 }
 
 /**
- * The 31 keys `TripResource` promises, in the order the resource declares them.
+ * The 32 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
- * its name, and `points` is derived from `polyline` on every read.
+ * its name —the vehicle adds a third key, `vehicleImage`—, and `points` is derived
+ * from `polyline` on every read.
  *
  * @return array<int, string>
  */
@@ -227,7 +228,7 @@ function tripResourceKeys(): array
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
         'polyline', 'points', 'observations',
         'pilotId', 'pilotName',
-        'vehicleId', 'vehiclePlate',
+        'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
         'createdAt', 'updatedAt', 'deletedAt',
     ];
@@ -1473,15 +1474,26 @@ it('devuelve los metadatos de paginación en la raíz del sobre', function () {
         ->and($response->json('meta'))->toBeNull();
 });
 
-it('acota el tamaño de página a [10, 100] también por HTTP', function () {
+it('respeta un limit menor a diez, sin subirlo al piso del resto del proyecto', function () {
     $admin = userWithRole(UserRole::Administrator);
     Trip::factory()->count(11)->create();
 
-    $porDebajo = asUser($admin)->getJson('/api/trips?limit=1')->assertOk();
+    $response = asUser($admin)->getJson('/api/trips?limit=5')->assertOk();
+
+    expect($response->json('data'))->toHaveCount(5)
+        ->and($response->json('total'))->toBe(11)
+        ->and($response->json('lastPage'))->toBe(3);
+});
+
+it('acota el tamaño de página a [1, 100] también por HTTP', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    Trip::factory()->count(11)->create();
+
+    $porDebajo = asUser($admin)->getJson('/api/trips?limit=0')->assertOk();
     $porEncima = asUser($admin)->getJson('/api/trips?limit=500')->assertOk();
 
-    expect($porDebajo->json('data'))->toHaveCount(10)
-        ->and($porDebajo->json('lastPage'))->toBe(2)
+    expect($porDebajo->json('data'))->toHaveCount(1)
+        ->and($porDebajo->json('lastPage'))->toBe(11)
         ->and($porEncima->json('data'))->toHaveCount(11)
         ->and($porEncima->json('lastPage'))->toBe(1);
 });
@@ -1700,7 +1712,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 15 claves en el listado y las 31 del detalle, y no las confunde', function () {
+it('devuelve 15 claves en el listado y las 32 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -1708,7 +1720,7 @@ it('devuelve 15 claves en el listado y las 31 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(31)
+    expect(tripResourceKeys())->toHaveCount(32)
         ->and(tripListResourceKeys())->toHaveCount(15)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripResourceKeys());
@@ -1727,7 +1739,7 @@ it('deja fuera del listado las claves que solo pinta el detalle', function () {
             'shippingLineId', 'departurePointId', 'locationId',
             'destination', 'transport',
             'polyline', 'points',
-            'pilotId', 'vehicleId', 'assignedById', 'assignedByName',
+            'pilotId', 'vehicleId', 'vehicleImage', 'assignedById', 'assignedByName',
             'createdAt', 'updatedAt', 'deletedAt',
         ]);
 });
@@ -1757,6 +1769,72 @@ it('devuelve las seis relaciones como par id + nombre plano, nunca como objeto a
         ->and($data['registeredByName'])->toBe($admin->name)
         /** Ni un solo objeto anidado: las seis relaciones salen aplanadas. */
         ->and(collect($data)->except('points')->filter(fn ($valor) => is_array($valor))->all())->toBe([]);
+});
+
+it('devuelve vehicleImage como URL absoluta del vehículo asignado, no como la key cruda', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+    $team['vehicle']->update(['image' => 'vehicles/camion.png']);
+    $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
+
+    $data = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+
+    expect($data['vehicleImage'])->toStartWith('http')
+        ->and($data['vehicleImage'])->toEndWith('vehicles/camion.png')
+        /** La tercera clave del vehículo sigue siendo plana: no hay objeto anidado. */
+        ->and($data['vehicleId'])->toBe($team['vehicle']->id)
+        ->and($data['vehiclePlate'])->toBe($team['vehicle']->plate);
+});
+
+it('devuelve vehicleImage en null cuando el vehículo asignado no tiene imagen', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+    $team['vehicle']->update(['image' => null]);
+    $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
+
+    $data = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+
+    /** El vehículo está asignado: el null es de la imagen, no de la bolsa. */
+    expect($data['vehicleImage'])->toBeNull()
+        ->and($data['vehicleId'])->toBe($team['vehicle']->id)
+        ->and($data['vehiclePlate'])->toBe($team['vehicle']->plate);
+});
+
+it('devuelve vehicleImage en null mientras el viaje siga en la bolsa', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $trip = Trip::factory()->create(['pilot_id' => null, 'vehicle_id' => null, 'assigned_by' => null]);
+
+    $data = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+
+    expect($data['vehicleImage'])->toBeNull()
+        ->and($data['vehicleId'])->toBeNull()
+        ->and($data['vehiclePlate'])->toBeNull();
+});
+
+it('escribe vehicleImage en la respuesta de la asignación', function () {
+    $team = tripTeam();
+    $team['vehicle']->update(['image' => 'vehicles/asignado.jpg']);
+    $trip = Trip::factory()->create();
+
+    $data = asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+    ])->assertOk()->json('data');
+
+    expect($data['vehicleImage'])->toStartWith('http')
+        ->and($data['vehicleImage'])->toEndWith('vehicles/asignado.jpg');
+});
+
+it('no pinta vehicleImage en el listado, que se queda con la placa', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+    $team['vehicle']->update(['image' => 'vehicles/camion.png']);
+    tripAssignedTo($team, ['registered_by' => $admin->id]);
+
+    $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
+
+    expect($delListado)->not->toHaveKey('vehicleImage')
+        ->and($delListado['vehiclePlate'])->toBe($team['vehicle']->plate);
 });
 
 it('decodifica points desde la polilínea, igual que PolylineDecoder', function () {
