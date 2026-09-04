@@ -7,6 +7,7 @@ use App\Errors\ForbiddenError;
 use App\Errors\UnauthorizedError;
 use App\Interfaces\Auth\AuthEmailsInterface;
 use App\Interfaces\Auth\AuthServiceInterface;
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -27,11 +28,22 @@ class AuthService implements AuthServiceInterface
     private const RESET_TABLE = 'password_reset_tokens';
 
     /**
+     * Directory the pilot's DPI and licence photos are stored under.
+     *
+     * A single directory for both documents: the object name is a UUID and nobody
+     * browses the bucket by folder, so splitting it into `dpis` and `licenses`
+     * would buy nothing.
+     */
+    private const PILOT_DOCUMENT_DIRECTORY = 'pilot-documents';
+
+    /**
      * Injected by constructor, unlike the controllers' per-method injection:
-     * the emails are a dependency of several methods of this service.
+     * the emails are a dependency of several methods of this service, and the
+     * storage is what the pilot registration uploads its two documents through.
      */
     public function __construct(
         private AuthEmailsInterface $authEmails,
+        private readonly FileStorageServiceInterface $fileStorage,
     ) {}
 
     #[Override]
