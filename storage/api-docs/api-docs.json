@@ -6351,6 +6351,836 @@
                 ]
             }
         },
+        "/api/trips": {
+            "get": {
+                "tags": [
+                    "Trips"
+                ],
+                "summary": "Listar viajes",
+                "description": "Devuelve los viajes que el usuario autenticado tiene derecho a ver, con las relaciones ya resueltas como NOMBRE PLANO. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles y los cuatro obtienen 200; lo que cambia es QUÉ FILAS DEVUELVE.\n\nATENCIÓN — DOS USUARIOS DISTINTOS RECIBEN LISTADOS DISTINTOS SOBRE LOS MISMOS DATOS. administrator y manager ven TODOS los viajes. Un carrier ve la BOLSA —los pending con pilotId y vehicleId en null, que están libres para cualquier empresa— MÁS los que asignó su propia empresa; en cuanto la empresa A toma un viaje, ese viaje DESAPARECE del listado de la empresa B. Un pilot ve SOLO aquellos donde pilotId es él: LA BOLSA NO LE APARECE, porque él no elige viajes, se los asignan. La comparación de empresa se hace sobre los usuarios de la empresa de assignedBy, así que un compañero ve el viaje que tomó otro.\n\nATENCIÓN — EL ÁMBITO SE APLICA ANTES QUE LOS FILTROS. Un ?status=pending desde la empresa B no revela los viajes ya tomados por la A: los filtros solo pueden RECORTAR lo que el ámbito dejó pasar, nunca ampliarlo. No hay filtro por empresa asignataria ni por assignedBy: ni siquiera el administrador puede pedir «los viajes de la empresa X».\n\nATENCIÓN — LOS VIAJES BORRADOS NO APARECEN NUNCA Y NO HAY FORMA DE VERLOS: no existe withTrashed, ni onlyTrashed, ni un status que los recupere, ni endpoint /restore. El total de la paginación tampoco los cuenta.\n\nLOS OCHO FILTROS SON TOLERANTES y se combinan entre sí: un status fuera del enum, un id no numérico, una fecha que no sea exactamente Y-m-d o un search en blanco SE IGNORAN EN SILENCIO y la lectura devuelve 200 con el listado completo, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. Cualquier otro query param se ignora.\n\nATENCIÓN — EL LISTADO NO DEVUELVE EL RECURSO COMPLETO. Cada elemento es un TripListItem de 15 CLAVES, no el Trip de 31 del detalle: no vienen los ids de las relaciones (shippingLineId, locationId, pilotId, vehicleId…), ni clientId ni clientName, ni destination, ni transport, ni polyline, NI points, ni createdAt, updatedAt o deletedAt. De cada relación sale solo su nombre. Para pintar el mapa, filtrar por un id que salga de una fila o ver el resto de campos hay que pedir GET /api/trips/{trip}.\n\nEl orden es FIJO y no configurable: recolection_date DESC —lo próximo a recoger primero— y, a igualdad, id DESC. No hay sortBy ni sortDir.\n\nLa forma de la respuesta depende de limit: sin limit se devuelven todos los registros y el sobre NO trae total, currentPage ni lastPage; con un limit numérico salen esos tres APLANADOS EN LA RAÍZ, no bajo meta.",
+                "operationId": "indexTrips",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Estado exacto del viaje. Solo se aplica si coincide con uno de los tres valores del enum; cualquier otra cosa (status=PENDING, status=basura, status[]=pending) se ignora y devuelve el listado completo, nunca 422 ni lista vacía. ATENCIÓN — no amplía el ámbito: un carrier que pide status=pending sigue viendo solo la bolsa y lo suyo, no los pending que tomó otra empresa.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "pending",
+                            "enum": [
+                                "pending",
+                                "in_route",
+                                "finished"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "clientId",
+                        "in": "query",
+                        "description": "Filtra por cliente exportador (comparación exacta contra client_id). Un valor no numérico se ignora. Un id que no existe devuelve 200 con data vacío, no 404.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    },
+                    {
+                        "name": "shippingLineId",
+                        "in": "query",
+                        "description": "Filtra por naviera (comparación exacta contra shipping_line_id). Un valor no numérico se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 2
+                        }
+                    },
+                    {
+                        "name": "locationId",
+                        "in": "query",
+                        "description": "Filtra por puerto de destino (comparación exacta contra location_id). Un valor no numérico se ignora. NO hay filtro por departurePointId ni por el destination de texto libre.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 9
+                        }
+                    },
+                    {
+                        "name": "pilotId",
+                        "in": "query",
+                        "description": "Filtra por piloto asignado (comparación exacta contra pilot_id). Un valor no numérico se ignora. Para un pilot es redundante: su ámbito ya lo acota a sus propios viajes, así que pedir el id de otro devuelve lista vacía y nunca los viajes ajenos.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 12
+                        }
+                    },
+                    {
+                        "name": "vehicleId",
+                        "in": "query",
+                        "description": "Filtra por vehículo asignado (comparación exacta contra vehicle_id). Un valor no numérico se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 8
+                        }
+                    },
+                    {
+                        "name": "dateFrom",
+                        "in": "query",
+                        "description": "Límite inferior sobre la FECHA DE RECOLECCIÓN planificada (no sobre createdAt ni sobre shipDate). ATENCIÓN — se lee en Y-m-d ESTRICTO: 2026-09-02 se aplica, pero 02-09-2026, 2026-9-2 o una fecha con hora SE IGNORAN en silencio y devuelven el listado completo, nunca 422. Compara por día completo.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "2026-09-01"
+                        }
+                    },
+                    {
+                        "name": "dateTo",
+                        "in": "query",
+                        "description": "Límite superior sobre la FECHA DE RECOLECCIÓN planificada, también en Y-m-d estricto y también tolerante. Compara POR DÍA COMPLETO: un viaje de las 18:00 entra en un dateTo de ese mismo día. Se combina con dateFrom; un rango invertido devuelve 200 con data vacío, no 422.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "2026-09-30"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Búsqueda parcial (LIKE %TERM%) sobre DOS campos a la vez: order Y container. El término se normaliza como una referencia —recorte, colapso de espacios y mayúsculas— y las dos columnas están siempre en mayúsculas, así que la búsqueda es insensible a mayúsculas: search=ord-2026, search=ORD-2026 y search=Ord-2026 funcionan igual. En blanco o de solo espacios se ignora. NO busca en destination, transport ni observations, y NO alcanza a los viajes borrados.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "ORD-2026"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que ACTIVA la paginación. Si se omite, o si no es numérico (limit=abc), se devuelven todos los registros sin error y sin metadatos de paginación. Si es numérico se ACOTA al rango [1, 100]: ATENCIÓN — a diferencia del resto de listados del proyecto, AQUÍ NO HAY PISO DE 10 y el tamaño pedido se respeta tal cual, así que limit=5 devuelve páginas de 5; solo sigue mordiendo el techo, y limit=500 devuelve páginas de 100. Un limit de 0 o negativo se sube a 1. El listado NO decodifica polilíneas —points solo existe en el detalle—, así que un limit alto no encarece la respuesta por ese lado.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Viajes obtenidos correctamente. Sin limit se devuelve TripListResponse; con limit numérico, PaginatedTripListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Cada elemento es un TripListItem de 15 claves, NO el Trip de 31 del detalle. Un listado vacío —porque el ámbito no deja ver ninguno o porque los filtros no casan— devuelve 200 con data vacío, nunca 404 ni 403. Los viajes borrados no se listan, y por eso el listado tampoco trae deletedAt.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/TripListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedTripListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Trips"
+                ],
+                "summary": "Publicar un viaje",
+                "description": "Publica un viaje de exportación. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer viajes.\n\nEl cuerpo tiene DOCE CAMPOS Y LOS DOCE SON OBLIGATORIOS. El viaje NACE EN LA BOLSA: status pending, pilotId, vehicleId y assignedById en null, y registeredByName el del administrador autenticado.\n\nATENCIÓN — CINCO CAMPOS SE DESCARTAN SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. Mandarlos no cambia nada y no da 422. EL ADMINISTRADOR NO PUEDE ASIGNAR TRIPULACIÓN NI AQUÍ NI EN NINGUNA OTRA RUTA: quien toma el viaje es una empresa transportista, con PATCH /api/trips/{trip}/assignment.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL. Un id de catálogo INVENTADO es 422, porque las cuatro claves foráneas llevan exists:. Pero esa regla LEE LA TABLA EN CRUDO y NO VE EL BORRADO LÓGICO: un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Y el exists: tampoco mira el type ni el status, así que un destino que no es puerto, un puerto inactivo o un punto de partida inactivo también caen en 400, no en 422.\n\nATENCIÓN — LA POLILÍNEA ES OBLIGATORIA Y LA API NUNCA LLAMA A GOOGLE. Se resuelve antes con GET /api/places/directions (SPEC 16) y se manda ya calculada; el backend la guarda tal cual y no comprueba que corresponda al punto de partida y al puerto enviados.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan en MAYÚSCULAS con espacios colapsados —el cliente debe pintar los de la respuesta, no los que tecleó el usuario—; destination, transport y observations se guardan tal cual, con solo trim. NI order NI container SON ÚNICOS: publicar dos viajes con la misma orden y el mismo contenedor es legal y no da ni 400 ni 422.\n\nLas dos fechas planificadas deben ser FUTURAS y shipDate nunca anterior a recolectionDate; las dos incumplencias son 422.\n\nIMPACTO SOBRE SPEC 22 Y SPEC 23: en cuanto un cliente o una naviera tienen su primer viaje, su DELETE pasa a responder 400 —«No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados»—, y la guarda mira también los viajes borrados.",
+                "operationId": "storeTrip",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreTripRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Viaje registrado correctamente, con status pending, pilotId, pilotName, vehicleId, vehiclePlate, assignedById y assignedByName en null —el viaje entra en la bolsa—, startDate y endDate en null, registeredByName el del administrador autenticado, order y container ya normalizados en mayúsculas y deletedAt en null. Las fechas salen en el formato propio d-m-Y h:i:s A, no en el que se enviaron.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Viaje registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Trip"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida, nunca un valor mal formado. Cinco casos, cada uno con su mensaje literal: «El cliente seleccionado fue eliminado» y «La naviera seleccionada fue eliminada» —los dos llegan hasta aquí porque el exists: de Laravel NO VE EL BORRADO LÓGICO—; «El destino seleccionado no es un puerto» cuando la location es de tipo destination; «El puerto de destino está inactivo»; y «El punto de partida está inactivo». ATENCIÓN — un id que NO EXISTE en ninguna de las cuatro tablas no cae aquí: es 422.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer viajes—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors} y NO con el sobre {statusCode, message, data} del resto de la API. Casos: falta cualquiera de los doce campos obligatorios; un clientId, shippingLineId, departurePointId o locationId que NO EXISTE (El cliente seleccionado no existe, La naviera seleccionada no existe, El punto de partida seleccionado no existe, El puerto de destino seleccionado no existe); una fecha mal formada o EN EL PASADO (La fecha de recolección debe ser futura / La fecha de embarque debe ser futura); un shipDate anterior al recolectionDate (La fecha de embarque no puede ser anterior a la de recolección); o un texto que supere los 255 caracteres. ATENCIÓN — un catálogo BORRADO, INACTIVO o QUE NO ES PUERTO no cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trips/{trip}": {
+            "get": {
+                "tags": [
+                    "Trips"
+                ],
+                "summary": "Obtener un viaje por id",
+                "description": "Devuelve un viaje concreto con sus 32 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.\n\nATENCIÓN — UN VIAJE FUERA DE ÁMBITO RESPONDE 403, NO 404, y es deliberado: el ámbito esconde filas de un listado, no pretende que nunca se publicaran. Es lo contrario del viaje borrado, que sí es 404. Los dos mensajes de 403 son distintos según el rol: un pilot que pide un viaje que no tiene asignado recibe «No puedes acceder a un viaje que no tienes asignado»; un carrier que pide uno tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista».\n\nQué alcanza cada rol: administrator y manager, CUALQUIER viaje; un carrier, los de la BOLSA —pending con pilotId y vehicleId en null— y los que asignó su propia empresa, comparando la empresa de assignedBy y no el usuario exacto; un pilot, SOLO aquellos donde pilotId es él —ni siquiera los de la bolsa—.\n\nATENCIÓN — UN VIAJE BORRADO RESPONDE 404 CON EL MISMO MENSAJE QUE UN id INEXISTENTE («El viaje no existe»), y es deliberado: quien lee no distingue «ya no está» de «nunca existió». Las cinco rutas de escritura sí los distinguen, con 400 «El viaje ya fue eliminado». No hay parámetro que devuelva los borrados ni endpoint /restore.\n\nEl deletedAt de esta respuesta es SIEMPRE null: por definición, aquí solo se alcanzan viajes vivos. No hay consulta por order ni por container: para eso está el filtro search del listado, que además tampoco es único.",
+                "operationId": "showTrip",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Identificador numérico del viaje (trips.id). NO es su order ni su container —ninguno de los dos es único y no existe consulta por ellos—. El id de un viaje borrado sigue ocupado en la base, pero ya no es alcanzable por esta ruta: responde 404.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Viaje obtenido correctamente. Siempre un viaje vivo y dentro del ámbito del usuario, con deletedAt en null, status con el valor crudo del enum en inglés, points ya decodificado desde polyline y las siete fechas con el formato d-m-Y h:i:s A, no ISO 8601.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Viaje obtenido correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Trip"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "EL VIAJE EXISTE PERO ESTÁ FUERA DEL ÁMBITO DEL USUARIO, y por eso es 403 y no 404. Un pilot que pide un viaje que no tiene asignado —incluidos los de la bolsa— recibe «No puedes acceder a un viaje que no tienes asignado»; un carrier que pide uno ya tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista». Un administrator y un manager no ven nunca este 403. Esta ruta NO lleva role: ni carrier.required, así que el 403 lo levanta siempre el service, no un middleware.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El viaje no existe, o EXISTE PERO ESTÁ BORRADO: los dos casos salen por el mismo mensaje «El viaje no existe» y no se pueden distinguir desde la lectura. Distinguirlos revelaría qué ids llegaron a existir. La escritura sí los separa, con 400 sobre un viaje borrado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Trips"
+                ],
+                "summary": "Eliminar un viaje",
+                "description": "Da de baja un viaje. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nES UN BORRADO LÓGICO (soft delete): la fila SIGUE EN LA BASE con su deleted_at puesto, pero DESAPARECE de la API para siempre. No se lista, no se consulta por id —el GET responde 404— y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni un status— que la devuelva, ni endpoint /restore. UN VIAJE BORRADO POR ERROR SOLO SE RECUPERA DESDE LA BASE DE DATOS.\n\nATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 32 claves. En los otros siete endpoints es siempre null.\n\nNO HAY CONFIRMACIÓN Y NO SE COMPRUEBA EL ESTADO: se borra igual un viaje pending que uno in_route o uno ya finished, y también uno que una empresa ya tomó, sin avisar a nadie —no hay notificaciones—. De hecho, BORRAR Y VOLVER A CREAR ES LA ÚNICA SALIDA cuando un viaje se queda atascado: el administrador no puede asignar y no se puede desasignar.\n\nEL SEGUNDO DELETE RESPONDE 400 «El viaje ya fue eliminado», NO 404, y así se distingue de un id que nunca existió, que sí es 404.\n\nLos catálogos a los que apuntaba el viaje NO se tocan, y borrarlo NO LIBERA NADA: la guarda que impide eliminar un cliente o una naviera con viajes MIRA TAMBIÉN LOS VIAJES BORRADOS, así que borrar el viaje no habilita borrar después su cliente ni su naviera —siguen respondiendo 400 «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados»—.",
+                "operationId": "destroyTrip",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Identificador numérico del viaje (trips.id). Tras el borrado el id sigue existiendo en la base pero deja de ser alcanzable: el GET responde 404 y las cinco rutas de escritura, 400.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Viaje eliminado correctamente. La respuesta pinta la fila recién borrada y es LA ÚNICA de la API con deletedAt CON VALOR, en el formato propio d-m-Y h:i:s A. El resto de campos —incluida la asignación, si la tenía— se devuelven tal como quedaron.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Viaje eliminado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Trip"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El viaje YA ESTABA BORRADO. Mensaje literal: «El viaje ya fue eliminado». Es lo que separa el segundo DELETE de un id inexistente, que es 404. El borrado NO es idempotente, al contrario que la baja lógica de Products, Locations o Departure Points.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator. El mensaje del middleware role es: No tienes permisos para acceder a este recurso. Ni el carrier que tomó el viaje ni el piloto que lo conduce pueden borrarlo.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El id no corresponde a ningún viaje, ni vivo ni borrado. Mensaje: El viaje no existe.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Trips"
+                ],
+                "summary": "Actualizar un viaje",
+                "description": "Edita los datos de un viaje. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo. NO comprueba ámbito, porque solo lo alcanza el administrador, que ve todos los viajes.\n\nTodos los campos son opcionales y solo se toca lo que venga. Un CUERPO VACÍO responde 200 como no-op, devolviendo el viaje sin cambios y sin mover updatedAt. Opcional no es vaciable: enviar una clave en blanco o con null es 422.\n\nATENCIÓN — ESTE PATCH NO ASIGNA NI DESASIGNA. pilotId y vehicleId NO SE ACEPTAN y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva su asignación. Tampoco se reescriben assignedBy ni registeredBy. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, EXCLUSIVA DEL carrier. CONSECUENCIA REAL: si ninguna empresa toma un viaje, el administrador NO PUEDE DESATASCARLO por esta vía —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status SE ACEPTA Y NO HAY MÁQUINA DE ESTADOS. Los tres valores son válidos en cualquier orden y NO se tocan las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas. Cuando status y fechas discrepen, EL RELATO LO CUENTAN LAS FECHAS. Un valor fuera del enum es 422. startDate y endDate no se aceptan por ninguna vía: las pone el servidor en /start y /finish.\n\nATENCIÓN — LOS CUATRO CATÁLOGOS SE REVALIDAN SIEMPRE, aunque el cuerpo solo mueva una fecha: el service fusiona lo enviado sobre lo almacenado. Un viaje que apunta a un puerto que se desactivó DESPUÉS del alta responde 400 aunque el PATCH no toque locationId. Mismo reparto que el alta: id inventado 422, cliente o naviera BORRADOS 400.\n\nATENCIÓN — SI SE CAMBIA locationId O departurePointId HAY QUE REMANDAR polyline EN EL MISMO PATCH. La API NO la recalcula, NO llama a Google y NO AVISA: la polilínea guardada queda obsoleta y el mapa dibuja una ruta que ya no corresponde, con points obsoleto también. Debe resolverse de nuevo con GET /api/places/directions.\n\nLas dos fechas planificadas DEJAN DE EXIGIR FUTURO aquí, al contrario que en el alta.\n\nATENCIÓN — SOBRE UN VIAJE YA BORRADO ESTE ENDPOINT RESPONDE 400 «El viaje ya fue eliminado», NO 404. Es la asimetría del dominio: la lectura no distingue el borrado del inexistente, la escritura sí. Un id que nunca existió sigue siendo 404 aquí. Y NO EXISTE FORMA DE RESTAURAR UN VIAJE BORRADO: ni con este PATCH ni con ningún otro endpoint.",
+                "operationId": "updateTrip",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Identificador numérico del viaje (trips.id). El id NO cambia al editar: corregir cualquier campo conserva la identidad del viaje y su asignación.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateTripRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Viaje actualizado correctamente, con order y container ya normalizados y el resto de campos tal como se teclearon. Conserva su asignación —pilotId, vehicleId y assignedById intactos, aunque se hayan enviado—, su registeredByName y sus startDate y endDate. Un cuerpo vacío devuelve el viaje sin cambios, también con 200.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Viaje actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Trip"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida. Seis casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404—; «El cliente seleccionado fue eliminado»; «La naviera seleccionada fue eliminada»; «El destino seleccionado no es un puerto»; «El puerto de destino está inactivo»; y «El punto de partida está inactivo». ATENCIÓN — los cinco últimos pueden salir AUNQUE EL PATCH NO TOQUE ESE CAMPO, porque los cuatro catálogos se revalidan en cada edición con los valores almacenados.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol del usuario autenticado no es administrator. El mensaje del middleware role es: No tienes permisos para acceder a este recurso. ATENCIÓN — este 403 es siempre de rol, nunca de ámbito: el administrador ve todos los viajes, así que aquí no existe el 403 por recurso ajeno del show.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El id no corresponde a ningún viaje, ni vivo ni borrado. Mensaje: El viaje no existe. Un viaje que SÍ existió y fue borrado NO cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors}. Casos: una clave enviada en blanco, de solo espacios o con null —opcional no es vaciable—; un id de catálogo que NO EXISTE; una fecha mal formada; un shipDate anterior al recolectionDate cuando las dos viajan juntas; un status fuera del enum (El estado del viaje no es válido); o un texto que supere los 255 caracteres. ATENCIÓN — pilotId y vehicleId NO producen 422: simplemente se ignoran.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trips/{trip}/assignment": {
+            "patch": {
+                "tags": [
+                    "Trips"
+                ],
+                "summary": "Tomar un viaje asignándole piloto y vehículo",
+                "description": "Es el acto por el que una EMPRESA TRANSPORTISTA TOMA un viaje: escribe pilotId, vehicleId y assignedBy de una sola vez, los tres juntos —no existe un viaje con piloto y sin assignedBy—.\n\nATENCIÓN — ES EXCLUSIVA DEL ROL carrier Y ADEMÁS EXIGE EMPRESA. Lleva role:carrier Y carrier.required. UN administrator RECIBE 403 AQUÍ: no puede asignar por ninguna vía, porque asignar es decidir por el transportista, y el PATCH general tampoco acepta esos campos. Un manager y un pilot también reciben 403. Y un carrier QUE TODAVÍA NO HA REGISTRADO SU EMPRESA recibe 403 del middleware carrier.required, «Debes estar vinculado a un transportista para acceder a este recurso», ANTES DE LLEGAR AL SERVICE.\n\nQUIÉN PUEDE TOMAR QUÉ: un viaje de la BOLSA —pending con pilotId y vehicleId en null— está libre para CUALQUIER empresa; una vez tomado, solo la empresa de su assignedBy puede volver a tocarlo, y puede hacerlo CUALQUIER USUARIO de esa empresa, no solo la persona exacta que asignó. Otra empresa recibe 403 «No puedes asignar un viaje que ya tomó otra empresa transportista».\n\nATENCIÓN — REASIGNAR SOLO MIENTRAS EL VIAJE SIGA pending. En in_route o finished la respuesta es 400 «Solo se puede asignar un viaje pendiente»: cambiarle el piloto a un viaje ya arrancado dejaría un startDate puesto por alguien que ya no aparece en el registro.\n\nATENCIÓN — NO EXISTE LA DESASIGNACIÓN. Los dos campos son obligatorios y null es 422: pilot_id y vehicle_id NO VUELVEN NUNCA a null y el viaje no regresa a la bolsa. CONSECUENCIA REAL: si una empresa toma un viaje por error y no lo suelta, o si nadie lo toma, NADIE PUEDE DESATASCARLO POR API —la única salida es que el administrador lo borre y lo cree de nuevo—.\n\nREPARTO 422 / 400: un pilotId o un vehicleId INVENTADO es 422, por el exists:; que el usuario tenga rol pilot, que tenga empresa, que el vehículo esté active y que los dos sean de LA MISMA EMPRESA son reglas de negocio y salen como 400.\n\nTodo el chequeo corre DENTRO DE UNA TRANSACCIÓN CON BLOQUEO DE FILA, así que dos transportistas que intenten tomar el mismo viaje libre a la vez no se pisan: solo uno gana y el otro recibe 403 o 400, nunca dos escrituras.\n\nSobre un viaje BORRADO responde 400 «El viaje ya fue eliminado», no 404.",
+                "operationId": "assignTrip",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Identificador numérico del viaje (trips.id). La ruta se declara ANTES del apiResource, o el comodín {trip} capturaría «assignment» y lo resolvería como el detalle de un viaje con ese id.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AssignTripRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Viaje asignado correctamente. Devuelve el viaje con pilotId/pilotName, vehicleId/vehiclePlate y assignedById/assignedByName ya escritos —assignedById es el usuario autenticado, nunca lo que venga en el cuerpo—. ATENCIÓN: el status NO cambia, sigue siendo pending; quien lo mueve es el piloto con /start. A partir de aquí el viaje SALE DE LA BOLSA y deja de verlo cualquier otra empresa.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Viaje asignado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Trip"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida. Seis casos con su mensaje literal: «El viaje ya fue eliminado»; «Solo se puede asignar un viaje pendiente» —reasignar uno in_route o finished—; «El usuario seleccionado no es un piloto»; «El piloto seleccionado no pertenece a ninguna empresa transportista»; «El vehículo seleccionado no está activo» —vale tanto para inactive como para under_repair—; y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Tres orígenes distintos. Uno, el rol no es carrier —UN administrator TAMBIÉN CAE AQUÍ, junto al manager y al pilot—: «No tienes permisos para acceder a este recurso». Dos, es un carrier SIN EMPRESA REGISTRADA y lo para el middleware carrier.required antes del service: «Debes estar vinculado a un transportista para acceder a este recurso». Tres, el viaje YA LO TOMÓ OTRA EMPRESA: «No puedes asignar un viaje que ya tomó otra empresa transportista».",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El id no corresponde a ningún viaje, ni vivo ni borrado. Mensaje: El viaje no existe. Un viaje borrado NO cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors}. Casos: falta pilotId o vehicleId —no se puede asignar solo uno— (El piloto es obligatorio / El vehículo es obligatorio); se envía NULL en cualquiera de los dos, porque LA DESASIGNACIÓN NO EXISTE; o el id NO EXISTE en su tabla (El piloto seleccionado no existe / El vehículo seleccionado no existe). ATENCIÓN — un piloto sin rol de piloto, un piloto sin empresa, un vehículo no activo o una pareja de empresas distintas NO caen aquí: son 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trips/{trip}/start": {
+            "patch": {
+                "tags": [
+                    "Trips"
+                ],
+                "summary": "Iniciar un viaje",
+                "description": "Marca el arranque real del viaje: escribe startDate y mueve status a in_route.\n\nATENCIÓN — NO TIENE CUERPO. No lleva FormRequest y no acepta ningún campo: LA FECHA LA PONE EL now() DEL SERVIDOR y mandarla en el body NO SE USA. Es deliberado: aceptarla del cliente permitiría a un piloto declarar que arrancó tres horas antes, y como no hay bitácora nadie lo notaría. El coste asumido es que un piloto sin señal no puede registrar el arranque a la hora en que ocurrió.\n\nATENCIÓN — ES EXCLUSIVA DEL ROL pilot (middleware role:pilot): un administrator, un carrier o un manager reciben 403 del middleware. Y dentro, SOLO EL PILOTO ASIGNADO la alcanza: otro piloto —aunque sea de la misma empresa— recibe 403 «No puedes iniciar un viaje que no tienes asignado». La marca de ejecución es de quien conduce, no de su empresa.\n\nSOBRE UN VIAJE YA INICIADO ES 400 «El viaje ya fue iniciado»: se comprueba startDate, no el status, así que un viaje que el administrador devolvió a pending conservando su startDate TAMPOCO se puede volver a iniciar.\n\nSobre un viaje BORRADO responde 400 «El viaje ya fue eliminado», y esa comprobación va ANTES que la del piloto: un piloto ajeno sobre un viaje borrado ve el 400, no el 403.\n\nNo hay ruta inversa: no existe /unstart ni forma de limpiar startDate. Lo más parecido es que el administrador mueva el status a mano con el PATCH general, pero LA FECHA SE QUEDA.",
+                "operationId": "startTrip",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Identificador numérico del viaje (trips.id). Tiene que ser un viaje cuyo pilotId sea el usuario autenticado. La ruta se declara ANTES del apiResource, o el comodín {trip} capturaría «start».",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Viaje iniciado correctamente. Devuelve el viaje con startDate puesto con la HORA DEL SERVIDOR, en el formato d-m-Y h:i:s A, y status en in_route. endDate sigue en null y la asignación no cambia.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Viaje iniciado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Trip"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dos casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404, y se comprueba antes que el piloto— y «El viaje ya fue iniciado» —el viaje ya tiene startDate, aunque su status haya vuelto a pending—.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Dos orígenes. Uno, el rol no es pilot —administrator, carrier y manager caen aquí—: «No tienes permisos para acceder a este recurso». Dos, es un piloto PERO NO EL ASIGNADO A ESTE VIAJE, incluido el caso de un viaje todavía en la bolsa: «No puedes iniciar un viaje que no tienes asignado».",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El id no corresponde a ningún viaje, ni vivo ni borrado. Mensaje: El viaje no existe.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trips/{trip}/finish": {
+            "patch": {
+                "tags": [
+                    "Trips"
+                ],
+                "summary": "Finalizar un viaje",
+                "description": "Marca el cierre real del viaje: escribe endDate y mueve status a finished.\n\nATENCIÓN — NO TIENE CUERPO, igual que /start. No lleva FormRequest y no acepta ningún campo: LA FECHA LA PONE EL now() DEL SERVIDOR y mandarla en el body NO SE USA.\n\nATENCIÓN — ES EXCLUSIVA DEL ROL pilot (middleware role:pilot): un administrator, un carrier o un manager reciben 403. Y dentro, SOLO EL PILOTO ASIGNADO la alcanza: otro piloto recibe 403 «No puedes finalizar un viaje que no tienes asignado».\n\nTRES CIERRES IMPOSIBLES, LOS TRES CON 400: sobre un viaje YA FINALIZADO, «El viaje ya fue finalizado»; sobre un viaje SIN startDate, «El viaje no ha sido iniciado» —un viaje no se cierra antes de empezar, por mucho que el administrador le haya movido el status a mano—; y sobre un viaje BORRADO, «El viaje ya fue eliminado». Las comprobaciones miran las FECHAS, no el status: un viaje que el administrador devolvió a pending conservando su endDate tampoco se puede volver a finalizar.\n\nEl orden de las guardas es: viaje borrado (400) → piloto asignado (403) → ya finalizado (400) → sin iniciar (400).\n\nNo hay ruta inversa: no existe /unfinish ni forma de limpiar endDate, y el cierre no dispara ninguna notificación ni ningún cálculo de costos —este dominio no cotiza nada—.",
+                "operationId": "finishTrip",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Identificador numérico del viaje (trips.id). Tiene que ser un viaje cuyo pilotId sea el usuario autenticado y que YA TENGA startDate. La ruta se declara ANTES del apiResource, o el comodín {trip} capturaría «finish».",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Viaje finalizado correctamente. Devuelve el viaje con endDate puesto con la HORA DEL SERVIDOR, en el formato d-m-Y h:i:s A, y status en finished. startDate y la asignación no cambian.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Viaje finalizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/Trip"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Tres casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404—; «El viaje ya fue finalizado» —ya tiene endDate—; y «El viaje no ha sido iniciado» —no tiene startDate: no se puede cerrar un viaje que nunca arrancó—.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Dos orígenes. Uno, el rol no es pilot —administrator, carrier y manager caen aquí—: «No tienes permisos para acceder a este recurso». Dos, es un piloto PERO NO EL ASIGNADO A ESTE VIAJE: «No puedes finalizar un viaje que no tienes asignado».",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El id no corresponde a ningún viaje, ni vivo ni borrado. Mensaje: El viaje no existe.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/vehicles": {
             "get": {
                 "tags": [
@@ -9007,6 +9837,193 @@
                 },
                 "type": "object"
             },
+            "AssignTripRequest": {
+                "title": "Asignación de tripulación a un viaje",
+                "description": "Cuerpo JSON con el que una empresa transportista TOMA un viaje. EXACTAMENTE DOS CAMPOS —pilotId y vehicleId— Y LOS DOS SON OBLIGATORIOS: no se puede asignar solo el piloto o solo el vehículo, y faltar cualquiera de ellos es 422.\n\nATENCIÓN — ES EXCLUSIVO DEL ROL carrier Y ADEMÁS EXIGE EMPRESA. La ruta lleva role:carrier y carrier.required: un administrator, un manager o un pilot reciben 403 «No tienes permisos para acceder a este recurso», y un carrier que todavía no ha registrado su empresa recibe 403 «Debes estar vinculado a un transportista para acceder a este recurso» ANTES DE LLEGAR AL SERVICE. EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA, y el PATCH general tampoco acepta estos dos campos.\n\nATENCIÓN — NO EXISTE LA DESASIGNACIÓN. Mandar null en cualquiera de los dos es 422: una vez tomado, un viaje NO VUELVE NUNCA A LA BOLSA y pilot_id y vehicle_id no regresan a null por ninguna vía. Se pueden CAMBIAR —reasignar— pero solo mientras el viaje siga pending y solo desde la empresa que ya lo tomó; sobre un viaje in_route o finished la respuesta es 400 «Solo se puede asignar un viaje pendiente». Consecuencia real: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, la única salida por API es borrarlo y crearlo de nuevo.\n\nassignedBy NO SE ENVÍA: sale del usuario autenticado, que por el middleware es siempre un transportista, y se escribe junto con los otros dos —no existe un viaje con piloto y sin assignedBy—. Guarda el USUARIO, pero el ámbito compara su EMPRESA: cualquier compañero de esa empresa ve el viaje y puede reasignarlo.\n\nATENCIÓN — REPARTO 422 / 400: el exists: convierte un id inventado en 422; que el usuario tenga rol de piloto, que tenga empresa, que el vehículo esté active y que los dos sean de la MISMA empresa son reglas de negocio y salen como 400 desde el service, cada una con su mensaje literal.\n\nLa escritura corre dentro de una transacción con bloqueo de fila, así que dos transportistas que intenten tomar el mismo viaje a la vez no se pisan: solo uno gana y el otro recibe 403 o 400.",
+                "required": [
+                    "pilotId",
+                    "vehicleId"
+                ],
+                "properties": {
+                    "pilotId": {
+                        "description": "Id del usuario que conducirá el viaje (users.id). OBLIGATORIO, entero y con regla exists:users,id (mensajes: El piloto es obligatorio / El piloto debe ser un identificador válido / El piloto seleccionado no existe). ATENCIÓN — el exists: solo comprueba que el usuario EXISTA: que tenga rol pilot y que pertenezca a una empresa son reglas del service y salen como 400 con «El usuario seleccionado no es un piloto» y «El piloto seleccionado no pertenece a ninguna empresa transportista». null es 422: la desasignación no existe.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "vehicleId": {
+                        "description": "Id del vehículo que hará el viaje (vehicles.id). OBLIGATORIO, entero y con regla exists:vehicles,id (mensajes: El vehículo es obligatorio / El vehículo debe ser un identificador válido / El vehículo seleccionado no existe). ATENCIÓN — debe estar en estado active: un inactive o un under_repair responden 400 «El vehículo seleccionado no está activo». Y debe ser de LA MISMA EMPRESA que el piloto: si no, 400 «El piloto y el vehículo deben pertenecer a la misma empresa transportista». null es 422.",
+                        "type": "integer",
+                        "example": 8
+                    }
+                },
+                "type": "object"
+            },
+            "StoreTripRequest": {
+                "title": "Alta de viaje",
+                "description": "Cuerpo JSON para publicar un viaje de exportación. Son DOCE CAMPOS Y LOS DOCE SON OBLIGATORIOS: order, clientId, shippingLineId, departurePointId, locationId, destination, container, transport, recolectionDate, shipDate, polyline y observations. Falta cualquiera de ellos y la respuesta es 422. Es EXCLUSIVO del rol administrator.\n\nATENCIÓN — CINCO CAMPOS SE DESCARTAN SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. Mandarlos no cambia nada y no da 422. El viaje NACE pending, SIN TRIPULACIÓN —pilotId, vehicleId y assignedById salen en null— y el registeredBy se toma del usuario autenticado. La tripulación solo la escribe PATCH /api/trips/{trip}/assignment, que es del carrier: EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan regla exists:, así que un id INVENTADO es 422. Pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO: un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400 —«El cliente seleccionado fue eliminado» / «La naviera seleccionada fue eliminada»—. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El destino seleccionado no es un puerto», «El puerto de destino está inactivo» y «El punto de partida está inactivo».\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y LA API NUNCA LLAMA A GOOGLE. polyline es obligatoria aquí y también en el PATCH; se resuelve antes con GET /api/places/directions (SPEC 16) y se envía ya calculada. El backend no la recalcula ni la valida contra el par punto de partida / puerto.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos, sin 400 ni 422.\n\nCualquier otra clave que se envíe se descarta en silencio.",
+                "required": [
+                    "order",
+                    "clientId",
+                    "shippingLineId",
+                    "departurePointId",
+                    "locationId",
+                    "destination",
+                    "container",
+                    "transport",
+                    "recolectionDate",
+                    "shipDate",
+                    "polyline",
+                    "observations"
+                ],
+                "properties": {
+                    "order": {
+                        "description": "Referencia comercial del viaje. OBLIGATORIA, texto y de 255 caracteres como máximo (mensajes: La orden es obligatoria / La orden debe ser texto / La orden no puede superar los 255 caracteres). Se normaliza ANTES de validarse: recorte, COLAPSO de los espacios internos a uno y MAYÚSCULAS, así que \"  ord-2026   0148  \" guarda \"ORD-2026 0148\". Una orden de solo espacios sale por order.required, porque el recorte la deja vacía antes de validarse. ATENCIÓN — NO ES ÚNICA: repetirla es legal y no da ni 400 ni 422.",
+                        "type": "string",
+                        "example": "ORD-2026-0148",
+                        "maxLength": 255
+                    },
+                    "clientId": {
+                        "description": "Id del cliente exportador (clients.id). OBLIGATORIO y entero, con regla exists:clients,id (mensajes: El cliente es obligatorio / El cliente debe ser un identificador válido / El cliente seleccionado no existe). ATENCIÓN — un id inventado es 422, pero un cliente BORRADO pasa el exists: —que no ve el borrado lógico— y lo para el service con 400 «El cliente seleccionado fue eliminado».",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "shippingLineId": {
+                        "description": "Id de la naviera (shipping_lines.id). OBLIGATORIO y entero, con regla exists:shipping_lines,id (mensajes: La naviera es obligatoria / La naviera debe ser un identificador válido / La naviera seleccionada no existe). Mismo reparto que el cliente: id inventado 422, naviera BORRADA 400 «La naviera seleccionada fue eliminada».",
+                        "type": "integer",
+                        "example": 2
+                    },
+                    "departurePointId": {
+                        "description": "Id del punto de partida (departure_points.id, SPEC 20). OBLIGATORIO y entero, con regla exists:departure_points,id (mensajes: El punto de partida es obligatorio / El punto de partida debe ser un identificador válido / El punto de partida seleccionado no existe). ATENCIÓN — el exists: no mira el status: un punto de partida INACTIVO pasa la validación y lo para el service con 400 «El punto de partida está inactivo».",
+                        "type": "integer",
+                        "example": 5
+                    },
+                    "locationId": {
+                        "description": "Id del PUERTO de destino (locations.id, SPEC 15 y SPEC 21). OBLIGATORIO y entero, con regla exists:locations,id (mensajes: El puerto de destino es obligatorio / El puerto de destino debe ser un identificador válido / El puerto de destino seleccionado no existe). ATENCIÓN — NO SIRVE CUALQUIER DESTINO: la location debe ser de tipo port y estar activa, y ninguna de las dos cosas la comprueba el exists:. Un destino ordinario responde 400 «El destino seleccionado no es un puerto» y un puerto inactivo, 400 «El puerto de destino está inactivo».",
+                        "type": "integer",
+                        "example": 9
+                    },
+                    "destination": {
+                        "description": "Destino final en el extranjero. OBLIGATORIO, texto y de 255 caracteres como máximo (mensajes: El destino final es obligatorio / El destino final debe ser texto / El destino final no puede superar los 255 caracteres). ES TEXTO LIBRE: no lo respalda ningún catálogo, no es una location y no se puede filtrar por él. Se guarda TAL COMO SE TECLEA, con solo trim: conserva mayúsculas, minúsculas y espacios interiores.",
+                        "type": "string",
+                        "example": "Rotterdam, Países Bajos",
+                        "maxLength": 255
+                    },
+                    "container": {
+                        "description": "Identificación del contenedor. OBLIGATORIA, texto y de 255 caracteres como máximo (mensajes: El contenedor es obligatorio / El contenedor debe ser texto / El contenedor no puede superar los 255 caracteres). Se normaliza igual que order: recorte, colapso de espacios internos y MAYÚSCULAS. ATENCIÓN — TAMPOCO ES ÚNICO: dos viajes pueden llevar el mismo contenedor.",
+                        "type": "string",
+                        "example": "MSKU 483920 1",
+                        "maxLength": 255
+                    },
+                    "transport": {
+                        "description": "Medio o empresa de transporte. OBLIGATORIO, texto y de 255 caracteres como máximo (mensajes: El transporte es obligatorio / El transporte debe ser texto / El transporte no puede superar los 255 caracteres). Se guarda con solo trim, sin mayúsculas ni colapso de espacios. Es descriptivo y NO tiene relación con el vehículo que después asigne el transportista.",
+                        "type": "string",
+                        "example": "Rastra 40 pies",
+                        "maxLength": 255
+                    },
+                    "recolectionDate": {
+                        "description": "Fecha y hora planificadas de recolección. OBLIGATORIA y con formato de fecha válido, y ADEMÁS DEBE SER FUTURA respecto al momento del alta (mensajes: La fecha de recolección es obligatoria / La fecha de recolección no es válida / La fecha de recolección debe ser futura). ATENCIÓN — de ENTRADA se acepta cualquier formato que Laravel parsee, típicamente ISO 8601, pero de SALIDA vuelve con el formato propio d-m-Y h:i:s A: no coinciden. En el PATCH la exigencia de futuro desaparece.",
+                        "type": "string",
+                        "example": "2026-09-02 06:00:00"
+                    },
+                    "shipDate": {
+                        "description": "Fecha y hora planificadas de embarque. OBLIGATORIA, con formato válido, FUTURA y NUNCA ANTERIOR a recolectionDate (mensajes: La fecha de embarque es obligatoria / La fecha de embarque no es válida / La fecha de embarque debe ser futura / La fecha de embarque no puede ser anterior a la de recolección). Igual que la anterior, entra en formato parseable y sale en d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "2026-09-04 23:30:00"
+                    },
+                    "polyline": {
+                        "description": "Polilínea codificada de Google con la ruta prevista. OBLIGATORIA y texto (mensajes: La ruta es obligatoria / La ruta debe ser texto). ATENCIÓN — LA RESUELVE EL FRONTEND con GET /api/places/directions y la API NUNCA LLAMA A GOOGLE ni la recalcula: se guarda tal cual llega, sin comprobar que corresponda al punto de partida y al puerto enviados. No tiene límite de longitud —la columna es TEXT—.",
+                        "type": "string",
+                        "example": "ynzmDbpb_Ln@bAtEsC"
+                    },
+                    "observations": {
+                        "description": "Instrucciones del viaje. OBLIGATORIAS y texto (mensajes: Las observaciones son obligatorias / Las observaciones deben ser texto). Son obligatorias a propósito, aunque parezcan un campo de notas: si el alta la hace el administrador y el viaje lo ejecuta otra empresa, es el ÚNICO CANAL DE INSTRUCCIONES del dominio. Se guardan tal como se teclean, con solo trim, y no tienen límite de longitud.",
+                        "type": "string",
+                        "example": "Carga refrigerada a -2 °C."
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateTripRequest": {
+                "title": "Actualización de viaje",
+                "description": "Cuerpo JSON para editar un viaje. Es EXCLUSIVO del rol administrator. TODOS LOS CAMPOS SON OPCIONALES y solo se toca lo que venga: un CUERPO VACÍO responde 200 como no-op, sin mover siquiera updatedAt. Opcional NO es vaciable: enviar una clave en blanco, de solo espacios o con null es 422.\n\nSon los mismos doce campos del alta MÁS status, y MENOS pilotId y vehicleId.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR NI DESASIGNAR. pilotId y vehicleId NO SE ACEPTAN AQUÍ y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva la asignación que tuviera. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, exclusiva del carrier. Tampoco se reescriben assignedBy ni registeredBy: mandarlos se descarta igual. Consecuencia real: SI NINGUNA EMPRESA TOMA UN VIAJE, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status SE ACEPTA Y NO HAY MÁQUINA DE ESTADOS. Los tres valores del enum son válidos en cualquier orden y NO se tocan las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas. El frontend debe pintar el relato desde las FECHAS, no desde el status. Un valor fuera del enum es 422.\n\nATENCIÓN — LOS CATÁLOGOS SE REVALIDAN SIEMPRE, aunque el cuerpo solo mueva una fecha: el service fusiona lo enviado sobre lo almacenado y vuelve a comprobar los cuatro. Un viaje que apunta a un puerto que se desactivó desde el alta responde 400 aunque el PATCH no toque locationId. Mismo reparto 422 / 400 que el alta: id inventado 422, cliente o naviera BORRADOS 400.\n\nATENCIÓN — SI SE CAMBIA locationId O departurePointId HAY QUE REMANDAR LA POLILÍNEA. polyline es obligatoria si se envía, pero nada obliga a enviarla al cambiar el destino: la API NO la recalcula y NO AVISA, así que la guardada queda obsoleta y el mapa dibuja una ruta que ya no corresponde. Debe resolverse de nuevo con GET /api/places/directions y viajar en el MISMO PATCH.\n\nLas dos fechas planificadas DEJAN DE EXIGIR FUTURO —editar un viaje ya arrancado no puede obligar a reprogramarlo—; el orden entre ellas se mantiene y solo se comprueba cuando las dos viajan juntas. startDate y endDate NO se aceptan por ninguna vía: las pone el servidor en /start y /finish.\n\nNormalización idéntica a la del alta: order y container en MAYÚSCULAS con espacios colapsados; destination, transport y observations con solo trim.",
+                "properties": {
+                    "order": {
+                        "description": "Referencia comercial. Opcional; si se envía es obligatoria, texto y de 255 caracteres como máximo (La orden es obligatoria / La orden debe ser texto / La orden no puede superar los 255 caracteres). Se normaliza a MAYÚSCULAS con espacios colapsados antes de validarse, así que una orden de solo espacios cae en order.required. Sigue sin ser única.",
+                        "type": "string",
+                        "example": "ORD-2026-0148",
+                        "maxLength": 255
+                    },
+                    "clientId": {
+                        "description": "Id del cliente exportador. Opcional; si se envía es obligatorio, entero y con exists:clients,id (El cliente es obligatorio / El cliente debe ser un identificador válido / El cliente seleccionado no existe). Un cliente BORRADO pasa el exists: y lo para el service con 400 «El cliente seleccionado fue eliminado». Se revalida también cuando NO se envía, con el valor almacenado.",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "shippingLineId": {
+                        "description": "Id de la naviera. Opcional; si se envía es obligatorio, entero y con exists:shipping_lines,id (La naviera es obligatoria / La naviera debe ser un identificador válido / La naviera seleccionada no existe). Una naviera BORRADA pasa el exists: y la para el service con 400 «La naviera seleccionada fue eliminada».",
+                        "type": "integer",
+                        "example": 2
+                    },
+                    "departurePointId": {
+                        "description": "Id del punto de partida. Opcional; si se envía es obligatorio, entero y con exists:departure_points,id (El punto de partida es obligatorio / El punto de partida debe ser un identificador válido / El punto de partida seleccionado no existe). Uno INACTIVO pasa el exists: y lo para el service con 400 «El punto de partida está inactivo». ATENCIÓN — cambiarlo deja la polilínea obsoleta si no se remanda.",
+                        "type": "integer",
+                        "example": 5
+                    },
+                    "locationId": {
+                        "description": "Id del PUERTO de destino. Opcional; si se envía es obligatorio, entero y con exists:locations,id (El puerto de destino es obligatorio / El puerto de destino debe ser un identificador válido / El puerto de destino seleccionado no existe). Sigue teniendo que ser de tipo port y estar activo: 400 «El destino seleccionado no es un puerto» o 400 «El puerto de destino está inactivo». ATENCIÓN — cambiarlo deja la polilínea obsoleta si no se remanda.",
+                        "type": "integer",
+                        "example": 9
+                    },
+                    "destination": {
+                        "description": "Destino final en el extranjero, texto libre. Opcional; si se envía es obligatorio, texto y de 255 caracteres como máximo (El destino final es obligatorio / El destino final debe ser texto / El destino final no puede superar los 255 caracteres). Se guarda con solo trim, conservando mayúsculas y minúsculas.",
+                        "type": "string",
+                        "example": "Amberes, Bélgica",
+                        "maxLength": 255
+                    },
+                    "container": {
+                        "description": "Identificación del contenedor. Opcional; si se envía es obligatoria, texto y de 255 caracteres como máximo (El contenedor es obligatorio / El contenedor debe ser texto / El contenedor no puede superar los 255 caracteres). Se normaliza a MAYÚSCULAS con espacios colapsados. Sigue sin ser único.",
+                        "type": "string",
+                        "example": "MSKU 483920 1",
+                        "maxLength": 255
+                    },
+                    "transport": {
+                        "description": "Medio o empresa de transporte. Opcional; si se envía es obligatorio, texto y de 255 caracteres como máximo (El transporte es obligatorio / El transporte debe ser texto / El transporte no puede superar los 255 caracteres). Se guarda con solo trim.",
+                        "type": "string",
+                        "example": "Rastra 40 pies",
+                        "maxLength": 255
+                    },
+                    "recolectionDate": {
+                        "description": "Fecha y hora planificadas de recolección. Opcional; si se envía es obligatoria y con formato válido (La fecha de recolección es obligatoria / La fecha de recolección no es válida). ATENCIÓN — AQUÍ YA NO SE EXIGE QUE SEA FUTURA, al contrario que en el alta: editar un viaje ya arrancado no puede obligar a reprogramarlo. Entra en formato parseable y sale en d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "2026-09-02 06:00:00"
+                    },
+                    "shipDate": {
+                        "description": "Fecha y hora planificadas de embarque. Opcional; si se envía es obligatoria, con formato válido y NO ANTERIOR a recolectionDate (La fecha de embarque es obligatoria / La fecha de embarque no es válida / La fecha de embarque no puede ser anterior a la de recolección). ATENCIÓN — tampoco se exige futuro, y la comparación de orden SOLO SE COMPRUEBA CUANDO LAS DOS FECHAS VIAJAN JUNTAS: mandar solo shipDate no se contrasta contra la recolección almacenada.",
+                        "type": "string",
+                        "example": "2026-09-04 23:30:00"
+                    },
+                    "polyline": {
+                        "description": "Polilínea codificada de Google. Opcional; si se envía es obligatoria y texto (La ruta es obligatoria / La ruta debe ser texto). ATENCIÓN — ES EL CAMPO QUE HAY QUE RECORDAR: cambiar locationId o departurePointId sin remandarla deja guardada una ruta que ya no corresponde, y NI LA API AVISA NI LA RECALCULA. Se resuelve con GET /api/places/directions y se envía en este mismo PATCH.",
+                        "type": "string",
+                        "example": "ynzmDbpb_Ln@bAtEsC"
+                    },
+                    "observations": {
+                        "description": "Instrucciones del viaje. Opcional; si se envía es obligatoria y texto (Las observaciones son obligatorias / Las observaciones deben ser texto). No se puede vaciar: es el único canal de instrucciones hacia la empresa que ejecuta el viaje.",
+                        "type": "string",
+                        "example": "Carga refrigerada a -2 °C. Confirmar sello antes de salir."
+                    },
+                    "status": {
+                        "description": "Estado del viaje, y EL ÚNICO CAMPO QUE NO EXISTE EN EL ALTA —allí el viaje nace pending y mandarlo se descarta—. Opcional; si se envía es obligatorio y debe ser uno de los tres valores del enum (El estado del viaje es obligatorio / El estado del viaje no es válido). ATENCIÓN — NO SE COMPRUEBA NINGUNA TRANSICIÓN: se puede ir hacia atrás, y mover el estado NO toca startDate ni endDate, así que un finished devuelto a pending conserva las dos fechas de ejecución y el resultado se contradice consigo mismo. Cuando estado y fechas discrepen, mandan las fechas. Un valor fuera del enum es 422.",
+                        "type": "string",
+                        "example": "in_route",
+                        "enum": [
+                            "pending",
+                            "in_route",
+                            "finished"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
             "StoreVehicleExpenseRequest": {
                 "title": "Alta de gasto de vehículo",
                 "description": "Cuerpo para registrar un gasto de mantenimiento. Los SIETE campos son obligatorios y ninguno acepta null: omitir cualquiera devuelve 422. El único condicional es invoice, obligatorio solo cuando is_invoiced es verdadero.\n\nATENCIÓN — CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA: is_invoiced es obligatorio desde esta versión. Un alta que antes devolvía 201 con seis campos ahora devuelve 422 con el mensaje Debes indicar si el gasto fue facturado. No tiene valor por omisión de cara a la API: quien registra el gasto decide siempre.\n\nATENCIÓN — CUANDO SE ADJUNTA FACTURA EL CUERPO VA EN multipart/form-data, NO EN JSON. Un archivo no viaja en un cuerpo JSON. Sin factura (is_invoiced en false) sirven los dos formatos.\n\nATENCIÓN — EL CUERPO VA EN snake_case Y LA RESPUESTA VUELVE EN camelCase. Aquí se envían vehicle_id y expense_date, y el recurso devuelto trae vehicleId y expenseDate. No se puede reenviar un objeto VehicleExpense tal como salió de un GET: vehicleId y expenseDate no son campos válidos de este cuerpo, y los obligatorios vehicle_id y expense_date faltarían.\n\nNo existe validación cruzada entre category y nature: cualquiera de las 22 categorías se acepta con preventive y con corrective. Tampoco hay validación cruzada con el vehículo: su estado NO importa, y un vehículo con status inactive acepta gastos igual que uno active, porque el mantenimiento pudo ocurrir antes de la baja.\n\nCampos que NO se aceptan aquí y que enviarlos no hace nada: registered_by —sale siempre del usuario autenticado, así que mandar el id de otro usuario no lo cambia— y cualquier otro nombre desconocido, que se descarta en silencio.\n\nvehicle_id NO lleva regla exists: un vehículo inexistente lo resuelve el servicio y responde 404 (El vehículo no existe), y uno de otra empresa responde 403 (No puedes acceder a un vehículo que no pertenece a tu empresa transportista). Ninguno de los dos casos es un 422.",
@@ -10795,6 +11812,349 @@
                     }
                 ]
             },
+            "TripListItem": {
+                "title": "Viaje en el listado",
+                "description": "El viaje tal como sale en GET /api/trips: 15 CLAVES en camelCase, no las 31 del detalle. Es una vista de tabla, no el recurso completo.\n\nATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.\n\nATENCIÓN — points NO SE CALCULA EN EL LISTADO. La polilínea solo se decodifica en el detalle, así que el mapa se pinta desde ahí y nunca desde una fila de la tabla.\n\nLas cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés. Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.\n\nLas 15 claves salen siempre en este orden: id, order, status, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, observations, pilotName, vehiclePlate y registeredByName.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico del viaje (trips.id). Es el valor que va en el parámetro {trip} del detalle y de las cinco rutas de escritura: desde una fila del listado se salta al detalle con este id.",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "order": {
+                        "description": "Referencia comercial del viaje, SIEMPRE EN MAYÚSCULAS y con los espacios interiores colapsados a uno. NO ES ÚNICA: dos viajes pueden compartirla. Es uno de los dos campos que barre el filtro search.",
+                        "type": "string",
+                        "example": "ORD-2026-0148",
+                        "maxLength": 255
+                    },
+                    "status": {
+                        "description": "Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir. NO HAY MÁQUINA DE ESTADOS: puede contradecir a startDate y endDate, y cuando eso pase el relato lo cuentan las fechas.",
+                        "type": "string",
+                        "example": "pending",
+                        "enum": [
+                            "pending",
+                            "in_route",
+                            "finished"
+                        ]
+                    },
+                    "shippingLineName": {
+                        "description": "Nombre de la naviera, resuelto desde la relación y siempre en mayúsculas. Sale plano y SIN su id: para filtrar por naviera hay que traer el id desde GET /api/shipping-lines.",
+                        "type": "string",
+                        "example": "MAERSK LINE",
+                        "nullable": true
+                    },
+                    "departurePointName": {
+                        "description": "Nombre del punto de partida, resuelto desde la relación y siempre en mayúsculas. Sale plano y sin su id.",
+                        "type": "string",
+                        "example": "PLANTA SAN JUAN",
+                        "nullable": true
+                    },
+                    "locationName": {
+                        "description": "Nombre del puerto de destino, resuelto desde la relación y siempre en mayúsculas. Sale plano y sin su id, sin coordenadas y sin googlePlaceId. ATENCIÓN — no confundirlo con destination, el destino final en el extranjero, que NO sale en el listado.",
+                        "type": "string",
+                        "example": "PUERTO QUETZAL",
+                        "nullable": true
+                    },
+                    "container": {
+                        "description": "Identificación del contenedor, SIEMPRE EN MAYÚSCULAS y con los espacios interiores colapsados a uno. NO ES ÚNICO. Es el otro campo que barre el filtro search.",
+                        "type": "string",
+                        "example": "MSKU 483920 1",
+                        "maxLength": 255
+                    },
+                    "recolectionDate": {
+                        "description": "Fecha y hora PLANIFICADAS de recolección. Es la columna por la que ordena el listado (recolection_date DESC) y la que miran los filtros dateFrom y dateTo. Formato propio d-m-Y h:i:s A, NO ISO 8601.",
+                        "type": "string",
+                        "example": "02-09-2026 06:00:00 AM"
+                    },
+                    "shipDate": {
+                        "description": "Fecha y hora PLANIFICADAS de embarque, nunca anterior a recolectionDate. Es una fecha prevista, no una marca de ejecución: no la mueven ni /start ni /finish. Mismo formato propio d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "04-09-2026 11:30:00 PM"
+                    },
+                    "startDate": {
+                        "description": "Marca de EJECUCIÓN REAL del arranque, puesta por el now() del servidor en PATCH /api/trips/{trip}/start. null mientras el piloto no lo haya iniciado. Mismo formato propio d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "02-09-2026 06:12:44 AM",
+                        "nullable": true
+                    },
+                    "endDate": {
+                        "description": "Marca de EJECUCIÓN REAL del cierre, puesta por el now() del servidor en PATCH /api/trips/{trip}/finish. null mientras el viaje no se haya cerrado, y nunca existe sin startDate. Mismo formato propio d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "05-09-2026 02:30:10 PM",
+                        "nullable": true
+                    },
+                    "observations": {
+                        "description": "Instrucciones del viaje, tal como se teclearon —solo trim, conservando mayúsculas, minúsculas y saltos de línea—. Es obligatorio en el alta: cuando el viaje lo publica el administrador y lo ejecuta otra empresa, es el ÚNICO CANAL DE INSTRUCCIONES del dominio.",
+                        "type": "string",
+                        "example": "Carga refrigerada a -2 °C."
+                    },
+                    "pilotName": {
+                        "description": "Nombre del piloto asignado, resuelto desde la relación. ES null MIENTRAS EL VIAJE SIGA EN LA BOLSA, y en el listado de un carrier la bolsa siempre aparece: hay que contar con el null. Sale sin su id.",
+                        "type": "string",
+                        "example": "Carlos Ramírez",
+                        "nullable": true
+                    },
+                    "vehiclePlate": {
+                        "description": "PLACA del vehículo asignado, no su nombre, en mayúsculas tal como la guarda Vehicles. null mientras el viaje siga en la bolsa. Sale sin su id.",
+                        "type": "string",
+                        "example": "P-1234ABC",
+                        "nullable": true
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del administrador que dio de alta el viaje. De este autor SOLO SALE EL NOMBRE, aquí y en el detalle: no hay registeredById. No lo reescribe ningún PATCH.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "TripListResponse": {
+                "title": "Listado de viajes sin paginar",
+                "description": "Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 15 claves, NO el Trip de 31 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Viajes obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripListItem"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedTripListResponse": {
+                "title": "Listado de viajes paginado",
+                "description": "Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 15 claves.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/TripListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
+            "Trip": {
+                "title": "Viaje de exportación",
+                "description": "El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 32 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.\n\nATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. La ÚNICA relación que sale con TRES claves es el vehículo: vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.\n\nATENCIÓN — LAS SIETE FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.\n\nATENCIÓN — EL status PUEDE CONTRADECIR A LAS FECHAS, Y EL RELATO LO CUENTAN LAS FECHAS. No hay máquina de estados: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que existen viajes finished sin startDate y viajes pending con startDate y endDate puestos (un finished devuelto a pending conserva sus dos fechas de ejecución). Cuando status y fechas se contradigan, el frontend debe pintar el relato desde startDate y endDate, no desde status.\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO. Un viaje NO tiene carrierId: nace de nadie y no hay columna de empresa dueña. La empresa entra en escena cuando toma el viaje, y el vínculo se deriva siempre de assignedById. Por eso administrator y manager ven todos los viajes; un carrier ve la bolsa —los pending con pilotId y vehicleId en null— más los asignados por su propia empresa; y un pilot ve SOLO aquellos donde pilotId es él, sin la bolsa.\n\npoints es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.\n\nLas 32 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, observations, pilotId, pilotName, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, createdAt, updatedAt y deletedAt.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico del viaje (trips.id). Es el valor que va en el parámetro {trip} de las seis rutas que lo nombran: detalle, actualización, baja, /assignment, /start y /finish. Sobrevive a la edición y a la reasignación, y sobrevive también al DELETE —la fila sigue en la base con su deleted_at puesto—, pero ese id deja de ser alcanzable: el GET responde 404 y las cinco rutas de escritura responden 400 «El viaje ya fue eliminado».",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "order": {
+                        "description": "Referencia comercial del viaje, SIEMPRE EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno: enviar \"  ord-2026   0148  \" guarda y devuelve \"ORD-2026 0148\". ATENCIÓN — NO ES ÚNICA: dos viajes pueden compartir la misma orden y no hay ni 400 ni 422 por repetirla, al contrario que el code o el name de los catálogos. Es uno de los dos campos que barre el filtro search del listado.",
+                        "type": "string",
+                        "example": "ORD-2026-0148",
+                        "maxLength": 255
+                    },
+                    "status": {
+                        "description": "Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir —traducirlo es cosa del frontend—. Solo hay TRES valores y NO existe cancelled: un viaje que no se hará se borra. Nace siempre en pending; /start lo lleva a in_route y /finish a finished. ATENCIÓN — NO HAY MÁQUINA DE ESTADOS: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que un finished puede volver a pending conservando startDate y endDate. Cuando el estado contradiga a las fechas, el relato lo cuentan las fechas.",
+                        "type": "string",
+                        "example": "pending",
+                        "enum": [
+                            "pending",
+                            "in_route",
+                            "finished"
+                        ]
+                    },
+                    "clientId": {
+                        "description": "Id del cliente exportador (clients.id, SPEC 22). Obligatorio en el alta y editable por el PATCH del administrador. ATENCIÓN — este dominio es el PRIMER CONSUMIDOR de Clients, y por eso DELETE /api/clients/{client} responde ahora 400 «No se puede eliminar el cliente porque tiene viajes asociados» cuando el cliente tiene viajes, INCLUIDOS LOS BORRADOS. Un cliente ya borrado tampoco puede apuntarse desde aquí: el exists: de Laravel no ve el borrado lógico y lo deja pasar, pero el service lo para con 400.",
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "clientName": {
+                        "description": "Razón social del cliente, resuelta desde la relación y SIEMPRE EN MAYÚSCULAS, tal como la guarda su propio catálogo. Sale plana, no dentro de un objeto client.",
+                        "type": "string",
+                        "example": "AGROEXPORTADORA DEL SUR",
+                        "nullable": true
+                    },
+                    "shippingLineId": {
+                        "description": "Id de la naviera (shipping_lines.id, SPEC 23). Obligatorio en el alta y editable por el PATCH. ATENCIÓN — igual que con el cliente, DELETE /api/shipping-lines/{shippingLine} responde ahora 400 «No se puede eliminar la naviera porque tiene viajes asociados» cuando tiene viajes, incluidos los borrados. Una naviera ya borrada pasa el exists: y la para el service con 400.",
+                        "type": "integer",
+                        "example": 2
+                    },
+                    "shippingLineName": {
+                        "description": "Nombre de la naviera, resuelto desde la relación y siempre en mayúsculas. Sale plano, no dentro de un objeto shippingLine.",
+                        "type": "string",
+                        "example": "MAERSK LINE",
+                        "nullable": true
+                    },
+                    "departurePointId": {
+                        "description": "Id del punto de partida (departure_points.id, SPEC 20), desde donde se recoge la carga. Debe estar ACTIVO al crear y en cada PATCH; si no, 400 «El punto de partida está inactivo».",
+                        "type": "integer",
+                        "example": 5
+                    },
+                    "departurePointName": {
+                        "description": "Nombre del punto de partida, resuelto desde la relación y siempre en mayúsculas. Sale plano, no anidado.",
+                        "type": "string",
+                        "example": "PLANTA SAN JUAN",
+                        "nullable": true
+                    },
+                    "locationId": {
+                        "description": "Id del PUERTO de destino (locations.id, SPEC 15 y SPEC 21). ATENCIÓN — no vale cualquier destino: la location tiene que ser de tipo port y estar activa. Un destino ordinario responde 400 «El destino seleccionado no es un puerto» y un puerto inactivo, 400 «El puerto de destino está inactivo». La regla vive en el service y no en el esquema, porque SPEC 21 dejó el type libremente editable: un puerto puede dejar de serlo en cualquier momento y los viajes viejos se quedan como están.",
+                        "type": "integer",
+                        "example": 9
+                    },
+                    "locationName": {
+                        "description": "Nombre del puerto de destino, resuelto desde la relación y siempre en mayúsculas. Sale plano, no anidado, y no vienen ni sus coordenadas ni su googlePlaceId: para eso está GET /api/locations/{location}.",
+                        "type": "string",
+                        "example": "PUERTO QUETZAL",
+                        "nullable": true
+                    },
+                    "destination": {
+                        "description": "Destino final en el extranjero. ATENCIÓN — ES TEXTO LIBRE Y NO LO RESPALDA NINGÚN CATÁLOGO: no es una location, no tiene id y no se puede filtrar por él. Se guarda TAL COMO SE TECLEA, con solo un trim: conserva mayúsculas, minúsculas y los espacios interiores, al contrario que order y container. Es la asimetría de normalización del dominio.",
+                        "type": "string",
+                        "example": "Rotterdam, Países Bajos",
+                        "maxLength": 255
+                    },
+                    "container": {
+                        "description": "Identificación del contenedor, SIEMPRE EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno, igual que order. ATENCIÓN — NO ES ÚNICO: dos viajes pueden compartir el mismo contenedor, y también la misma orden, sin ningún error. Es el otro campo que barre el filtro search del listado.",
+                        "type": "string",
+                        "example": "MSKU 483920 1",
+                        "maxLength": 255
+                    },
+                    "transport": {
+                        "description": "Medio o empresa de transporte, tal como se teclea: solo trim, sin mayúsculas ni colapso de espacios. Es texto descriptivo y NO está relacionado con el vehículo asignado —vehicleId y vehiclePlate son otra cosa, y los escribe el transportista en /assignment—.",
+                        "type": "string",
+                        "example": "Rastra 40 pies",
+                        "maxLength": 255
+                    },
+                    "recolectionDate": {
+                        "description": "Fecha y hora PLANIFICADAS de recolección de la carga. Es la columna por la que ordena el listado (recolection_date DESC) y la que miran los filtros dateFrom y dateTo. En el alta tiene que ser FUTURA; en el PATCH ya no, porque editar un viaje arrancado no puede obligar a reprogramarlo. ATENCIÓN — formato propio d-m-Y h:i:s A, NO ISO 8601, por eso se documenta como string sin format date-time.",
+                        "type": "string",
+                        "example": "02-09-2026 06:00:00 AM"
+                    },
+                    "shipDate": {
+                        "description": "Fecha y hora PLANIFICADAS de embarque. Nunca anterior a recolectionDate —y en el alta, además, futura—. Es una fecha prevista, no una marca de ejecución: no la mueven ni /start ni /finish. Mismo formato propio d-m-Y h:i:s A, tampoco ISO 8601.",
+                        "type": "string",
+                        "example": "04-09-2026 11:30:00 PM"
+                    },
+                    "startDate": {
+                        "description": "Marca de EJECUCIÓN REAL del arranque. Es null hasta que el piloto asignado llama a PATCH /api/trips/{trip}/start, y entonces la pone el now() DEL SERVIDOR: no se acepta en ningún cuerpo, ni en el alta, ni en el PATCH, ni en la propia /start. ATENCIÓN — el PATCH del administrador no la borra ni la mueve, así que un viaje devuelto a pending la conserva. Mismo formato propio d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "02-09-2026 06:12:44 AM",
+                        "nullable": true
+                    },
+                    "endDate": {
+                        "description": "Marca de EJECUCIÓN REAL del cierre. Es null hasta que el piloto asignado llama a PATCH /api/trips/{trip}/finish, y la pone el now() del servidor. Nunca puede existir sin startDate: /finish sobre un viaje sin arrancar responde 400 «El viaje no ha sido iniciado». Tampoco la borra el PATCH del administrador. Mismo formato propio d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "05-09-2026 02:30:10 PM",
+                        "nullable": true
+                    },
+                    "polyline": {
+                        "description": "Polilínea codificada de Google con la ruta prevista del viaje, TAL COMO LA MANDÓ EL FRONTEND. ATENCIÓN — LA API NUNCA LLAMA A GOOGLE Y NUNCA LA RECALCULA: la resuelve el front con GET /api/places/directions (SPEC 16) y la envía en el alta y en cada PATCH, donde es obligatoria. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA, el mapa dibuja una ruta que ya no corresponde y la API no avisa de nada. Es la ruta prevista, no seguimiento en tiempo real: no hay posición del vehículo.",
+                        "type": "string",
+                        "example": "ynzmDbpb_Ln@bAtEsC"
+                    },
+                    "points": {
+                        "description": "Los pares [lat, lng] decodificados de polyline. ATENCIÓN — ES UN CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica en cada respuesta, también en cada elemento del listado. Coincide exactamente con los points que devuelve GET /api/places/directions para la misma cadena. Si polyline queda obsoleta tras un PATCH, points queda obsoleto con ella.",
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "number",
+                                "format": "float"
+                            }
+                        },
+                        "example": [
+                            [
+                                28.64893,
+                                -68.17554
+                            ],
+                            [
+                                28.64869,
+                                -68.17588
+                            ],
+                            [
+                                28.64762,
+                                -68.17514
+                            ]
+                        ]
+                    },
+                    "observations": {
+                        "description": "Instrucciones del viaje. ES OBLIGATORIO a propósito, aunque sea un campo de notas: si el alta la hace el administrador y el viaje lo ejecuta otra empresa, las observaciones son el ÚNICO CANAL DE INSTRUCCIONES que existe en el dominio. Se guarda tal como se teclea, con solo trim: conserva mayúsculas, minúsculas y saltos de línea.",
+                        "type": "string",
+                        "example": "Carga refrigerada a -2 °C."
+                    },
+                    "pilotId": {
+                        "description": "Id del usuario con rol pilot que conduce el viaje (users.id). Es null mientras nadie ha tomado el viaje —eso es la bolsa— y solo lo escribe PATCH /api/trips/{trip}/assignment, que es EXCLUSIVA DEL carrier: ni el administrador ni el PATCH general pueden ponerlo, y mandarlo en el PATCH se ignora en silencio con 200. ATENCIÓN — UNA VEZ PUESTO NO VUELVE NUNCA A null: no existe la desasignación. Se puede CAMBIAR, pero solo mientras el viaje siga pending y solo desde la empresa que asignó. Es también el campo que define el ámbito del piloto: solo ve los viajes donde este id es el suyo.",
+                        "type": "integer",
+                        "example": 12,
+                        "nullable": true
+                    },
+                    "pilotName": {
+                        "description": "Nombre del piloto asignado, resuelto desde la relación. null mientras el viaje siga en la bolsa. Sale plano, no dentro de un objeto pilot.",
+                        "type": "string",
+                        "example": "Carlos Ramírez",
+                        "nullable": true
+                    },
+                    "vehicleId": {
+                        "description": "Id del vehículo asignado (vehicles.id). Mismas reglas que pilotId: null en la bolsa, lo escribe solo /assignment desde un carrier, y una vez puesto no vuelve a null. El vehículo tiene que estar active al asignarse —inactive y under_repair se rechazan con 400— y pertenecer a la MISMA EMPRESA que el piloto. Lo que le ocurra después al vehículo (que se desactive, por ejemplo) no toca al viaje ya asignado.",
+                        "type": "integer",
+                        "example": 8,
+                        "nullable": true
+                    },
+                    "vehiclePlate": {
+                        "description": "PLACA del vehículo asignado, no su nombre: es el único par de relación cuyo segundo campo no se llama «Name». Viene siempre en mayúsculas, tal como la guarda Vehicles. null mientras el viaje siga en la bolsa.",
+                        "type": "string",
+                        "example": "P-1234ABC",
+                        "nullable": true
+                    },
+                    "vehicleImage": {
+                        "description": "URL pública y permanente de la imagen del vehículo asignado, lista para usar como src, resuelta desde la relación igual que en GET /api/vehicles/{vehicle}. Es el ÚNICO CASO DEL RECURSO EN QUE UNA RELACIÓN SALE CON TRES CLAVES —vehicleId, vehiclePlate y vehicleImage—, y sigue siendo plana: no hay ningún objeto vehicle anidado. La imagen es siempre un cuadrado de 800x800 px recortado desde el centro, en el formato original (jpg o png). ATENCIÓN — HAY DOS MOTIVOS DISTINTOS PARA QUE VENGA null y el frontend no los distingue desde aquí: que el viaje siga en la bolsa (entonces vehicleId y vehiclePlate también son null) o que el vehículo asignado no tenga imagen (entonces vehicleId y vehiclePlate sí traen valor). No es la clave interna del objeto: el cliente no debe derivarla ni componerla a mano. NO SALE EN EL LISTADO: TripListItem sigue con sus 15 claves y del vehículo solo pinta vehiclePlate.",
+                        "type": "string",
+                        "example": "https://bucket.s3.amazonaws.com/vehicles/9f1c2b7a-3d4e-4f10-9a2b-7c8d5e6f0a1b.png",
+                        "nullable": true
+                    },
+                    "assignedById": {
+                        "description": "Id del USUARIO que tomó el viaje (users.id), no de su empresa: la tabla no tiene carrier_id y el vínculo con la empresa se deriva siempre de aquí. ATENCIÓN — ES LA CLAVE DEL ÁMBITO ADQUIRIDO: se guarda el usuario para conservar la auditoría, pero TODAS las comprobaciones de ámbito comparan la EMPRESA de ese usuario, de modo que cualquier compañero de esa empresa ve y puede reasignar el viaje, y el viaje no queda huérfano de vista si quien lo tomó se va. Sale del usuario autenticado en /assignment, nunca del cuerpo, y el PATCH del administrador NO lo reescribe.",
+                        "type": "integer",
+                        "example": 4,
+                        "nullable": true
+                    },
+                    "assignedByName": {
+                        "description": "Nombre del usuario que tomó el viaje, resuelto desde la relación. null mientras el viaje siga en la bolsa. No trae el nombre de la empresa: para eso están los endpoints de Carriers.",
+                        "type": "string",
+                        "example": "María López",
+                        "nullable": true
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del administrador que dio de alta el viaje. ATENCIÓN — de este autor SOLO SALE EL NOMBRE: no hay registeredById, al contrario que con assignedBy. No se envía en el cuerpo —sale siempre del usuario autenticado— y el PATCH NO lo reescribe, así que sigue apuntando a quien creó la fila aunque la haya editado otro administrador. No hay bitácora de cambios: lo más cercano a una auditoría es updatedAt.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha de alta del viaje. Formato propio d-m-Y h:i:s A, NO ISO 8601, por eso se documenta como string sin format date-time. No cambia nunca y no tiene nada que ver con recolectionDate.",
+                        "type": "string",
+                        "example": "27-08-2026 09:14:03 AM",
+                        "nullable": true
+                    },
+                    "updatedAt": {
+                        "description": "Fecha del último cambio de la fila, sea del PATCH del administrador, de la asignación, del /start o del /finish. Es lo más cercano a una auditoría que ofrece el dominio: no se guarda ningún valor anterior, ni quién movió el status, ni el historial de asignaciones. Un PATCH con el cuerpo vacío es un no-op y NO la mueve. Mismo formato propio d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "27-08-2026 10:02:51 AM",
+                        "nullable": true
+                    },
+                    "deletedAt": {
+                        "description": "Fecha del borrado lógico del viaje. ATENCIÓN — ES null EN SIETE DE LOS OCHO ENDPOINTS, porque ninguno de los otros alcanza un viaje borrado: LA ÚNICA RESPUESTA QUE LO DEVUELVE CON VALOR ES LA DEL PROPIO DELETE, que pinta la fila recién borrada. No sirve para descubrir viajes eliminados: el listado los excluye siempre y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni status— que los devuelva, ni endpoint /restore. Mismo formato propio d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "27-08-2026 11:40:22 AM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
             "VehicleExpense": {
                 "title": "Gasto de mantenimiento de un vehículo",
                 "description": "Gasto de mantenimiento imputado a un vehículo concreto: qué se hizo (category), si fue programado o por avería (nature), cuánto costó (amount, en quetzales), qué día ocurrió (expenseDate), el detalle libre (description) y quién lo capturó (registeredBy).\n\nATENCIÓN — LA SALIDA VA EN camelCase Y EL CUERPO QUE SE ENVÍA VA EN snake_case. No son los mismos nombres: aquí se lee vehicleId, expenseDate, registeredBy y createdAt, pero el POST y el PATCH esperan vehicle_id, expense_date y description. Copiar un objeto de esta respuesta y reenviarlo tal cual a POST /api/vehicle-expenses devuelve 422, porque vehicleId y expenseDate no son campos válidos del cuerpo y los obligatorios vehicle_id y expense_date faltarían. Los únicos nombres que coinciden en las dos direcciones son category, nature, amount y description.\n\nATENCIÓN — category y nature SON DOS EJES INDEPENDIENTES y no existe ninguna validación cruzada entre ellos: cualquiera de las 22 categorías admite tanto preventive como corrective. Cambiar llantas por desgaste programado es tires + preventive y cambiarlas por un reventón es tires + corrective; el backend acepta las dos combinaciones sin opinar. Es la misma relación que hay entre condition y status en el recurso Vehicle.\n\nexpenseDate y createdAt NO son lo mismo: expenseDate es el DÍA en que ocurrió el gasto (sin hora, y nunca en el futuro) y createdAt es el instante en que se capturó en el sistema. Un gasto de hace tres meses capturado hoy tiene expenseDate de hace tres meses y createdAt de hoy. Ninguna de las dos viaja en ISO 8601.\n\nEl gasto se BORRA DE VERDAD: no hay soft deletes, ni bitácora de ediciones, ni forma de recuperar un gasto eliminado. Tras un DELETE la fila desaparece de la base y cualquier petición posterior sobre ese id devuelve 404. El archivo de la factura se borra CON ELLA del almacenamiento, así que su invoiceUrl deja de resolver.\n\nATENCIÓN — LA FACTURACIÓN ES INMUTABLE: isInvoiced e invoiceUrl se fijan en el alta y no hay forma de cambiarlos. No existe un endpoint para marcar, desmarcar, reemplazar ni eliminar la factura, y mandar is_invoiced o invoice en el PATCH devuelve 200 sin guardar nada. La única corrección posible es borrar el gasto y volverlo a crear, perdiendo su id, su createdAt y su registeredBy original.\n\nisInvoiced true con invoiceUrl null NO PUEDE EXISTIR: el archivo es obligatorio cuando el gasto se marca como facturado. Al revés sí es la norma: un gasto no facturado trae siempre invoiceUrl e invoiceType en null.",
@@ -11368,6 +12728,10 @@
         {
             "name": "ShippingLines",
             "description": "Navieras: el catálogo nacional de las líneas navieras con las que Legumex opera, con UN SOLO CAMPO DE NEGOCIO —el nombre—. Es el dominio más pequeño del proyecto: no hay código, ni sigla, ni contacto, ni teléfono, ni correo, ni país, ni web, ni notas, ni logo, ni estado de publicación. La naviera NO pertenece a ninguna empresa transportista, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los cinco endpoints exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con \"El token de sesión no es válido o ha expirado\". El reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización y borrado) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403 con \"No tienes permisos para acceder a este recurso\". ATENCIÓN — ESTE CATÁLOGO BORRA DE VERDAD Y ES EL AVISO CENTRAL DEL DOMINIO: en Products, Locations, Zones y Departure Points el DELETE es una baja lógica sobre un status booleano, la fila se queda, se sigue listando y se puede reactivar; aquí el DELETE es un soft delete real, la fila DESAPARECE del listado y del detalle, NO hay filtro que la devuelva, NO existe /restore y NO HAY FORMA DE RECUPERARLA POR LA API —solo desde la base de datos—. ATENCIÓN — EL BORRADO NO LIBERA EL NOMBRE: el índice único sigue ocupado para siempre por la fila borrada, así que un alta puede chocar con 400 contra una naviera que no aparece en ningún endpoint; de ahí el \"que puede haber sido eliminada\" del mensaje de duplicado, y aquí duele más que en Clients, donde quedaba un segundo identificador al que agarrarse: en este dominio el nombre es lo único que hay. No tiene NINGUNA RUTA FIJA antes del apiResource: no hay /toggle-status —una naviera no se pausa, se borra— ni /restore, así que el comodín {shippingLine} no captura nada. Reglas que atraviesan el dominio: el duplicado de nombre se responde con 400 DESDE EL SERVICE y NUNCA con 422 —el FormRequest no lleva regla unique, porque la de Laravel no ve las filas borradas—; el nombre se guarda recortado, con los espacios internos colapsados y EN MAYÚSCULAS; el registeredBy sale siempre del usuario autenticado y el PATCH no lo reescribe; el listado ordena por id ASC sin alternativa, filtra con un search tolerante sobre el nombre y pagina opt-in por limit acotado a [10, 100]; y createdAt, updatedAt y deletedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601. La lectura del detalle no distingue una naviera borrada de un id inexistente —las dos son 404—, mientras que el PATCH y el DELETE sí, con un 400 «La naviera ya fue eliminada». NADA CUELGA TODAVÍA DE UNA NAVIERA: ninguna tabla del proyecto tiene shipping_line_id, no hay navieras por destino ni tarifas por naviera, y no está relacionada con los puertos —los destinos de tipo port de Locations—, así que borrar una no rompe ninguna otra entidad."
+        },
+        {
+            "name": "Trips",
+            "description": "Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con OCHO ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general. Los ocho exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nPERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR Y NO SE PUEDE DESASIGNAR. /assignment es exclusiva del carrier, porque asignar es el acto por el que una empresa TOMA el viaje; el PATCH general NO ACEPTA pilotId ni vehicleId y mandarlos se ignora en silencio con 200. pilot_id y vehicle_id NO VUELVEN NUNCA A null —no hay desasignación, y null en /assignment es 422—. Reasignar solo se puede mientras el viaje siga pending: en in_route o finished es 400. CONSECUENCIA REAL: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta los tres valores sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y NO SE RECALCULA NUNCA. polyline es obligatoria en el alta Y en el PATCH; la resuelve el front con GET /api/places/directions (SPEC 16) y LA API NUNCA LLAMA A GOOGLE. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA y la API no avisa.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS con los espacios interiores colapsados; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan exists:, así que un id INVENTADO es 422; pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO, de modo que un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El cliente seleccionado fue eliminado», «La naviera seleccionada fue eliminada», «El destino seleccionado no es un puerto», «El puerto de destino está inactivo», «El punto de partida está inactivo», «El usuario seleccionado no es un piloto», «El piloto seleccionado no pertenece a ninguna empresa transportista», «El vehículo seleccionado no está activo» y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».\n\nCINCO CAMPOS SE DESCARTAN EN EL ALTA SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. El viaje nace pending, sin tripulación, y registeredBy sale del usuario autenticado. En el PATCH, además de pilotId y vehicleId, tampoco se reescriben assignedBy ni registeredBy.\n\n/start Y /finish NO TIENEN CUERPO. La fecha la pone el now() DEL SERVIDOR y mandarla en el body no se usa. start sobre un viaje ya iniciado es 400; finish sobre uno ya finalizado es 400, y sobre uno SIN startDate también es 400. Solo el piloto asignado las alcanza: otro piloto recibe 403.\n\nSOFT DELETES. El listado y el show EXCLUYEN los borrados y no hay parámetro que los devuelva —ni withTrashed, ni onlyTrashed—; un show de un borrado es 404, indistinguible de un id inexistente. En cambio PATCH, /assignment, /start, /finish y el segundo DELETE responden 400 «El viaje ya fue eliminado». NO EXISTE /restore.\n\nEL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.\n\nLA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 15 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 32 claves en camelCase, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.\n\nIMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto."
         },
         {
             "name": "Vehicles",

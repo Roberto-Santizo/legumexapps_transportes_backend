@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -19,7 +20,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * `DELETE` soft deletes the row, it disappears from the API and it never comes back —
  * while still holding on to its `name`, which the unique index keeps reserved forever.
  *
- * Nothing hangs off a shipping line: no table owns a `shipping_line_id`.
+ * Since SPEC 24 something does hang off a shipping line: `trips.shipping_line_id`,
+ * which is why the service refuses to delete one that still has trips.
  */
 #[Fillable(['name', 'registered_by'])]
 class ShippingLine extends Model
@@ -35,6 +37,21 @@ class ShippingLine extends Model
     public function registeredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'registered_by');
+    }
+
+    /**
+     * The export trips carried by this shipping line.
+     *
+     * The only relation this catalog owns, added by SPEC 24. Its single reader is the
+     * guard in the service, which counts them —deleted ones included— before allowing a
+     * deletion: a soft deleted shipping line would vanish from the API while its trips
+     * kept showing the name of somebody nobody can look up any more.
+     *
+     * @return HasMany<Trip, $this>
+     */
+    public function trips(): HasMany
+    {
+        return $this->hasMany(Trip::class);
     }
 
     /**

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -18,7 +19,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * never comes back — while still holding on to its `code` and its `name`, which the
  * unique indexes keep reserved forever.
  *
- * Nothing hangs off a client yet: no table owns a `client_id`.
+ * Since SPEC 24 something does hang off a client: `trips.client_id`, which is why the
+ * service refuses to delete one that still has trips.
  */
 #[Fillable(['code', 'name', 'registered_by'])]
 class Client extends Model
@@ -34,6 +36,21 @@ class Client extends Model
     public function registeredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'registered_by');
+    }
+
+    /**
+     * The export trips shipped for this client.
+     *
+     * The only relation this catalog owns, added by SPEC 24. Its single reader is the
+     * guard in the service, which counts them —deleted ones included— before allowing a
+     * deletion: a soft deleted client would vanish from the API while its trips kept
+     * showing the name of somebody nobody can look up any more.
+     *
+     * @return HasMany<Trip, $this>
+     */
+    public function trips(): HasMany
+    {
+        return $this->hasMany(Trip::class);
     }
 
     /**

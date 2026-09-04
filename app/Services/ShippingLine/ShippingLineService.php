@@ -111,6 +111,16 @@ class ShippingLineService implements ShippingLineServiceInterface
         $shippingLine = $this->resolveWritableShippingLine($id);
 
         /**
+         * Añadido por SPEC 24, la primera spec que cuelga algo de este catálogo. Mira
+         * también los viajes borrados a propósito: sin ese withTrashed(), borrar el viaje
+         * y después la naviera dejaría la FK del viaje borrado apuntando a una fila
+         * borrada, y restaurar cualquiera de los dos a mano produciría datos rotos.
+         */
+        if ($shippingLine->trips()->withTrashed()->exists()) {
+            throw new BadRequestError('No se puede eliminar la naviera porque tiene viajes asociados');
+        }
+
+        /**
          * Borrado lógico de verdad, no la baja idempotente de los otros catálogos: la fila
          * desaparece de la API para siempre, sin dejar de ocupar su nombre, y el segundo
          * intento lo corta resolveWritableShippingLine() con un 400.
