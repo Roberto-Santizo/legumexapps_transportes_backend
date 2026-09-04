@@ -2,6 +2,7 @@
 
 namespace App\Services\Auth;
 
+use App\Enums\UserRole;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\UnauthorizedError;
@@ -9,11 +10,13 @@ use App\Interfaces\Auth\AuthEmailsInterface;
 use App\Interfaces\Auth\AuthServiceInterface;
 use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Override;
+use Throwable;
 
 class AuthService implements AuthServiceInterface
 {
@@ -49,14 +52,28 @@ class AuthService implements AuthServiceInterface
     #[Override]
     public function register(array $data): User
     {
-        /** El correo sale fuera de la transacción: un commit fallido no debe dejar un código enviado que no existe. */
-        [$user, $code] = DB::transaction(function () use ($data): array {
-            $user = new User($data);
-            $user->email_verified_at = null;
-            $user->save();
+        /** Fuera de la transacción a propósito: el bucket no participa del rollback, así que se sube antes y se limpia a mano si el commit falla. */
+        $documents = $this->storePilotDocuments($data);
 
-            return [$user, $this->storeCode(self::CONFIRMATION_TABLE, $user->email)];
-        });
+        try {
+            /** El correo sale fuera de la transacción: un commit fallido no debe dejar un código enviado que no existe. */
+            [$user, $code] = DB::transaction(function () use ($data, $documents): array {
+                $user = new User($data);
+                $user->email_verified_at = null;
+                $user->save();
+
+                if ($documents !== null) {
+                    $user->pilotDocument()->create($documents);
+                }
+
+                return [$user, $this->storeCode(self::CONFIRMATION_TABLE, $user->email)];
+            });
+        } catch (Throwable $error) {
+            /** delete() nunca lanza, así que la limpieza no puede enmascarar el error original. */
+            $this->deletePilotDocuments($documents);
+
+            throw $error;
+        }
 
         $this->authEmails->sendAccountConfirmation($user, $code);
 
@@ -169,6 +186,65 @@ class AuthService implements AuthServiceInterface
         auth('api')->factory()->setTTL(config('jwt.ttl'));
 
         return ['token' => $token, 'refreshToken' => $refreshToken];
+    }
+
+    /**
+     * Upload the pilot's two documents and return their keys, or null when there are none.
+     *
+     * The role rule lives here: anything that is not a `pilot` gets whatever it sent
+     * discarded right at this point, so nothing reaches the bucket and no row is ever
+     * created for it. The FormRequest is what guarantees both files are present when
+     * the role is `pilot` — and that they travel together, so there is no half upload.
+     *
+     * The files are persisted as-is: cropping a DPI to a centred 800x800 square would
+     * make the document unreadable, the same reason invoices skip the image processor.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{dpi_image: string, license_image: string}|null
+     */
+    private function storePilotDocuments(array $data): ?array
+    {
+        if (($data['role'] ?? null) !== UserRole::Pilot->value) {
+            return null;
+        }
+
+        $dpi = $data['dpi'] ?? null;
+        $license = $data['license'] ?? null;
+
+        if (! $dpi instanceof UploadedFile || ! $license instanceof UploadedFile) {
+            return null;
+        }
+
+        $dpiKey = $this->fileStorage->storeUpload($dpi, self::PILOT_DOCUMENT_DIRECTORY);
+
+        try {
+            $licenseKey = $this->fileStorage->storeUpload($license, self::PILOT_DOCUMENT_DIRECTORY);
+        } catch (Throwable $error) {
+            /** El DPI ya está arriba y su key todavía no la conoce nadie: sin esto quedaría huérfano para siempre. */
+            $this->fileStorage->delete($dpiKey);
+
+            throw $error;
+        }
+
+        return ['dpi_image' => $dpiKey, 'license_image' => $licenseKey];
+    }
+
+    /**
+     * Delete both uploaded documents, if there were any.
+     *
+     * Only called when the registration failed after the upload. `delete()` never
+     * throws, so this can run inside a catch without hiding the original error.
+     *
+     * @param  array{dpi_image: string, license_image: string}|null  $documents
+     */
+    private function deletePilotDocuments(?array $documents): void
+    {
+        if ($documents === null) {
+            return;
+        }
+
+        $this->fileStorage->delete($documents['dpi_image']);
+        $this->fileStorage->delete($documents['license_image']);
     }
 
     /**
