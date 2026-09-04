@@ -5,11 +5,13 @@ use App\Mail\Auth\AccountConfirmationMail;
 use App\Mail\Auth\PasswordResetMail;
 use App\Mail\Auth\WelcomeMail;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Testing\TestResponse;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 
 const CONFIRMATION_TABLE = 'account_confirmation_tokens';
@@ -27,6 +29,20 @@ function validRegisterPayload(array $overrides = []): array
         'password_confirmation' => 'password123',
         'role' => UserRole::Pilot->value,
     ], $overrides);
+}
+
+/**
+ * Register a pilot through the endpoint, attaching the two documents SPEC 25 requires.
+ *
+ * Goes through `post()` and not `postJson()` on purpose: since SPEC 25 the pilot
+ * registration carries files, so the body travels as multipart/form-data.
+ */
+function registerPilot(array $overrides = []): TestResponse
+{
+    return test()->post(route('auth.register'), validRegisterPayload(array_merge([
+        'dpi' => UploadedFile::fake()->image('dpi.jpg'),
+        'license' => UploadedFile::fake()->image('license.png'),
+    ], $overrides)));
 }
 
 /**
@@ -84,7 +100,7 @@ function authClaimsOf(string $token): array
 */
 
 it('registra un usuario y devuelve 201 con el recurso del usuario', function () {
-    $response = $this->postJson(route('auth.register'), validRegisterPayload());
+    $response = registerPilot();
 
     $response->assertCreated()
         ->assertJson([
@@ -111,7 +127,7 @@ it('registra un usuario y devuelve 201 con el recurso del usuario', function () 
 });
 
 it('no expone la contraseña ni un token en la respuesta del registro', function () {
-    $response = $this->postJson(route('auth.register'), validRegisterPayload());
+    $response = registerPilot();
 
     $response->assertCreated()
         ->assertJsonMissingPath('data.password')
@@ -125,7 +141,7 @@ it('no expone la contraseña ni un token en la respuesta del registro', function
 it('guarda un único código de confirmación hasheado que expira una hora después de crearse', function () {
     $this->freezeTime();
 
-    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+    registerPilot()->assertCreated();
 
     $codes = DB::table(CONFIRMATION_TABLE)->get();
 
@@ -757,7 +773,7 @@ it('valida los campos obligatorios al restablecer la contraseña', function (arr
 */
 
 it('envía exactamente un correo de confirmación al correo recién registrado', function () {
-    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+    registerPilot()->assertCreated();
 
     Mail::assertSentCount(1);
     Mail::assertSent(
@@ -767,7 +783,7 @@ it('envía exactamente un correo de confirmación al correo recién registrado',
 });
 
 it('envía en el correo de confirmación el código que valida el confirm-account siguiente', function () {
-    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+    registerPilot()->assertCreated();
 
     $code = null;
 
@@ -847,7 +863,7 @@ it('devuelve 201 en el registro aunque el proveedor de correo falle', function (
     Log::spy();
     Mail::shouldReceive('to')->once()->andThrow(new RuntimeException('proveedor de correo caído'));
 
-    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+    registerPilot()->assertCreated();
 
     $this->assertDatabaseHas('users', ['email' => 'juan.perez@example.com']);
     $this->assertDatabaseCount(CONFIRMATION_TABLE, 1);
