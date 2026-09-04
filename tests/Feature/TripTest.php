@@ -227,7 +227,7 @@ function tripResourceKeys(): array
         'destination', 'container', 'transport',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
         'polyline', 'points', 'observations',
-        'pilotId', 'pilotName',
+        'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
         'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
         'createdAt', 'updatedAt', 'deletedAt',
@@ -1712,7 +1712,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 15 claves en el listado y las 32 del detalle, y no las confunde', function () {
+it('devuelve 15 claves en el listado y las 34 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -1720,7 +1720,7 @@ it('devuelve 15 claves en el listado y las 32 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(32)
+    expect(tripResourceKeys())->toHaveCount(34)
         ->and(tripListResourceKeys())->toHaveCount(15)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripResourceKeys());
@@ -1739,7 +1739,8 @@ it('deja fuera del listado las claves que solo pinta el detalle', function () {
             'shippingLineId', 'departurePointId', 'locationId',
             'destination', 'transport',
             'polyline', 'points',
-            'pilotId', 'vehicleId', 'vehicleImage', 'assignedById', 'assignedByName',
+            'pilotId', 'pilotDpiImage', 'pilotLicenseImage',
+            'vehicleId', 'vehicleImage', 'assignedById', 'assignedByName',
             'createdAt', 'updatedAt', 'deletedAt',
         ]);
 });
