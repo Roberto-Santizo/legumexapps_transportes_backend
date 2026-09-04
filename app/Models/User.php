@@ -73,6 +73,19 @@ class User extends Authenticatable implements JWTSubject
     }
 
     /**
+     * The DPI and license photos this user uploaded when registering as a pilot.
+     *
+     * Null for every other role, and null for pilots registered before SPEC 25:
+     * there was no backfill, and nothing in the application blocks them for it.
+     *
+     * @return HasOne<PilotDocument, $this>
+     */
+    public function pilotDocument(): HasOne
+    {
+        return $this->hasOne(PilotDocument::class);
+    }
+
+    /**
      * Get the identifier that will be stored in the "sub" claim of the JWT.
      */
     public function getJWTIdentifier(): mixed
