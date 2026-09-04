@@ -43,10 +43,15 @@ class TripService implements TripServiceInterface
 
     /**
      * The eight relations a detail read carries, so painting a trip never falls into N+1.
+     *
+     * The pilot comes with its documents nested: `TripResource` paints `pilotDpiImage`
+     * and `pilotLicenseImage` from them, and resolving those per trip would cost one
+     * extra query each. The listing does not need them — `TripListResource` keeps its
+     * 15 keys and paints no document.
      */
     private const RELATIONS = [
         'client', 'shippingLine', 'departurePoint', 'location',
-        'pilot', 'vehicle', 'assignedBy', 'registeredBy',
+        'pilot.pilotDocument', 'vehicle', 'assignedBy', 'registeredBy',
     ];
 
     /**

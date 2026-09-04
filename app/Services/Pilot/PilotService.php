@@ -35,7 +35,8 @@ class PilotService implements PilotServiceInterface
     #[Override]
     public function getPilots(User $user, array $filters): LengthAwarePaginator|Collection
     {
-        $query = CarrierPilot::query()->with('user', 'carrier');
+        /** `user.pilotDocument` va con el usuario: sin él, PilotResource resolvería las dos fotos con una consulta por piloto. */
+        $query = CarrierPilot::query()->with('user.pilotDocument', 'carrier');
 
         $scopedCarrierId = $this->resolveScopedCarrierId($user);
 
