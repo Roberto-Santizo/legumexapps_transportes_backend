@@ -1,6 +1,6 @@
 # SPEC 25 — Documentos del piloto en el registro
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 05, SPEC 11, SPEC 19, SPEC 24
 > **Fecha:** 2026-09-04
 > **Objetivo:** Exigir al piloto, y solo al piloto, la foto del anverso de su DPI y de su licencia durante el registro, guardándolas en la tabla nueva `pilot_documents` y exponiendo sus URLs en `UserResource`, `PilotResource` y `TripResource`.
@@ -192,46 +192,46 @@ Al terminar los nueve pasos: `vendor/bin/pint --dirty --format agent`, después 
 
 **Registro de piloto**
 
-- [ ] `POST /api/auth/register` con `role=pilot`, `dpi` y `license` responde **201**, crea el usuario, crea una fila en `pilot_documents` y deja dos objetos bajo `pilot-documents/` en el disco por defecto.
-- [ ] La misma petición sin `dpi` responde **422** y **no crea el usuario**.
-- [ ] La misma petición sin `license` responde **422** y **no crea el usuario**.
-- [ ] Con `dpi` de más de 3 MB responde **422**; con un PDF renombrado a `.jpg`, también.
-- [ ] El usuario creado nace con `email_verified_at` en `null` y recibe su código de confirmación, igual que antes de esta spec.
-- [ ] Las dos keys guardadas empiezan por `pilot-documents/` y **no** son URLs.
-- [ ] El archivo se guarda **byte por byte**: el tamaño y las dimensiones del objeto subido coinciden con los del archivo original, sin recorte a 800×800.
+- [x] `POST /api/auth/register` con `role=pilot`, `dpi` y `license` responde **201**, crea el usuario, crea una fila en `pilot_documents` y deja dos objetos bajo `pilot-documents/` en el disco por defecto.
+- [x] La misma petición sin `dpi` responde **422** y **no crea el usuario**.
+- [x] La misma petición sin `license` responde **422** y **no crea el usuario**.
+- [x] Con `dpi` de más de 3 MB responde **422**; con un PDF renombrado a `.jpg`, también.
+- [x] El usuario creado nace con `email_verified_at` en `null` y recibe su código de confirmación, igual que antes de esta spec.
+- [x] Las dos keys guardadas empiezan por `pilot-documents/` y **no** son URLs.
+- [x] El archivo se guarda **byte por byte**: el tamaño y las dimensiones del objeto subido coinciden con los del archivo original, sin recorte a 800×800.
 
 **Registro de transportista**
 
-- [ ] `POST /api/auth/register` con `role=carrier` y **sin** archivos responde **201**, exactamente como antes de esta spec.
-- [ ] `POST /api/auth/register` con `role=carrier` **mandando** `dpi` y `license` responde **201**, **no crea fila** en `pilot_documents` y **no sube ningún objeto** al disco.
+- [x] `POST /api/auth/register` con `role=carrier` y **sin** archivos responde **201**, exactamente como antes de esta spec.
+- [x] `POST /api/auth/register` con `role=carrier` **mandando** `dpi` y `license` responde **201**, **no crea fila** en `pilot_documents` y **no sube ningún objeto** al disco.
 
 **Limpieza ante fallo**
 
-- [ ] Si la transacción del registro falla después de haber subido los archivos, el disco queda **sin ningún objeto** bajo `pilot-documents/` y la respuesta es un error, no un 201.
+- [x] Si la transacción del registro falla después de haber subido los archivos, el disco queda **sin ningún objeto** bajo `pilot-documents/` y la respuesta es un error, no un 201.
 
 **Lectura**
 
-- [ ] La respuesta 201 del registro de un piloto trae `dpiImage` y `licenseImage` como URLs **absolutas**.
-- [ ] `POST /api/auth/login` y `GET /api/auth/check-status` de ese piloto traen las mismas dos claves con las mismas URLs.
-- [ ] `UserResource` de un usuario sin fila —un `carrier`, o un piloto anterior a la spec— trae las dos claves en **`null`**, no ausentes.
-- [ ] `GET /api/pilots` trae `dpiImage` y `licenseImage` en cada elemento, y el listado de N pilotos ejecuta un número de consultas **independiente de N**.
-- [ ] `GET /api/trips/{trip}` de un viaje con piloto asignado trae `pilotDpiImage` y `pilotLicenseImage` con las URLs de ese piloto.
-- [ ] `GET /api/trips/{trip}` de un viaje `pending` sin asignar trae esas dos claves en **`null`**.
+- [x] La respuesta 201 del registro de un piloto trae `dpiImage` y `licenseImage` como URLs **absolutas**.
+- [x] `POST /api/auth/login` y `GET /api/auth/check-status` de ese piloto traen las mismas dos claves con las mismas URLs.
+- [x] `UserResource` de un usuario sin fila —un `carrier`, o un piloto anterior a la spec— trae las dos claves en **`null`**, no ausentes.
+- [x] `GET /api/pilots` trae `dpiImage` y `licenseImage` en cada elemento, y el listado de N pilotos ejecuta un número de consultas **independiente de N**.
+- [x] `GET /api/trips/{trip}` de un viaje con piloto asignado trae `pilotDpiImage` y `pilotLicenseImage` con las URLs de ese piloto.
+- [x] `GET /api/trips/{trip}` de un viaje `pending` sin asignar trae esas dos claves en **`null`**.
 
 **Lo que no cambia**
 
-- [ ] `GET /api/carriers/me/pilots` devuelve **exactamente las mismas claves** que antes de esta spec.
-- [ ] `GET /api/trips` (listado) devuelve **exactamente las 15 claves** de `TripListResource`, sin las dos nuevas.
-- [ ] El token JWT emitido en el login lleva **los mismos siete claims** que antes: ninguna URL de documento entra en el payload.
-- [ ] Un piloto sin fila en `pilot_documents` hace login, se une a una empresa con `POST /api/carriers/join`, recibe un salario y arranca y cierra un viaje sin recibir ningún error nuevo.
-- [ ] `php artisan route:list --path=api` devuelve **el mismo número de rutas** que antes de esta spec.
+- [x] `GET /api/carriers/me/pilots` devuelve **exactamente las mismas claves** que antes de esta spec.
+- [x] `GET /api/trips` (listado) devuelve **exactamente las 15 claves** de `TripListResource`, sin las dos nuevas.
+- [x] El token JWT emitido en el login lleva **los mismos siete claims** que antes: ninguna URL de documento entra en el payload.
+- [x] Un piloto sin fila en `pilot_documents` hace login, se une a una empresa con `POST /api/carriers/join`, recibe un salario y arranca y cierra un viaje sin recibir ningún error nuevo.
+- [x] `php artisan route:list --path=api` devuelve **el mismo número de rutas** que antes de esta spec.
 
 **Cierre**
 
-- [ ] `php artisan test --compact` pasa entera.
-- [ ] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
-- [ ] `php artisan l5-swagger:generate` corre sin errores y el body de `/api/auth/register` aparece en la UI como `multipart/form-data` con `dpi` y `license`.
-- [ ] Existe `references/pilot-documents-api.md`.
+- [x] `php artisan test --compact` pasa entera.
+- [x] `vendor/bin/pint --dirty --format agent` no reporta cambios pendientes.
+- [x] `php artisan l5-swagger:generate` corre sin errores y el body de `/api/auth/register` aparece en la UI como `multipart/form-data` con `dpi` y `license`.
+- [x] Existe `references/pilot-documents-api.md`.
 
 ---
 

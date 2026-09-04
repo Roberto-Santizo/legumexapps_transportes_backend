@@ -44,11 +44,11 @@ class AuthController extends Controller
         responses: [
             new OA\Response(
                 response: 201,
-                description: 'Usuario registrado correctamente',
+                description: 'Usuario creado. La respuesta trae el usuario recién creado con emailVerifiedAt en null y NO trae token. Para un piloto, dpiImage y licenseImage vienen ya con sus URLs absolutas; para un carrier vienen en null aunque haya adjuntado archivos. El mensaje devuelto es: Hemos enviado instrucciones a tu correo electronico',
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 201),
-                        new OA\Property(property: 'message', type: 'string', example: 'Usuario registrado correctamente'),
+                        new OA\Property(property: 'message', type: 'string', example: 'Hemos enviado instrucciones a tu correo electronico'),
                         new OA\Property(property: 'data', ref: '#/components/schemas/User'),
                     ],
                     type: 'object',
@@ -89,7 +89,7 @@ class AuthController extends Controller
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
-                        new OA\Property(property: 'message', type: 'string', example: 'La cuenta ha sido confirmada correctamente'),
+                        new OA\Property(property: 'message', type: 'string', example: 'La cuenta ha sido confirmada correctamente, inicie sesión.'),
                         new OA\Property(property: 'data', type: 'object', nullable: true, example: null),
                     ],
                     type: 'object',

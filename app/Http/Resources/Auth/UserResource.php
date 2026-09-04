@@ -10,7 +10,13 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'User',
     title: 'Usuario',
-    description: 'Datos públicos de un usuario. Nunca incluye la contraseña. Desde SPEC 25 trae también las dos fotos del piloto, dpiImage y licenseImage, que son null para cualquier otro rol.',
+    description: <<<'TEXT'
+    Datos públicos de un usuario: 10 CLAVES en camelCase. NUNCA incluye la contraseña ni el código de confirmación. Es la misma forma en los tres endpoints que lo devuelven —el data de POST /api/auth/register y el data.user de POST /api/auth/login y de GET /api/auth/check-status—, así que un cliente puede reutilizar el mismo tipo en los tres.
+
+    ATENCIÓN — carrierId, carrierName y carrierCode SE RESUELVEN CONTRA LA BASE EN CADA RESPUESTA, no se copian del token. El JWT lleva claims con esos mismos nombres, pero pueden ir hasta una hora obsoletos: son informativos para el frontend y NUNCA fuente de verdad para autorizar. Las tres viajan juntas o las tres en null.
+
+    Desde SPEC 25 trae además dpiImage y licenseImage, las dos fotos del alta del piloto. Son null para cualquier rol que no sea pilot y también para los pilotos registrados antes de esa versión, porque no hubo backfill.
+    TEXT,
     properties: [
         new OA\Property(property: 'id', type: 'integer', example: 1),
         new OA\Property(property: 'name', type: 'string', example: 'Roberto Santizo'),
@@ -21,6 +27,27 @@ use OpenApi\Attributes as OA;
             type: 'string',
             enum: ['administrator', 'carrier', 'pilot', 'manager'],
             example: 'pilot',
+        ),
+        new OA\Property(
+            property: 'carrierId',
+            description: 'Identificador de la empresa transportista con la que el usuario está vinculado en ESTE MOMENTO, sea como dueño (rol carrier) o como piloto vinculado por POST /api/carriers/join. Es null mientras no tenga ninguna, y ese es el estado normal de un administrator o de un manager, y también el de un piloto recién registrado. ATENCIÓN — SE RESUELVE CONSULTANDO LA BASE EN CADA RESPUESTA, no se lee del token: el claim carrierId del JWT lleva el mismo nombre pero puede estar hasta una hora obsoleto y NUNCA debe usarse para autorizar.',
+            type: 'integer',
+            nullable: true,
+            example: 4,
+        ),
+        new OA\Property(
+            property: 'carrierName',
+            description: 'Nombre de la empresa transportista vinculada, para pintarlo sin un segundo GET. null cuando carrierId es null; las tres claves de empresa viajan siempre juntas o las tres en null.',
+            type: 'string',
+            nullable: true,
+            example: 'Transportes del Norte',
+        ),
+        new OA\Property(
+            property: 'carrierCode',
+            description: 'Código de 6 caracteres [A-Z0-9] de la empresa vinculada. Es el código que un piloto envía en POST /api/carriers/join para unirse, así que el dueño lo lee de aquí para compartirlo. null cuando el usuario no tiene empresa.',
+            type: 'string',
+            nullable: true,
+            example: 'K7B2QX',
         ),
         new OA\Property(
             property: 'emailVerifiedAt',
