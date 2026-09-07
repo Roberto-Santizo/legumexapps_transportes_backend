@@ -9,7 +9,7 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'CarrierPilot',
     title: 'Piloto vinculado',
-    description: 'Piloto vinculado a una empresa transportista. Es un usuario con rol pilot más la fecha en que se unió.',
+    description: 'Piloto vinculado a una empresa transportista. Es un usuario con rol pilot más la fecha en que se unió: CUATRO CLAVES y ninguna más. ATENCIÓN — NO TRAE dpiImage NI licenseImage: las fotos del DPI y de la licencia que SPEC 25 añadió al alta salen en GET /api/pilots (schema Pilot) y en el detalle de un viaje, no aquí. Este listado se mantuvo intacto a propósito, igual que sigue sin traer salary y con joinedAt en ISO 8601. Los dos listados de pilotos son cruzables por id.',
     properties: [
         new OA\Property(
             property: 'id',

@@ -3,13 +3,25 @@
 namespace App\Interfaces\Auth;
 
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 
 interface AuthServiceInterface
 {
     /**
      * Register a user without confirming it and store its confirmation code.
      *
-     * @param  array{name: string, email: string, password: string, role: string}  $data
+     * `dpi` and `license` are the front photos of the pilot's DPI and driving licence.
+     * The form request already guarantees they travel together and only makes them
+     * mandatory when the role is `pilot`; two rules the type cannot express are on the
+     * implementation:
+     *
+     * - They are only persisted for a `pilot`. Any other role that sends them has them
+     *   silently discarded: nothing is uploaded and no documents row is created.
+     * - The files are uploaded before the transaction opens, so a failed commit must
+     *   delete whatever was already uploaded before propagating the original error.
+     *   The bucket does not roll back on its own.
+     *
+     * @param  array{name: string, email: string, password: string, role: string, dpi?: UploadedFile|null, license?: UploadedFile|null}  $data
      */
     public function register(array $data): User;
 

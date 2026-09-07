@@ -4,8 +4,10 @@ use App\Enums\UserRole;
 use App\Models\Carrier;
 use App\Models\CarrierPilot;
 use App\Models\CarrierPilotSalaryHistory;
+use App\Models\PilotDocument;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use Tests\TestCase;
 
@@ -738,4 +740,128 @@ it('devuelve 404 al pedir el historial de un user_id que no existe', function ()
             'message' => 'El piloto no existe o no está vinculado a ninguna empresa transportista',
             'data' => null,
         ]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 25 — Los documentos del piloto en el listado
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve las dos fotos del piloto en cada elemento del listado, con las nueve claves del recurso', function () {
+    $carrier = Carrier::factory()->create();
+    $pilot = pilotLinkedTo($carrier, 4500);
+    $documents = PilotDocument::factory()->create(['user_id' => $pilot->user_id]);
+
+    $response = asUser($carrier->owner)->getJson('/api/pilots')->assertOk();
+
+    expect(array_keys($response->json('data.0')))
+        ->toBe(['id', 'name', 'email', 'carrierId', 'carrierName', 'salary', 'joinedAt', 'dpiImage', 'licenseImage'])
+        ->and($response->json('data.0.dpiImage'))->toBe(Storage::url($documents->dpi_image))
+        ->toStartWith('http')
+        ->toContain('pilot-documents/')
+        ->and($response->json('data.0.licenseImage'))->toBe(Storage::url($documents->license_image))
+        ->toStartWith('http');
+});
+
+it('devuelve las dos fotos en null, presentes y no ausentes, para un piloto anterior a la spec', function () {
+    $carrier = Carrier::factory()->create();
+    pilotLinkedTo($carrier, 4500);
+
+    $response = asUser($carrier->owner)->getJson('/api/pilots')->assertOk();
+
+    expect(array_keys($response->json('data.0')))->toContain('dpiImage', 'licenseImage')
+        ->and($response->json('data.0.dpiImage'))->toBeNull()
+        ->and($response->json('data.0.licenseImage'))->toBeNull();
+});
+
+it('devuelve las fotos de cada piloto, y solo las suyas, cuando conviven con y sin documentos', function () {
+    $carrier = Carrier::factory()->create();
+
+    $conDocumentos = pilotLinkedTo($carrier);
+    $sinDocumentos = pilotLinkedTo($carrier);
+
+    $documents = PilotDocument::factory()->create(['user_id' => $conDocumentos->user_id]);
+
+    $data = collect(asUser($carrier->owner)->getJson('/api/pilots')->assertOk()->json('data'))->keyBy('id');
+
+    expect($data[$conDocumentos->user_id]['dpiImage'])->toBe(Storage::url($documents->dpi_image))
+        ->and($data[$conDocumentos->user_id]['licenseImage'])->toBe(Storage::url($documents->license_image))
+        ->and($data[$sinDocumentos->user_id]['dpiImage'])->toBeNull()
+        ->and($data[$sinDocumentos->user_id]['licenseImage'])->toBeNull();
+});
+
+it('ejecuta el mismo número de consultas al listar tres pilotos con documentos que al listar veinte', function () {
+    $carrier = Carrier::factory()->create();
+
+    $listarComoAdministrador = function (): int {
+        /** El token se emite antes de escuchar: sus claims consultan la empresa del usuario. */
+        $token = JWTAuth::fromUser(userWithRole(UserRole::Administrator));
+
+        resetAuthState();
+
+        $queries = [];
+
+        DB::listen(function ($query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+
+        test()->withToken($token)->getJson('/api/pilots')->assertOk();
+
+        return count($queries);
+    };
+
+    $conDocumentos = function (Carrier $carrier, int $count): void {
+        for ($i = 0; $i < $count; $i++) {
+            PilotDocument::factory()->create(['user_id' => pilotLinkedTo($carrier)->user_id]);
+        }
+    };
+
+    $conDocumentos($carrier, 3);
+    $conTres = $listarComoAdministrador();
+
+    $conDocumentos($carrier, 17);
+    $conVeinte = $listarComoAdministrador();
+
+    /** El eager load de `user.pilotDocument` hace el coste fijo: N no aparece en la cuenta. */
+    expect($conVeinte)->toBe($conTres);
+});
+
+it('carga los documentos de veinte pilotos con una sola consulta a pilot_documents', function () {
+    $carrier = Carrier::factory()->create();
+
+    for ($i = 0; $i < 20; $i++) {
+        PilotDocument::factory()->create(['user_id' => pilotLinkedTo($carrier)->user_id]);
+    }
+
+    $token = JWTAuth::fromUser(userWithRole(UserRole::Administrator));
+
+    resetAuthState();
+
+    $queries = [];
+
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = $query->sql;
+    });
+
+    $response = test()->withToken($token)->getJson('/api/pilots')->assertOk()->assertJsonCount(20, 'data');
+
+    expect(collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "pilot_documents"')))->toHaveCount(1)
+        ->and(collect($response->json('data'))->every(fn (array $pilot): bool => is_string($pilot['dpiImage'])))->toBeTrue();
+});
+
+/**
+ * GET /api/carriers/me/pilots (SPEC 03) quedó intacto: son dos recursos distintos a
+ * propósito, cruzables por `id`, y el de la empresa no gana las fotos.
+ */
+it('deja GET /api/carriers/me/pilots con exactamente las mismas cuatro claves de siempre', function () {
+    $carrier = Carrier::factory()->create();
+    $pilot = pilotLinkedTo($carrier, 4500);
+
+    PilotDocument::factory()->create(['user_id' => $pilot->user_id]);
+
+    $response = asUser($carrier->owner)->getJson('/api/carriers/me/pilots')->assertOk();
+
+    expect(array_keys($response->json('data.0')))->toBe(['id', 'name', 'email', 'joinedAt'])
+        ->and($response->json('data.0'))->not->toHaveKeys(['dpiImage', 'licenseImage', 'salary']);
 });

@@ -8,6 +8,7 @@ use App\Models\Carrier;
 use App\Models\Client;
 use App\Models\DeparturePoint;
 use App\Models\Location;
+use App\Models\PilotDocument;
 use App\Models\ShippingLine;
 use App\Models\Trip;
 use App\Models\User;
@@ -15,6 +16,7 @@ use App\Models\Vehicle;
 use App\Services\Place\PolylineDecoder;
 use Database\Factories\TripFactory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use Tests\TestCase;
 
@@ -227,7 +229,7 @@ function tripResourceKeys(): array
         'destination', 'container', 'transport',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
         'polyline', 'points', 'observations',
-        'pilotId', 'pilotName',
+        'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
         'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
         'createdAt', 'updatedAt', 'deletedAt',
@@ -1712,7 +1714,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 15 claves en el listado y las 32 del detalle, y no las confunde', function () {
+it('devuelve 15 claves en el listado y las 34 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -1720,7 +1722,7 @@ it('devuelve 15 claves en el listado y las 32 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(32)
+    expect(tripResourceKeys())->toHaveCount(34)
         ->and(tripListResourceKeys())->toHaveCount(15)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripResourceKeys());
@@ -1739,7 +1741,8 @@ it('deja fuera del listado las claves que solo pinta el detalle', function () {
             'shippingLineId', 'departurePointId', 'locationId',
             'destination', 'transport',
             'polyline', 'points',
-            'pilotId', 'vehicleId', 'vehicleImage', 'assignedById', 'assignedByName',
+            'pilotId', 'pilotDpiImage', 'pilotLicenseImage',
+            'vehicleId', 'vehicleImage', 'assignedById', 'assignedByName',
             'createdAt', 'updatedAt', 'deletedAt',
         ]);
 });
@@ -1894,4 +1897,189 @@ it('devuelve deletedAt en null en los seis endpoints que lo pintan y no son el D
         ])->assertOk()->json('data.deletedAt'))->toBeNull()
         ->and(asUser($team['pilot'])->patchJson("/api/trips/{$id}/start")->assertOk()->json('data.deletedAt'))->toBeNull()
         ->and(asUser($team['pilot'])->patchJson("/api/trips/{$id}/finish")->assertOk()->json('data.deletedAt'))->toBeNull();
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 25 — Los documentos del piloto en el detalle del viaje
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve las dos fotos del piloto asignado en el detalle del viaje', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+    $documents = PilotDocument::factory()->create(['user_id' => $team['pilot']->id]);
+    $trip = tripAssignedTo($team);
+
+    $data = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+
+    expect($data['pilotId'])->toBe($team['pilot']->id)
+        ->and($data['pilotDpiImage'])->toBe(Storage::url($documents->dpi_image))
+        ->toStartWith('http')
+        ->toContain('pilot-documents/')
+        ->and($data['pilotLicenseImage'])->toBe(Storage::url($documents->license_image))
+        ->toStartWith('http');
+});
+
+it('devuelve las dos fotos en null, presentes y no ausentes, en un viaje pending sin asignar', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $trip = Trip::factory()->create();
+
+    $data = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+
+    expect($data['status'])->toBe(TripStatus::Pending->value)
+        ->and(array_keys($data))->toContain('pilotDpiImage', 'pilotLicenseImage')
+        ->and($data['pilotId'])->toBeNull()
+        ->and($data['pilotDpiImage'])->toBeNull()
+        ->and($data['pilotLicenseImage'])->toBeNull();
+});
+
+it('devuelve las dos fotos en null cuando el piloto asignado es anterior a la spec', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    $data = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+
+    /** Aquí sí hay piloto: las dos URLs en null significan «sin documentos», no «sin tripulación». */
+    expect($data['pilotId'])->toBe($team['pilot']->id)
+        ->and($data['pilotName'])->toBe($team['pilot']->name)
+        ->and($data['pilotDpiImage'])->toBeNull()
+        ->and($data['pilotLicenseImage'])->toBeNull();
+});
+
+it('devuelve las dos fotos del piloto en los siete endpoints que pintan el TripResource', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+    $documents = PilotDocument::factory()->create(['user_id' => $team['pilot']->id]);
+
+    $id = asUser($admin)->postJson('/api/trips', tripPayload())->assertCreated()->json('data.id');
+
+    $dpi = Storage::url($documents->dpi_image);
+    $license = Storage::url($documents->license_image);
+
+    /** En la bolsa todavía no hay piloto: las dos claves salen, y salen en null. */
+    expect(asUser($admin)->getJson("/api/trips/{$id}")->assertOk()->json('data.pilotDpiImage'))->toBeNull();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+    ])->assertOk()
+        ->assertJsonPath('data.pilotDpiImage', $dpi)
+        ->assertJsonPath('data.pilotLicenseImage', $license);
+
+    asUser($admin)->getJson("/api/trips/{$id}")->assertOk()
+        ->assertJsonPath('data.pilotDpiImage', $dpi)
+        ->assertJsonPath('data.pilotLicenseImage', $license);
+
+    asUser($admin)->patchJson("/api/trips/{$id}", ['order' => 'ord-2026-9999'])->assertOk()
+        ->assertJsonPath('data.pilotDpiImage', $dpi);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$id}/start")->assertOk()
+        ->assertJsonPath('data.pilotDpiImage', $dpi);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$id}/finish")->assertOk()
+        ->assertJsonPath('data.pilotLicenseImage', $license);
+});
+
+it('deja el listado de viajes con exactamente sus quince claves, sin las dos nuevas', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+
+    PilotDocument::factory()->create(['user_id' => $team['pilot']->id]);
+    tripAssignedTo($team, ['registered_by' => $admin->id]);
+
+    $item = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
+
+    expect(array_keys($item))->toBe(tripListResourceKeys())
+        ->and($item)->not->toHaveKeys(['pilotDpiImage', 'pilotLicenseImage', 'dpiImage', 'licenseImage']);
+});
+
+it('no carga pilot_documents en el listado de viajes, que no pinta las fotos', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+
+    PilotDocument::factory()->create(['user_id' => $team['pilot']->id]);
+    tripAssignedTo($team, ['registered_by' => $admin->id]);
+
+    $token = JWTAuth::fromUser($admin);
+
+    resetAuthState();
+
+    $queries = [];
+
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = $query->sql;
+    });
+
+    test()->withToken($token)->getJson('/api/trips')->assertOk();
+
+    expect(collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "pilot_documents"')))->toHaveCount(0);
+});
+
+it('carga los documentos del piloto con una sola consulta en el detalle del viaje', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+
+    PilotDocument::factory()->create(['user_id' => $team['pilot']->id]);
+    $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
+
+    $token = JWTAuth::fromUser($admin);
+
+    resetAuthState();
+
+    $queries = [];
+
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = $query->sql;
+    });
+
+    test()->withToken($token)->getJson("/api/trips/{$trip->id}")->assertOk();
+
+    expect(collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "pilot_documents"')))->toHaveCount(1);
+});
+
+it('deja a un piloto sin documentos iniciar sesión, unirse, cobrar salario y arrancar y cerrar un viaje', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $carrier = Carrier::factory()->create(['code' => 'A7K2QX']);
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+    $pilot = User::factory()->create(['role' => UserRole::Pilot, 'password' => 'password123']);
+
+    expect($pilot->pilotDocument)->toBeNull();
+
+    /** Login: la falta de documentos no bloquea nada, y las dos claves salen en null. */
+    $login = $this->postJson('/api/auth/login', [
+        'email' => $pilot->email,
+        'password' => 'password123',
+    ])->assertOk()
+        ->assertJsonPath('data.user.dpiImage', null)
+        ->assertJsonPath('data.user.licenseImage', null);
+
+    expect($login->json('data.token'))->toBeString()->not->toBeEmpty();
+
+    resetAuthState();
+
+    asUser($pilot)->postJson('/api/carriers/join', ['code' => 'A7K2QX'])->assertOk();
+
+    asUser($carrier->owner)->patchJson("/api/pilots/{$pilot->id}/salary", ['salary' => 4500])
+        ->assertOk()
+        ->assertJsonPath('data.salary', '4500.00')
+        ->assertJsonPath('data.dpiImage', null);
+
+    $id = asUser($admin)->postJson('/api/trips', tripPayload())->assertCreated()->json('data.id');
+
+    asUser($carrier->owner)->patchJson("/api/trips/{$id}/assignment", [
+        'pilotId' => $pilot->id,
+        'vehicleId' => $vehicle->id,
+    ])->assertOk();
+
+    asUser($pilot)->patchJson("/api/trips/{$id}/start")->assertOk()
+        ->assertJsonPath('data.status', TripStatus::InRoute->value)
+        ->assertJsonPath('data.pilotDpiImage', null);
+
+    asUser($pilot)->patchJson("/api/trips/{$id}/finish")->assertOk()
+        ->assertJsonPath('data.status', TripStatus::Finished->value)
+        ->assertJsonPath('data.pilotLicenseImage', null);
+
+    $this->assertDatabaseCount('pilot_documents', 0);
 });

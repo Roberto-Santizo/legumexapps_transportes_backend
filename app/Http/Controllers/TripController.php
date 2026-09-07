@@ -41,7 +41,7 @@ use OpenApi\Attributes as OA;
 
     EL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.
 
-    LA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 15 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 32 claves en camelCase, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.
+    LA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 15 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 34 claves en camelCase, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.
 
     IMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto.
     TEXT,
@@ -63,7 +63,7 @@ class TripController extends Controller
 
         LOS OCHO FILTROS SON TOLERANTES y se combinan entre sí: un status fuera del enum, un id no numérico, una fecha que no sea exactamente Y-m-d o un search en blanco SE IGNORAN EN SILENCIO y la lectura devuelve 200 con el listado completo, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. Cualquier otro query param se ignora.
 
-        ATENCIÓN — EL LISTADO NO DEVUELVE EL RECURSO COMPLETO. Cada elemento es un TripListItem de 15 CLAVES, no el Trip de 31 del detalle: no vienen los ids de las relaciones (shippingLineId, locationId, pilotId, vehicleId…), ni clientId ni clientName, ni destination, ni transport, ni polyline, NI points, ni createdAt, updatedAt o deletedAt. De cada relación sale solo su nombre. Para pintar el mapa, filtrar por un id que salga de una fila o ver el resto de campos hay que pedir GET /api/trips/{trip}.
+        ATENCIÓN — EL LISTADO NO DEVUELVE EL RECURSO COMPLETO. Cada elemento es un TripListItem de 15 CLAVES, no el Trip de 34 del detalle: no vienen los ids de las relaciones (shippingLineId, locationId, pilotId, vehicleId…), ni clientId ni clientName, ni destination, ni transport, ni polyline, NI points, ni createdAt, updatedAt o deletedAt. De cada relación sale solo su nombre. Para pintar el mapa, filtrar por un id que salga de una fila o ver el resto de campos hay que pedir GET /api/trips/{trip}.
 
         El orden es FIJO y no configurable: recolection_date DESC —lo próximo a recoger primero— y, a igualdad, id DESC. No hay sortBy ni sortDir.
 
@@ -153,7 +153,7 @@ class TripController extends Controller
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Viajes obtenidos correctamente. Sin limit se devuelve TripListResponse; con limit numérico, PaginatedTripListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Cada elemento es un TripListItem de 15 claves, NO el Trip de 31 del detalle. Un listado vacío —porque el ámbito no deja ver ninguno o porque los filtros no casan— devuelve 200 con data vacío, nunca 404 ni 403. Los viajes borrados no se listan, y por eso el listado tampoco trae deletedAt.',
+                description: 'Viajes obtenidos correctamente. Sin limit se devuelve TripListResponse; con limit numérico, PaginatedTripListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Cada elemento es un TripListItem de 15 claves, NO el Trip de 34 del detalle. Un listado vacío —porque el ámbito no deja ver ninguno o porque los filtros no casan— devuelve 200 con data vacío, nunca 404 ni 403. Los viajes borrados no se listan, y por eso el listado tampoco trae deletedAt.',
                 content: new OA\JsonContent(
                     oneOf: [
                         new OA\Schema(ref: '#/components/schemas/TripListResponse'),
@@ -261,7 +261,7 @@ class TripController extends Controller
         operationId: 'showTrip',
         summary: 'Obtener un viaje por id',
         description: <<<'TEXT'
-        Devuelve un viaje concreto con sus 32 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.
+        Devuelve un viaje concreto con sus 34 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.
 
         ATENCIÓN — UN VIAJE FUERA DE ÁMBITO RESPONDE 403, NO 404, y es deliberado: el ámbito esconde filas de un listado, no pretende que nunca se publicaran. Es lo contrario del viaje borrado, que sí es 404. Los dos mensajes de 403 son distintos según el rol: un pilot que pide un viaje que no tiene asignado recibe «No puedes acceder a un viaje que no tienes asignado»; un carrier que pide uno tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista».
 
@@ -423,7 +423,7 @@ class TripController extends Controller
 
         ES UN BORRADO LÓGICO (soft delete): la fila SIGUE EN LA BASE con su deleted_at puesto, pero DESAPARECE de la API para siempre. No se lista, no se consulta por id —el GET responde 404— y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni un status— que la devuelva, ni endpoint /restore. UN VIAJE BORRADO POR ERROR SOLO SE RECUPERA DESDE LA BASE DE DATOS.
 
-        ATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 32 claves. En los otros siete endpoints es siempre null.
+        ATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 34 claves. En los otros siete endpoints es siempre null.
 
         NO HAY CONFIRMACIÓN Y NO SE COMPRUEBA EL ESTADO: se borra igual un viaje pending que uno in_route o uno ya finished, y también uno que una empresa ya tomó, sin avisar a nadie —no hay notificaciones—. De hecho, BORRAR Y VOLVER A CREAR ES LA ÚNICA SALIDA cuando un viaje se queda atascado: el administrador no puede asignar y no se puede desasignar.
 

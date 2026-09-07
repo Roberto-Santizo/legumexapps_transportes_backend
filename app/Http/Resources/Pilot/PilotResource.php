@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Pilot;
 
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
@@ -67,6 +68,20 @@ use OpenApi\Attributes as OA;
             nullable: true,
             example: '04-08-2026 10:15:00 AM',
         ),
+        new OA\Property(
+            property: 'dpiImage',
+            description: 'URL pública y permanente de la foto del ANVERSO del DPI del piloto, lista para usar como src, o null. Se sube UNA SOLA VEZ en POST /api/auth/register y no se puede reemplazar: este dominio NO la escribe —su única escritura sigue siendo el salario— y no existe ningún endpoint que la acepte. Es null para los pilotos registrados antes de SPEC 25, porque no hubo backfill, y NO BLOQUEA NADA: un piloto sin documentos cobra salario y opera viajes con normalidad. Tampoco se puede filtrar por ella: no hay ningún ?hasDocuments=. ATENCIÓN — la URL es pública: quien tenga el enlace abre el documento SIN TOKEN.',
+            type: 'string',
+            nullable: true,
+            example: 'https://bucket.s3.amazonaws.com/pilot-documents/9f3a2c1d-8b4e-4a70-9c21-5d6e7f801a2b.jpg',
+        ),
+        new OA\Property(
+            property: 'licenseImage',
+            description: 'URL pública y permanente de la foto del ANVERSO de la licencia de conducir, con las mismas reglas que dpiImage: las dos vienen siempre juntas o las dos vienen en null, porque no existe una fila de documentos a medias. Ojo — GET /api/carriers/me/pilots (SPEC 03) NO trae estas dos claves: son dos listados distintos a propósito, y solo este, el de administración, las incluye.',
+            type: 'string',
+            nullable: true,
+            example: 'https://bucket.s3.amazonaws.com/pilot-documents/1c07f4d9-2e35-4b18-8a6f-3b9c0d1e2f34.png',
+        ),
     ],
     type: 'object',
 )]
@@ -112,6 +127,13 @@ class PilotResource extends JsonResource
             /** Monthly base salary in GTQ; null means it has not been assigned yet. */
             'salary' => $this->salary,
             'joinedAt' => $this->created_at?->format('d-m-Y h:i:s A'),
+            /**
+             * Las dos fotos del alta, resueltas a URL absoluta a través del usuario. Este
+             * dominio no las escribe nunca: solo las lee. `url(null)` devuelve null por
+             * contrato, así que un piloto anterior a SPEC 25 sale con las dos en null.
+             */
+            'dpiImage' => app(FileStorageServiceInterface::class)->url($this->user?->pilotDocument?->dpi_image),
+            'licenseImage' => app(FileStorageServiceInterface::class)->url($this->user?->pilotDocument?->license_image),
         ];
     }
 }

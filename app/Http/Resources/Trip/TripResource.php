@@ -9,13 +9,14 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 32 keys in camelCase, the largest resource of the
+ * The trip as the API paints it: 34 keys in camelCase, the largest resource of the
  * project.
  *
  * The six relations go out **flat**, as an id plus its name side by side, never as a
  * nested object: `clientId` + `clientName`, `vehicleId` + `vehiclePlate`, and so on.
- * The vehicle is the only one that takes a third key, `vehicleImage`, because the
- * frontend paints the truck next to the trip. The service loads the eight of them
+ * The vehicle takes a third key, `vehicleImage`, because the frontend paints the truck
+ * next to the trip, and since SPEC 25 the pilot takes two more, `pilotDpiImage` and
+ * `pilotLicenseImage`, prefixed because four entities live side by side in here. The service loads the eight of them
  * with `with()`, so painting a page of a hundred costs no extra query.
  *
  * The four dates use the project's own `d-m-Y h:i:s A` format —day-month-year with a
@@ -30,9 +31,9 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 32 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 34 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.
 
-    ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. La ÚNICA relación que sale con TRES claves es el vehículo: vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
+    ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
     ATENCIÓN — LAS SIETE FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.
 
@@ -42,7 +43,7 @@ use OpenApi\Attributes as OA;
 
     points es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.
 
-    Las 32 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, observations, pilotId, pilotName, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, createdAt, updatedAt y deletedAt.
+    Las 34 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -198,6 +199,20 @@ use OpenApi\Attributes as OA;
             example: 'Carlos Ramírez',
         ),
         new OA\Property(
+            property: 'pilotDpiImage',
+            description: 'URL pública y permanente de la foto del ANVERSO del DPI del piloto asignado, lista para usar como src. Va PREFIJADA con «pilot» igual que pilotId y pilotName porque aquí conviven cuatro entidades y un dpiImage suelto no diría de quién es. ATENCIÓN — HAY DOS MOTIVOS DISTINTOS PARA QUE VENGA null y el frontend no los distingue desde aquí: que el viaje siga en la bolsa (entonces pilotId y pilotName también son null) o que el piloto se registrara antes de SPEC 25 (entonces pilotId y pilotName sí traen valor). El viaje NO guarda copia del documento: la URL se resuelve desde el piloto, así que es la misma que devuelve GET /api/pilots. NO SALE EN EL LISTADO: TripListItem sigue con sus 15 claves.',
+            type: 'string',
+            nullable: true,
+            example: 'https://bucket.s3.amazonaws.com/pilot-documents/9f3a2c1d-8b4e-4a70-9c21-5d6e7f801a2b.jpg',
+        ),
+        new OA\Property(
+            property: 'pilotLicenseImage',
+            description: 'URL pública y permanente de la foto del ANVERSO de la licencia del piloto asignado, con las mismas reglas que pilotDpiImage: las dos vienen siempre juntas o las dos en null, porque no existe una fila de documentos a medias. La API no sabe si la licencia está caducada: no se guarda ninguna fecha de vencimiento, y que el piloto no tenga documentos NO impide asignarle el viaje ni arrancarlo.',
+            type: 'string',
+            nullable: true,
+            example: 'https://bucket.s3.amazonaws.com/pilot-documents/1c07f4d9-2e35-4b18-8a6f-3b9c0d1e2f34.png',
+        ),
+        new OA\Property(
             property: 'vehicleId',
             description: 'Id del vehículo asignado (vehicles.id). Mismas reglas que pilotId: null en la bolsa, lo escribe solo /assignment desde un carrier, y una vez puesto no vuelve a null. El vehículo tiene que estar active al asignarse —inactive y under_repair se rechazan con 400— y pertenecer a la MISMA EMPRESA que el piloto. Lo que le ocurra después al vehículo (que se desactive, por ejemplo) no toca al viaje ya asignado.',
             type: 'integer',
@@ -303,6 +318,13 @@ class TripResource extends JsonResource
             'observations' => $this->observations,
             'pilotId' => $this->pilot_id,
             'pilotName' => $this->pilot?->name,
+            /**
+             * Las dos fotos del piloto, prefijadas porque el recurso mezcla cuatro entidades.
+             * Se resuelven desde la relación, igual que `vehicleImage`: el viaje no guarda
+             * copia de nada. Null en la bolsa y null si el piloto es anterior a SPEC 25.
+             */
+            'pilotDpiImage' => app(FileStorageServiceInterface::class)->url($this->pilot?->pilotDocument?->dpi_image),
+            'pilotLicenseImage' => app(FileStorageServiceInterface::class)->url($this->pilot?->pilotDocument?->license_image),
             'vehicleId' => $this->vehicle_id,
             'vehiclePlate' => $this->vehicle?->plate,
             /**

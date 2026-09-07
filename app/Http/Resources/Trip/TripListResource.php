@@ -23,9 +23,9 @@ use OpenApi\Attributes as OA;
     schema: 'TripListItem',
     title: 'Viaje en el listado',
     description: <<<'TEXT'
-    El viaje tal como sale en GET /api/trips: 15 CLAVES en camelCase, no las 31 del detalle. Es una vista de tabla, no el recurso completo.
+    El viaje tal como sale en GET /api/trips: 15 CLAVES en camelCase, no las 34 del detalle. Es una vista de tabla, no el recurso completo.
 
-    ATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.
+    ATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; vehicleImage, pilotDpiImage ni pilotLicenseImage; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.
 
     ATENCIÓN — points NO SE CALCULA EN EL LISTADO. La polilínea solo se decodifica en el detalle, así que el mapa se pinta desde ahí y nunca desde una fila de la tabla.
 
@@ -116,7 +116,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'pilotName',
-            description: 'Nombre del piloto asignado, resuelto desde la relación. ES null MIENTRAS EL VIAJE SIGA EN LA BOLSA, y en el listado de un carrier la bolsa siempre aparece: hay que contar con el null. Sale sin su id.',
+            description: 'Nombre del piloto asignado, resuelto desde la relación. ES null MIENTRAS EL VIAJE SIGA EN LA BOLSA, y en el listado de un carrier la bolsa siempre aparece: hay que contar con el null. Sale sin su id y SIN LAS FOTOS DE SUS DOCUMENTOS: pilotDpiImage y pilotLicenseImage, que SPEC 25 añadió, solo salen en el detalle (schema Trip) y en GET /api/pilots.',
             type: 'string',
             nullable: true,
             example: 'Carlos Ramírez',
@@ -141,7 +141,7 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'TripListResponse',
     title: 'Listado de viajes sin paginar',
-    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 15 claves, NO el Trip de 31 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
+    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 15 claves, NO el Trip de 34 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
     properties: [
         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
         new OA\Property(property: 'message', type: 'string', example: 'Viajes obtenidos correctamente'),

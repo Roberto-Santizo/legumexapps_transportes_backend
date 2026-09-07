@@ -4,12 +4,17 @@ use App\Enums\UserRole;
 use App\Mail\Auth\AccountConfirmationMail;
 use App\Mail\Auth\PasswordResetMail;
 use App\Mail\Auth\WelcomeMail;
+use App\Models\PilotDocument;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 
 const CONFIRMATION_TABLE = 'account_confirmation_tokens';
@@ -27,6 +32,43 @@ function validRegisterPayload(array $overrides = []): array
         'password_confirmation' => 'password123',
         'role' => UserRole::Pilot->value,
     ], $overrides);
+}
+
+/**
+ * The multipart body of a pilot registration, documents included.
+ *
+ * Kept apart from registerPilot() so a test can drop one of the two files before
+ * sending it: `required_if` fires on an absent key, and a test that needs the file
+ * missing has to unset it rather than null it.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function registerPilotPayload(array $overrides = []): array
+{
+    return validRegisterPayload(array_merge([
+        'dpi' => UploadedFile::fake()->image('dpi.jpg'),
+        'license' => UploadedFile::fake()->image('license.png'),
+    ], $overrides));
+}
+
+/**
+ * Register a pilot through the endpoint, attaching the two documents SPEC 25 requires.
+ *
+ * Goes through `post()` and not `postJson()` on purpose: since SPEC 25 the pilot
+ * registration carries files, so the body travels as multipart/form-data.
+ */
+function registerPilot(array $overrides = []): TestResponse
+{
+    return test()->post(route('auth.register'), registerPilotPayload($overrides));
+}
+
+/**
+ * The shape of a stored pilot document key, «pilot-documents/{uuid}.{ext}».
+ */
+function pilotDocumentKeyPattern(string $extension = '(jpg|png)'): string
+{
+    return '#^pilot-documents/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.'.$extension.'$#';
 }
 
 /**
@@ -84,7 +126,7 @@ function authClaimsOf(string $token): array
 */
 
 it('registra un usuario y devuelve 201 con el recurso del usuario', function () {
-    $response = $this->postJson(route('auth.register'), validRegisterPayload());
+    $response = registerPilot();
 
     $response->assertCreated()
         ->assertJson([
@@ -111,7 +153,7 @@ it('registra un usuario y devuelve 201 con el recurso del usuario', function () 
 });
 
 it('no expone la contraseña ni un token en la respuesta del registro', function () {
-    $response = $this->postJson(route('auth.register'), validRegisterPayload());
+    $response = registerPilot();
 
     $response->assertCreated()
         ->assertJsonMissingPath('data.password')
@@ -119,13 +161,13 @@ it('no expone la contraseña ni un token en la respuesta del registro', function
         ->assertJsonMissingPath('token');
 
     expect(array_keys($response->json('data')))
-        ->toBe(['id', 'name', 'email', 'role', 'carrierId', 'carrierName', 'carrierCode', 'emailVerifiedAt']);
+        ->toBe(['id', 'name', 'email', 'role', 'carrierId', 'carrierName', 'carrierCode', 'emailVerifiedAt', 'dpiImage', 'licenseImage']);
 });
 
 it('guarda un único código de confirmación hasheado que expira una hora después de crearse', function () {
     $this->freezeTime();
 
-    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+    registerPilot()->assertCreated();
 
     $codes = DB::table(CONFIRMATION_TABLE)->get();
 
@@ -757,7 +799,7 @@ it('valida los campos obligatorios al restablecer la contraseña', function (arr
 */
 
 it('envía exactamente un correo de confirmación al correo recién registrado', function () {
-    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+    registerPilot()->assertCreated();
 
     Mail::assertSentCount(1);
     Mail::assertSent(
@@ -767,7 +809,7 @@ it('envía exactamente un correo de confirmación al correo recién registrado',
 });
 
 it('envía en el correo de confirmación el código que valida el confirm-account siguiente', function () {
-    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+    registerPilot()->assertCreated();
 
     $code = null;
 
@@ -847,7 +889,7 @@ it('devuelve 201 en el registro aunque el proveedor de correo falle', function (
     Log::spy();
     Mail::shouldReceive('to')->once()->andThrow(new RuntimeException('proveedor de correo caído'));
 
-    $this->postJson(route('auth.register'), validRegisterPayload())->assertCreated();
+    registerPilot()->assertCreated();
 
     $this->assertDatabaseHas('users', ['email' => 'juan.perez@example.com']);
     $this->assertDatabaseCount(CONFIRMATION_TABLE, 1);
@@ -889,4 +931,245 @@ it('aplica el middleware de rol igual con el token de acceso que con el de refre
         ->assertUnprocessable();
 
     resetAuthState();
+})->with(['token', 'refreshToken']);
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 25 — Documentos del piloto en el registro
+|--------------------------------------------------------------------------
+*/
+
+it('registra al piloto con sus dos documentos, crea la fila y deja dos objetos bajo pilot-documents/', function () {
+    registerPilot()->assertCreated();
+
+    $user = User::query()->where('email', '=', 'juan.perez@example.com')->firstOrFail();
+
+    $this->assertDatabaseCount('pilot_documents', 1);
+    $this->assertDatabaseHas('pilot_documents', ['user_id' => $user->id]);
+
+    $documents = PilotDocument::query()->firstOrFail();
+
+    expect($documents->dpi_image)->toMatch(pilotDocumentKeyPattern('jpg'))
+        ->and($documents->license_image)->toMatch(pilotDocumentKeyPattern('png'))
+        ->and(Storage::allFiles())->toHaveCount(2)
+        ->and(collect(Storage::allFiles())->every(fn (string $key): bool => str_starts_with($key, 'pilot-documents/')))->toBeTrue();
+
+    Storage::assertExists($documents->dpi_image);
+    Storage::assertExists($documents->license_image);
+});
+
+it('rechaza con 422 el registro de un piloto al que le falta uno de los dos documentos', function (string $field, string $message) {
+    $payload = registerPilotPayload();
+    unset($payload[$field]);
+
+    $this->post(route('auth.register'), $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([$field => $message]);
+
+    $this->assertDatabaseCount('users', 0);
+    $this->assertDatabaseCount('pilot_documents', 0);
+
+    expect(Storage::allFiles())->toBe([]);
+})->with([
+    'sin dpi' => ['dpi', 'La foto del DPI es obligatoria para los pilotos'],
+    'sin license' => ['license', 'La foto de la licencia es obligatoria para los pilotos'],
+]);
+
+it('rechaza con 422 un documento de más de 3 MB y no crea nada', function (string $field, string $message) {
+    $this->post(route('auth.register'), registerPilotPayload([
+        $field => UploadedFile::fake()->image("{$field}.jpg")->size(4096),
+    ]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([$field => $message]);
+
+    $this->assertDatabaseCount('users', 0);
+
+    expect(Storage::allFiles())->toBe([]);
+})->with([
+    'dpi' => ['dpi', 'La foto del DPI no puede superar los 3 MB'],
+    'license' => ['license', 'La foto de la licencia no puede superar los 3 MB'],
+]);
+
+it('rechaza con 422 un PDF renombrado a .jpg, porque la regla image mira el contenido', function (string $field, string $message) {
+    $this->post(route('auth.register'), registerPilotPayload([
+        $field => UploadedFile::fake()->create("{$field}.jpg", 40, 'application/pdf'),
+    ]))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors([$field => $message]);
+
+    $this->assertDatabaseCount('users', 0);
+    $this->assertDatabaseCount('pilot_documents', 0);
+
+    expect(Storage::allFiles())->toBe([]);
+})->with([
+    'dpi' => ['dpi', 'La foto del DPI debe ser una imagen'],
+    'license' => ['license', 'La licencia debe ser una imagen'],
+]);
+
+it('deja al piloto recién registrado sin confirmar y con su código de confirmación, como antes de la spec', function () {
+    registerPilot()->assertCreated()->assertJsonPath('data.emailVerifiedAt', null);
+
+    $user = User::query()->where('email', '=', 'juan.perez@example.com')->firstOrFail();
+
+    expect($user->email_verified_at)->toBeNull();
+
+    $this->assertDatabaseCount(CONFIRMATION_TABLE, 1);
+    $this->assertDatabaseHas(CONFIRMATION_TABLE, ['email' => $user->email]);
+
+    Mail::assertSentCount(1);
+    Mail::assertSent(AccountConfirmationMail::class, fn (AccountConfirmationMail $mail): bool => $mail->hasTo($user->email));
+});
+
+it('guarda la key completa en las dos columnas, nunca la URL', function () {
+    registerPilot()->assertCreated();
+
+    $documents = PilotDocument::query()->firstOrFail();
+
+    expect($documents->dpi_image)->toStartWith('pilot-documents/')
+        ->not->toContain('http')
+        ->and($documents->license_image)->toStartWith('pilot-documents/')
+        ->not->toContain('http');
+});
+
+it('guarda cada documento byte por byte, sin recortarlo al cuadrado de 800x800', function () {
+    $this->post(route('auth.register'), registerPilotPayload([
+        'dpi' => UploadedFile::fake()->image('dpi.jpg', 1600, 900),
+        'license' => UploadedFile::fake()->image('license.png', 1200, 400),
+    ]))->assertCreated();
+
+    $documents = PilotDocument::query()->firstOrFail();
+
+    $dpi = getimagesizefromstring(Storage::get($documents->dpi_image));
+    $license = getimagesizefromstring(Storage::get($documents->license_image));
+
+    expect($dpi[0])->toBe(1600)
+        ->and($dpi[1])->toBe(900)
+        ->and($license[0])->toBe(1200)
+        ->and($license[1])->toBe(400);
+});
+
+it('devuelve en el 201 del registro las dos claves como URL absoluta de las keys guardadas', function () {
+    $response = registerPilot()->assertCreated();
+
+    $documents = PilotDocument::query()->firstOrFail();
+
+    expect($response->json('data.dpiImage'))->toBe(Storage::url($documents->dpi_image))
+        ->toStartWith('http')
+        ->toContain($documents->dpi_image)
+        ->and($response->json('data.licenseImage'))->toBe(Storage::url($documents->license_image))
+        ->toStartWith('http')
+        ->toContain($documents->license_image);
+});
+
+it('registra al transportista sin archivos, exactamente como antes de la spec', function () {
+    $this->postJson(route('auth.register'), validRegisterPayload(['role' => UserRole::Carrier->value]))
+        ->assertCreated()
+        ->assertJsonPath('data.role', UserRole::Carrier->value)
+        ->assertJsonPath('data.dpiImage', null)
+        ->assertJsonPath('data.licenseImage', null);
+
+    $this->assertDatabaseHas('users', ['email' => 'juan.perez@example.com', 'role' => UserRole::Carrier->value]);
+    $this->assertDatabaseCount('pilot_documents', 0);
+
+    expect(Storage::allFiles())->toBe([]);
+});
+
+it('descarta en silencio los documentos de un transportista: 201, sin fila y sin subir nada', function () {
+    $response = $this->post(route('auth.register'), registerPilotPayload(['role' => UserRole::Carrier->value]));
+
+    $response->assertCreated()
+        ->assertJsonPath('data.dpiImage', null)
+        ->assertJsonPath('data.licenseImage', null);
+
+    $this->assertDatabaseCount('users', 1);
+    $this->assertDatabaseCount('pilot_documents', 0);
+
+    expect(Storage::allFiles())->toBe([])
+        ->and(array_keys($response->json('data')))->toContain('dpiImage', 'licenseImage');
+});
+
+it('deja el bucket sin ningún objeto y responde error cuando la transacción del registro falla', function () {
+    /** La fila de documentos se inserta dentro de la transacción: sin tabla, el commit revienta. */
+    Schema::drop('pilot_documents');
+
+    $this->post(route('auth.register'), registerPilotPayload())
+        ->assertStatus(500)
+        ->assertJsonPath('statusCode', 500);
+
+    $this->assertDatabaseCount('users', 0);
+    $this->assertDatabaseCount(CONFIRMATION_TABLE, 0);
+
+    expect(Storage::allFiles())->toBe([]);
+
+    Mail::assertNothingSent();
+});
+
+it('devuelve las mismas dos URLs en el registro, en el login y en check-status del mismo piloto', function () {
+    $registered = registerPilot()->assertCreated()->json('data');
+
+    $user = User::query()->where('email', '=', 'juan.perez@example.com')->firstOrFail();
+
+    seedAuthCode(CONFIRMATION_TABLE, $user->email);
+
+    $this->postJson(route('auth.confirm-account'), ['email' => $user->email, 'code' => '123456'])->assertOk();
+
+    $login = $this->postJson(route('auth.login'), [
+        'email' => $user->email,
+        'password' => 'password123',
+    ])->assertOk();
+
+    $token = $login->json('data.token');
+
+    resetAuthState();
+
+    $checkStatus = $this->withHeader('Authorization', "Bearer {$token}")
+        ->getJson(route('auth.check-status'))
+        ->assertOk();
+
+    expect($registered['dpiImage'])->toStartWith('http')
+        ->and($login->json('data.user.dpiImage'))->toBe($registered['dpiImage'])
+        ->and($login->json('data.user.licenseImage'))->toBe($registered['licenseImage'])
+        ->and($checkStatus->json('data.user.dpiImage'))->toBe($registered['dpiImage'])
+        ->and($checkStatus->json('data.user.licenseImage'))->toBe($registered['licenseImage']);
+
+    resetAuthState();
+});
+
+it('devuelve las dos claves en null, presentes y no ausentes, para un usuario sin fila de documentos', function (UserRole $role) {
+    $user = User::factory()->create(['role' => $role, 'password' => 'password123']);
+
+    $response = $this->postJson(route('auth.login'), [
+        'email' => $user->email,
+        'password' => 'password123',
+    ])->assertOk();
+
+    expect(array_keys($response->json('data.user')))
+        ->toBe(['id', 'name', 'email', 'role', 'carrierId', 'carrierName', 'carrierCode', 'emailVerifiedAt', 'dpiImage', 'licenseImage'])
+        ->and($response->json('data.user.dpiImage'))->toBeNull()
+        ->and($response->json('data.user.licenseImage'))->toBeNull();
+
+    resetAuthState();
+})->with([
+    'transportista' => UserRole::Carrier,
+    'piloto anterior a la spec' => UserRole::Pilot,
+]);
+
+it('mantiene los siete claims de negocio del token: ninguna URL de documento entra en el payload', function (string $key) {
+    registerPilot()->assertCreated();
+
+    $user = User::query()->where('email', '=', 'juan.perez@example.com')->firstOrFail();
+
+    seedAuthCode(CONFIRMATION_TABLE, $user->email);
+
+    $this->postJson(route('auth.confirm-account'), ['email' => $user->email, 'code' => '123456'])->assertOk();
+
+    $claims = authClaimsOf(tokensFor($user)[$key]);
+
+    $business = array_values(array_diff(array_keys($claims), ['iss', 'iat', 'exp', 'nbf', 'sub', 'jti', 'prv', 'tokenType']));
+
+    sort($business);
+
+    expect($business)->toBe(['carrierCode', 'carrierId', 'carrierName', 'email', 'id', 'name', 'role'])
+        ->and(json_encode($claims))->not->toContain('pilot-documents')
+        ->and(json_encode($claims))->not->toContain('dpiImage');
 })->with(['token', 'refreshToken']);

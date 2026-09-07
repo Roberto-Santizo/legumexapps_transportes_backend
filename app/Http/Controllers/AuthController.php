@@ -22,20 +22,33 @@ class AuthController extends Controller
         path: '/api/auth/register',
         operationId: 'registerAuth',
         summary: 'Registrar un usuario',
-        description: 'Crea una cuenta con rol pilot o carrier. La cuenta nace sin confirmar (emailVerifiedAt en null) y no puede iniciar sesión hasta pasar por /api/auth/confirm-account. Este endpoint NO devuelve token: solo se emite token al hacer login. Junto con el usuario se genera y persiste un código de confirmación de 6 dígitos con una hora de vigencia.',
+        description: <<<'TEXT'
+        Crea una cuenta con rol pilot o carrier. La cuenta nace sin confirmar (emailVerifiedAt en null) y no puede iniciar sesión hasta pasar por /api/auth/confirm-account. Este endpoint NO devuelve token: solo se emite token al hacer login. Junto con el usuario se genera y persiste un código de confirmación de 6 dígitos con una hora de vigencia.
+
+        ATENCIÓN — EL CUERPO VA EN multipart/form-data, NO EN JSON. Un piloto debe adjuntar dpi y license, las fotos del anverso de su DPI y de su licencia, y un archivo no viaja en un cuerpo JSON. Es un CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA: el alta de piloto pasa de cuatro campos a seis y la que antes devolvía 201 con cuatro ahora devuelve 422.
+
+        Las dos fotos son OBLIGATORIAS SOLO PARA role=pilot y van siempre juntas: mandar una sola es 422. Un carrier no sube nada, y si las manda se DESCARTAN EN SILENCIO con 201, sin crear fila ni subir archivos.
+
+        Las fotos se suben una sola vez, aquí, y no se pueden reemplazar después: no existe ningún endpoint que las acepte. La respuesta 201 ya trae dpiImage y licenseImage como URLs absolutas y PÚBLICAS —quien tenga el enlace las abre sin token, igual que la imagen de un vehículo—, o en null cuando no hay documentos.
+
+        Nada bloquea a un piloto por no tener documentos: los registrados antes de esta versión siguen haciendo login, uniéndose a una empresa y operando viajes con normalidad. Tampoco los revisa nadie: no hay verificación ni aprobación, y el único requisito para activar la cuenta sigue siendo el código de 6 dígitos.
+        TEXT,
         requestBody: new OA\RequestBody(
             required: true,
-            content: new OA\JsonContent(ref: '#/components/schemas/RegisterRequest'),
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(ref: '#/components/schemas/RegisterRequest'),
+            ),
         ),
         tags: ['Auth'],
         responses: [
             new OA\Response(
                 response: 201,
-                description: 'Usuario registrado correctamente',
+                description: 'Usuario creado. La respuesta trae el usuario recién creado con emailVerifiedAt en null y NO trae token. Para un piloto, dpiImage y licenseImage vienen ya con sus URLs absolutas; para un carrier vienen en null aunque haya adjuntado archivos. El mensaje devuelto es: Hemos enviado instrucciones a tu correo electronico',
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 201),
-                        new OA\Property(property: 'message', type: 'string', example: 'Usuario registrado correctamente'),
+                        new OA\Property(property: 'message', type: 'string', example: 'Hemos enviado instrucciones a tu correo electronico'),
                         new OA\Property(property: 'data', ref: '#/components/schemas/User'),
                     ],
                     type: 'object',
@@ -43,7 +56,7 @@ class AuthController extends Controller
             ),
             new OA\Response(
                 response: 422,
-                description: 'Datos inválidos: el correo ya está registrado, el rol no es pilot ni carrier, la contraseña tiene menos de 8 caracteres o no coincide con password_confirmation',
+                description: 'Datos inválidos: el correo ya está registrado, el rol no es pilot ni carrier, la contraseña tiene menos de 8 caracteres o no coincide con password_confirmation, o el rol es pilot y falta alguna de las dos fotos (dpi, license), no es una imagen, no es jpg/jpeg/png o supera los 3 MB',
                 content: new OA\JsonContent(ref: '#/components/schemas/ValidationError'),
             ),
         ],
@@ -76,7 +89,7 @@ class AuthController extends Controller
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
-                        new OA\Property(property: 'message', type: 'string', example: 'La cuenta ha sido confirmada correctamente'),
+                        new OA\Property(property: 'message', type: 'string', example: 'La cuenta ha sido confirmada correctamente, inicie sesión.'),
                         new OA\Property(property: 'data', type: 'object', nullable: true, example: null),
                     ],
                     type: 'object',

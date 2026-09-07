@@ -6,18 +6,23 @@ use App\Errors\ForbiddenError;
 use App\Errors\UnauthorizedError;
 use App\Interfaces\Auth\AuthEmailsInterface;
 use App\Interfaces\Auth\AuthServiceInterface;
+use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Mail\Auth\AccountConfirmationMail;
 use App\Mail\Auth\PasswordResetMail;
 use App\Mail\Auth\WelcomeMail;
 use App\Mail\Services\AuthEmails;
+use App\Models\PilotDocument;
 use App\Models\User;
 use App\Services\Auth\AuthService;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 
 const SERVICE_CONFIRMATION_TABLE = 'account_confirmation_tokens';
@@ -424,4 +429,174 @@ it('no envía ningún correo cuando falla el guardado del usuario en el registro
     $this->assertDatabaseCount(SERVICE_CONFIRMATION_TABLE, 0);
 
     Mail::assertNothingSent();
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 25 — register() y los documentos del piloto
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * The register payload of a pilot with his two documents attached.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function servicePilotDocumentsPayload(array $overrides = []): array
+{
+    return serviceRegisterPayload(array_merge([
+        'dpi' => UploadedFile::fake()->image('dpi.jpg'),
+        'license' => UploadedFile::fake()->image('license.png'),
+    ], $overrides));
+}
+
+it('sube los dos documentos bajo pilot-documents y crea la fila del piloto', function () {
+    $user = authService()->register(servicePilotDocumentsPayload());
+
+    $documents = $user->pilotDocument;
+
+    expect($documents)->not->toBeNull()
+        ->and($documents->user_id)->toBe($user->id)
+        ->and($documents->dpi_image)->toStartWith('pilot-documents/')
+        ->toEndWith('.jpg')
+        ->not->toContain('http')
+        ->and($documents->license_image)->toStartWith('pilot-documents/')
+        ->toEndWith('.png')
+        ->not->toContain('http')
+        ->and(Storage::allFiles())->toHaveCount(2);
+
+    Storage::assertExists($documents->dpi_image);
+    Storage::assertExists($documents->license_image);
+});
+
+it('descarta en silencio los documentos de un transportista, sin subir nada ni crear fila', function () {
+    $user = authService()->register(servicePilotDocumentsPayload(['role' => UserRole::Carrier->value]));
+
+    expect($user->pilotDocument)->toBeNull()
+        ->and(Storage::allFiles())->toBe([]);
+
+    $this->assertDatabaseCount('pilot_documents', 0);
+});
+
+it('no sube nada cuando el piloto llega con un solo documento: la pareja la exige el FormRequest', function (string $field) {
+    $payload = servicePilotDocumentsPayload();
+    unset($payload[$field]);
+
+    $user = authService()->register($payload);
+
+    expect($user->pilotDocument)->toBeNull()
+        ->and(Storage::allFiles())->toBe([]);
+
+    $this->assertDatabaseCount('pilot_documents', 0);
+})->with(['dpi', 'license']);
+
+it('deja el bucket sin objetos cuando la transacción del registro falla después de subir', function () {
+    User::factory()->create(['email' => 'juan.perez@example.com']);
+
+    expect(fn () => authService()->register(servicePilotDocumentsPayload()))->toThrow(QueryException::class);
+
+    expect(Storage::allFiles())->toBe([]);
+
+    $this->assertDatabaseCount('pilot_documents', 0);
+    $this->assertDatabaseCount('users', 1);
+    $this->assertDatabaseCount(SERVICE_CONFIRMATION_TABLE, 0);
+
+    Mail::assertNothingSent();
+});
+
+it('borra el DPI ya subido cuando la subida de la licencia falla, sin dejarlo huérfano', function () {
+    $calls = 0;
+    $deleted = [];
+
+    $storage = Mockery::mock(FileStorageServiceInterface::class);
+
+    $storage->shouldReceive('storeUpload')
+        ->twice()
+        ->andReturnUsing(function () use (&$calls): string {
+            $calls++;
+
+            if ($calls === 2) {
+                throw new BadRequestError('No se pudo almacenar el archivo');
+            }
+
+            return 'pilot-documents/el-dpi.jpg';
+        });
+
+    $storage->shouldReceive('delete')
+        ->once()
+        ->andReturnUsing(function (?string $key) use (&$deleted): bool {
+            $deleted[] = $key;
+
+            return true;
+        });
+
+    app()->instance(FileStorageServiceInterface::class, $storage);
+
+    expect(fn () => authService()->register(servicePilotDocumentsPayload()))
+        ->toThrow(BadRequestError::class, 'No se pudo almacenar el archivo');
+
+    expect($deleted)->toBe(['pilot-documents/el-dpi.jpg']);
+
+    $this->assertDatabaseCount('users', 0);
+    $this->assertDatabaseCount('pilot_documents', 0);
+
+    Mail::assertNothingSent();
+});
+
+it('borra las dos keys subidas cuando la transacción falla, y no traga el error original', function () {
+    $deleted = [];
+
+    $storage = Mockery::mock(FileStorageServiceInterface::class);
+
+    $storage->shouldReceive('storeUpload')
+        ->twice()
+        ->andReturn('pilot-documents/el-dpi.jpg', 'pilot-documents/la-licencia.png');
+
+    $storage->shouldReceive('delete')
+        ->twice()
+        ->andReturnUsing(function (?string $key) use (&$deleted): bool {
+            $deleted[] = $key;
+
+            return true;
+        });
+
+    app()->instance(FileStorageServiceInterface::class, $storage);
+
+    User::factory()->create(['email' => 'juan.perez@example.com']);
+
+    expect(fn () => authService()->register(servicePilotDocumentsPayload()))->toThrow(QueryException::class);
+
+    expect($deleted)->toBe(['pilot-documents/el-dpi.jpg', 'pilot-documents/la-licencia.png']);
+});
+
+it('crea la fila de documentos dentro de la misma transacción que el usuario', function () {
+    Schema::drop('pilot_documents');
+
+    expect(fn () => authService()->register(servicePilotDocumentsPayload()))->toThrow(QueryException::class);
+
+    /** Si el usuario sobreviviese al fallo, la fila de documentos no estaría en la transacción. */
+    $this->assertDatabaseCount('users', 0);
+    $this->assertDatabaseCount(SERVICE_CONFIRMATION_TABLE, 0);
+
+    expect(Storage::allFiles())->toBe([]);
+});
+
+it('expone los documentos del piloto por la relación hasOne del usuario', function () {
+    $documents = PilotDocument::factory()->create();
+
+    expect($documents->user)->toBeInstanceOf(User::class)
+        ->and($documents->user->pilotDocument->id)->toBe($documents->id)
+        ->and($documents->dpi_image)->toStartWith('pilot-documents/')
+        ->and($documents->license_image)->toStartWith('pilot-documents/');
+
+    /** La factory genera keys, no archivos: el disco sigue vacío. */
+    expect(Storage::allFiles())->toBe([]);
+});
+
+it('impide una segunda fila de documentos para el mismo piloto', function () {
+    $documents = PilotDocument::factory()->create();
+
+    expect(fn () => PilotDocument::factory()->create(['user_id' => $documents->user_id]))
+        ->toThrow(QueryException::class);
 });
