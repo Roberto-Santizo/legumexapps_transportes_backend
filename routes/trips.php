@@ -2,6 +2,7 @@
 
 use App\Enums\UserRole;
 use App\Http\Controllers\TripController;
+use App\Http\Controllers\TripPositionController;
 use Illuminate\Support\Facades\Route;
 
 $administrator = UserRole::Administrator->value;
@@ -34,6 +35,22 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
     Route::patch('/{trip}/finish', [TripController::class, 'finish'])
         ->middleware(["role:{$pilot}"])
         ->name('finish');
+
+    /**
+     * Primera ruta anidada del proyecto, contra el precedente de SPEC 14 y SPEC 18: se
+     * anida porque {trip} ya es el parámetro del grupo y porque una posición sin viaje
+     * no significa nada — no hay listado global de posiciones que tenga sentido.
+     *
+     * Reportar es del piloto asignado y solo suyo; leer el rastro no lleva role: porque
+     * lo decide el ámbito dentro del service, que además deja fuera a cualquier pilot.
+     * Ninguna de las dos lleva carrier.required.
+     */
+    Route::post('/{trip}/positions', [TripPositionController::class, 'store'])
+        ->middleware(["role:{$pilot}"])
+        ->name('positions.store');
+
+    Route::get('/{trip}/positions', [TripPositionController::class, 'index'])
+        ->name('positions.index');
 
     /**
      * La lectura no lleva role: los cuatro roles listan y consultan, y lo que cada uno
