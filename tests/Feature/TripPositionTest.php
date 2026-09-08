@@ -612,3 +612,27 @@ it('mantiene el viaje en ruta después de reportar, sin tocar sus columnas', fun
     expect($trip->fresh()->only(['status', 'pilot_id', 'vehicle_id', 'start_date', 'end_date']))->toEqual($antes)
         ->and($trip->fresh()->status)->toBe(TripStatus::InRoute);
 });
+
+/**
+ * El FormRequest se resuelve antes que el controlador, así que el 422 del cuerpo se
+ * adelanta a las cuatro guardas del service: solo el middleware role:pilot va delante.
+ * Estos dos casos fijan ese orden, que es justo el que la documentación decía al revés.
+ */
+it('valida el cuerpo antes que las guardas: id inexistente con cuerpo vacío es 422, no 404', function () {
+    $pilot = userWithRole(UserRole::Pilot);
+
+    asUser($pilot)->postJson('/api/trips/999999/positions', [])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['latitude', 'longitude']);
+});
+
+it('valida el cuerpo antes que las guardas: viaje ajeno y fuera de ruta con cuerpo vacío es 422', function () {
+    $pilot = userWithRole(UserRole::Pilot);
+    $trip = Trip::factory()->create();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['latitude', 'longitude']);
+
+    expect(TripPosition::count())->toBe(0);
+});
