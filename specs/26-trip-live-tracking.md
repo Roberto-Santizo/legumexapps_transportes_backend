@@ -1,6 +1,6 @@
 # SPEC 26 — Seguimiento en tiempo real del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 24
 > **Fecha:** 2026-09-07
 > **Objetivo:** Publicar el seguimiento en vivo de un viaje: el piloto asignado reporta su posición por HTTP mientras el viaje está `in_route`, cada punto se guarda en la tabla nueva `trip_positions` y se emite por Reverb al canal privado `trips.{tripId}`, al que se suscribe cualquier usuario no piloto dentro del ámbito de lectura de SPEC 24.
@@ -300,54 +300,54 @@ Cada paso deja el sistema funcionando y es commiteable por sí solo.
 
 **Infraestructura**
 
-- [ ] `composer.json` incluye `laravel/reverb`; existen `config/broadcasting.php` y `config/reverb.php`, y `.env.example` trae las seis claves `REVERB_*` con `BROADCAST_CONNECTION=reverb`.
-- [ ] `phpunit.xml` mantiene `BROADCAST_CONNECTION=null`; la suite completa pasa sin levantar Reverb ni salir a la red.
-- [ ] `php artisan route:list --path=broadcasting` muestra `POST api/broadcasting/auth` con middleware `jwt.auth`.
-- [ ] `POST /api/broadcasting/auth` sin `Authorization` responde **401** con el sobre habitual.
-- [ ] `php artisan route:list --path=trips` muestra **diez** rutas, con `trips/{trip}/positions` **antes** de `trips/{trip}`.
+- [x] `composer.json` incluye `laravel/reverb`; existen `config/broadcasting.php` y `config/reverb.php`, y `.env.example` trae las seis claves `REVERB_*` con `BROADCAST_CONNECTION=reverb`.
+- [x] `phpunit.xml` mantiene `BROADCAST_CONNECTION=null`; la suite completa pasa sin levantar Reverb ni salir a la red.
+- [x] `php artisan route:list --path=broadcasting` muestra `POST api/broadcasting/auth` con middleware `jwt.auth`.
+- [x] `POST /api/broadcasting/auth` sin `Authorization` responde **401** con el sobre habitual.
+- [x] `php artisan route:list --path=trips` muestra **diez** rutas, con `trips/{trip}/positions` **antes** de `trips/{trip}`.
 
 **Reportar posición — `POST /api/trips/{trip}/positions`**
 
-- [ ] El piloto asignado, con el viaje `in_route`, recibe **201** y la fila queda en `trip_positions` con `recorded_at` puesto por el servidor.
-- [ ] `recorded_at` y `pilot_id` **no se pueden fijar desde el body**: mandarlos no cambia nada.
-- [ ] Un `pilot` que no es el `pilot_id` del viaje recibe **403**; un `administrator`, `carrier` o `manager` recibe **403** por el middleware `role:pilot`.
-- [ ] Viaje `pending` → **400**; viaje `finished` → **400**; viaje con `deleted_at` → **400 «El viaje ya fue eliminado»**; id inexistente → **404**.
-- [ ] `latitude` fuera de `[-90, 90]` o `longitude` fuera de `[-180, 180]` → **422**, con mensaje en español. Cuerpo vacío → **422**.
-- [ ] Un segundo punto **antes de 15 s** responde **200**, no crea fila (`trip_positions` sigue con el mismo `count()`) y **no dispara el evento**; la respuesta trae el punto anterior.
-- [ ] Un segundo punto **pasados 15 s** crea fila y dispara el evento.
-- [ ] Con el broadcast fallando (driver que lanza), el `POST` sigue respondiendo **201** y la fila queda escrita.
+- [x] El piloto asignado, con el viaje `in_route`, recibe **201** y la fila queda en `trip_positions` con `recorded_at` puesto por el servidor.
+- [x] `recorded_at` y `pilot_id` **no se pueden fijar desde el body**: mandarlos no cambia nada.
+- [x] Un `pilot` que no es el `pilot_id` del viaje recibe **403**; un `administrator`, `carrier` o `manager` recibe **403** por el middleware `role:pilot`.
+- [x] Viaje `pending` → **400**; viaje `finished` → **400**; viaje con `deleted_at` → **400 «El viaje ya fue eliminado»**; id inexistente → **404**.
+- [x] `latitude` fuera de `[-90, 90]` o `longitude` fuera de `[-180, 180]` → **422**, con mensaje en español. Cuerpo vacío → **422**.
+- [x] Un segundo punto **antes de 15 s** responde **200**, no crea fila (`trip_positions` sigue con el mismo `count()`) y **no dispara el evento**; la respuesta trae el punto anterior.
+- [x] Un segundo punto **pasados 15 s** crea fila y dispara el evento.
+- [x] Con el broadcast fallando (driver que lanza), el `POST` sigue respondiendo **201** y la fila queda escrita.
 
 **Evento y canal**
 
-- [ ] `TripPositionUpdated` implementa `ShouldBroadcastNow`, emite en `private-trips.{tripId}` y su `broadcastAs()` devuelve `trip.position.updated`.
-- [ ] `broadcastWith()` devuelve **exactamente seis claves**: `tripId`, `latitude`, `longitude`, `recordedAt` (`d-m-Y h:i:s A`), `pilotId`, `pilotName`.
-- [ ] El callback de `trips.{tripId}` devuelve `false` para cualquier `pilot`, **incluido el asignado a ese viaje**.
-- [ ] Devuelve `true` para `administrator` y `manager` en cualquier viaje; `true` para un `carrier` sobre un viaje que asignó su empresa o sobre uno `pending` sin tripulación; **`false`** para un `carrier` sobre un viaje asignado por otra empresa.
-- [ ] Devuelve `false` para un `tripId` inexistente o borrado.
+- [x] `TripPositionUpdated` implementa `ShouldBroadcastNow`, emite en `private-trips.{tripId}` y su `broadcastAs()` devuelve `trip.position.updated`.
+- [x] `broadcastWith()` devuelve **exactamente seis claves**: `tripId`, `latitude`, `longitude`, `recordedAt` (`d-m-Y h:i:s A`), `pilotId`, `pilotName`.
+- [x] El callback de `trips.{tripId}` devuelve `false` para cualquier `pilot`, **incluido el asignado a ese viaje**.
+- [x] Devuelve `true` para `administrator` y `manager` en cualquier viaje; `true` para un `carrier` sobre un viaje que asignó su empresa o sobre uno `pending` sin tripulación; **`false`** para un `carrier` sobre un viaje asignado por otra empresa.
+- [x] Devuelve `false` para un `tripId` inexistente o borrado.
 
 **Consultar el rastro — `GET /api/trips/{trip}/positions`**
 
-- [ ] `administrator`, `manager` y el `carrier` dentro de ámbito reciben **200** con los puntos ordenados por `recorded_at` **ascendente**.
-- [ ] Cualquier `pilot` recibe **403**, incluido el asignado al viaje.
-- [ ] Un `carrier` fuera de ámbito recibe **403**; un id inexistente o borrado, **404**.
-- [ ] Sin `limit` devuelve la colección completa; con `limit` numérico pagina acotado a `[10, 100]` y `total`/`currentPage`/`lastPage` salen en la **raíz** del sobre.
-- [ ] Un viaje sin puntos devuelve **lista vacía con 200**, no 404.
-- [ ] Cada elemento trae **cinco claves** y `latitude`/`longitude` salen como **string** de ocho decimales.
+- [x] `administrator`, `manager` y el `carrier` dentro de ámbito reciben **200** con los puntos ordenados por `recorded_at` **ascendente**.
+- [x] Cualquier `pilot` recibe **403**, incluido el asignado al viaje.
+- [x] Un `carrier` fuera de ámbito recibe **403**; un id inexistente o borrado, **404**.
+- [x] Sin `limit` devuelve la colección completa; con `limit` numérico pagina acotado a `[10, 100]` y `total`/`currentPage`/`lastPage` salen en la **raíz** del sobre.
+- [x] Un viaje sin puntos devuelve **lista vacía con 200**, no 404.
+- [x] Cada elemento trae **cinco claves** y `latitude`/`longitude` salen como **string** de ocho decimales.
 
 **Lo que no debe cambiar**
 
-- [ ] `TripResource` sigue con **35 claves** y `TripListResource` con las suyas; la tabla `trips` no gana ninguna columna.
-- [ ] Los ocho endpoints de SPEC 24 responden exactamente igual que antes de esta spec.
-- [ ] `DELETE /api/trips/{trip}` sigue siendo baja lógica y **no borra** ninguna fila de `trip_positions`.
-- [ ] `Trip` no tiene relación `positions()`.
-- [ ] No existe ninguna ruta que borre o edite una posición.
+- [x] `TripResource` sigue con **35 claves** y `TripListResource` con las suyas; la tabla `trips` no gana ninguna columna.
+- [x] Los ocho endpoints de SPEC 24 responden exactamente igual que antes de esta spec.
+- [x] `DELETE /api/trips/{trip}` sigue siendo baja lógica y **no borra** ninguna fila de `trip_positions`.
+- [x] `Trip` no tiene relación `positions()`.
+- [x] No existe ninguna ruta que borre o edite una posición.
 
 **Cierre**
 
-- [ ] `vendor/bin/pint --dirty --format agent` sale limpio.
-- [ ] `php artisan test --compact` pasa entero.
-- [ ] `storage/api-docs/api-docs.json` documenta los dos endpoints nuevos.
-- [ ] Existe `references/trip-positions-api.md` con el canal, el alias del evento, el payload y la configuración de Echo (`authEndpoint` + `Authorization: Bearer`).
+- [x] `vendor/bin/pint --dirty --format agent` sale limpio.
+- [x] `php artisan test --compact` pasa entero.
+- [x] `storage/api-docs/api-docs.json` documenta los dos endpoints nuevos.
+- [x] Existe `references/trip-positions-api.md` con el canal, el alias del evento, el payload y la configuración de Echo (`authEndpoint` + `Authorization: Bearer`).
 
 ---
 
