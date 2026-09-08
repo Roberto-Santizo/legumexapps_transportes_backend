@@ -11,7 +11,7 @@ $pilot = UserRole::Pilot->value;
 
 Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $pilot): void {
     /**
-     * Las tres rutas fijas van antes del apiResource: si no, las captura el comodín
+     * Las cuatro rutas fijas van antes del apiResource: si no, las captura el comodín
      * {trip} y `/assignment` se resolvería como el detalle de un viaje llamado así.
      *
      * Cada una lleva su propio rol, que es justo lo que se gana al no meter las tres
@@ -35,6 +35,19 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
     Route::patch('/{trip}/finish', [TripController::class, 'finish'])
         ->middleware(["role:{$pilot}"])
         ->name('finish');
+
+    /**
+     * La única ruta fija que no lleva {trip}, y por eso la que más obliga a mirar el orden
+     * de este archivo: declarada después del apiResource, el comodín se quedaría con
+     * «current» y la resolvería como el detalle de un viaje con ese id.
+     *
+     * Es del piloto y solo suya —pregunta por sí mismo, no hay parámetro que apunte a
+     * otro—, y no lleva carrier.required: un piloto con viaje asignado pertenece a una
+     * empresa por construcción, porque asignarlo ya lo exigió.
+     */
+    Route::get('/current', [TripController::class, 'current'])
+        ->middleware(["role:{$pilot}"])
+        ->name('current');
 
     /**
      * Primera ruta anidada del proyecto, contra el precedente de SPEC 14 y SPEC 18: se

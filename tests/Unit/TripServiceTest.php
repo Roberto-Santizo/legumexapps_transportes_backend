@@ -79,9 +79,9 @@ it('resuelve la implementación de viajes registrada en el provider', function (
     expect(tripService())->toBeInstanceOf(TripService::class);
 });
 
-it('declara los ocho métodos del contrato', function () {
+it('declara los nueve métodos del contrato', function () {
     expect(get_class_methods(TripServiceInterface::class))->toEqualCanonicalizing([
-        'getTrips', 'getTripById', 'create', 'update', 'destroy', 'assign', 'start', 'finish',
+        'getTrips', 'getTripById', 'create', 'update', 'destroy', 'assign', 'start', 'finish', 'getCurrentTrip',
     ]);
 });
 
@@ -765,4 +765,96 @@ it('lanza BadRequestError al arrancar o cerrar un viaje borrado', function () {
 
     expect(fn () => tripService()->start($team['pilot'], $trip->id))->toThrow(BadRequestError::class, 'El viaje ya fue eliminado')
         ->and(fn () => tripService()->finish($team['pilot'], $trip->id))->toThrow(BadRequestError::class, 'El viaje ya fue eliminado');
+});
+
+/*
+|--------------------------------------------------------------------------
+| getCurrentTrip()
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * A trip in the hands of the given team's pilot, in the given status.
+ *
+ * @param  array{carrier: Carrier, owner: User, pilot: User, vehicle: Vehicle}  $team
+ * @param  array<string, mixed>  $attributes
+ */
+function tripServiceDriving(array $team, array $attributes = []): Trip
+{
+    return Trip::factory()->create([
+        'pilot_id' => $team['pilot']->id,
+        'vehicle_id' => $team['vehicle']->id,
+        'assigned_by' => $team['owner']->id,
+        'status' => TripStatus::InRoute,
+        'start_date' => now()->subHours(2),
+        ...$attributes,
+    ]);
+}
+
+it('devuelve el viaje en ruta del piloto', function () {
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team);
+
+    expect(tripService()->getCurrentTrip($team['pilot'])?->id)->toBe($trip->id);
+});
+
+it('devuelve null cuando el viaje del piloto no está en ruta', function (TripStatus $status) {
+    $team = tripServiceTeam();
+    tripServiceDriving($team, ['status' => $status]);
+
+    expect(tripService()->getCurrentTrip($team['pilot']))->toBeNull();
+})->with([
+    'pending' => TripStatus::Pending,
+    'finished' => TripStatus::Finished,
+]);
+
+it('devuelve null aunque el viaje conserve su fecha de arranque, porque mira el status', function () {
+    $team = tripServiceTeam();
+
+    /** Justo lo que deja el PATCH del administrador: sin máquina de estados, la fecha se queda. */
+    tripServiceDriving($team, ['status' => TripStatus::Pending, 'start_date' => now()->subHours(3)]);
+
+    expect(tripService()->getCurrentTrip($team['pilot']))->toBeNull();
+});
+
+it('no devuelve el viaje en ruta de otro piloto', function () {
+    $team = tripServiceTeam();
+    tripServiceDriving($team);
+
+    expect(tripService()->getCurrentTrip(tripServiceUser(UserRole::Pilot)))->toBeNull();
+});
+
+it('devuelve null cuando el viaje en ruta del piloto fue borrado', function () {
+    $team = tripServiceTeam();
+    tripServiceDriving($team)->delete();
+
+    expect(tripService()->getCurrentTrip($team['pilot']))->toBeNull();
+});
+
+it('devuelve el viaje en ruta más reciente cuando el piloto tiene dos', function () {
+    $team = tripServiceTeam();
+
+    $antiguo = tripServiceDriving($team, ['start_date' => now()->subDay()]);
+    $reciente = tripServiceDriving($team, ['start_date' => now()->subMinutes(10)]);
+
+    expect(tripService()->getCurrentTrip($team['pilot'])?->id)->toBe($reciente->id)
+        ->and($antiguo->fresh()->status)->toBe(TripStatus::InRoute);
+});
+
+it('devuelve null para un usuario que no es piloto de ningún viaje', function () {
+    $team = tripServiceTeam();
+    tripServiceDriving($team);
+
+    expect(tripService()->getCurrentTrip(tripServiceUser(UserRole::Administrator)))->toBeNull();
+});
+
+it('carga las seis relaciones del listado y ninguna más', function () {
+    $team = tripServiceTeam();
+    tripServiceDriving($team);
+
+    $trip = tripService()->getCurrentTrip($team['pilot']);
+
+    expect(array_keys($trip->getRelations()))->toEqualCanonicalizing([
+        'shippingLine', 'departurePoint', 'location', 'pilot', 'vehicle', 'registeredBy',
+    ]);
 });

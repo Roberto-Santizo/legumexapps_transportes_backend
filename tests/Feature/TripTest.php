@@ -23,8 +23,9 @@ use Tests\TestCase;
 /**
  * Every trips endpoint as method and URI, for the middleware datasets.
  *
- * Eight: the five of the apiResource plus the three fixed action routes, declared
- * before it so the {trip} wildcard does not swallow them.
+ * Nine: the five of the apiResource plus the four fixed routes declared before it so
+ * the {trip} wildcard does not swallow them — the three actions and /current, the only
+ * one of them that carries no {trip} at all.
  *
  * @return array<string, array{string, string}>
  */
@@ -39,6 +40,7 @@ function tripEndpoints(): array
         'assignment' => ['PATCH', '/api/trips/1/assignment'],
         'start' => ['PATCH', '/api/trips/1/start'],
         'finish' => ['PATCH', '/api/trips/1/finish'],
+        'current' => ['GET', '/api/trips/current'],
     ];
 }
 
@@ -271,7 +273,7 @@ function tripDatePattern(): string
 |--------------------------------------------------------------------------
 */
 
-it('rechaza con 401 cualquiera de las ocho rutas de viajes sin token', function (string $method, string $uri) {
+it('rechaza con 401 cualquiera de las nueve rutas de viajes sin token', function (string $method, string $uri) {
     $this->json($method, $uri)
         ->assertUnauthorized()
         ->assertExactJson([
@@ -1325,6 +1327,136 @@ it('responde 404 al arrancar o cerrar un id inexistente', function (string $acci
         ->assertNotFound()
         ->assertJsonPath('message', 'El viaje no existe');
 })->with(['start', 'finish']);
+
+/*
+|--------------------------------------------------------------------------
+| Viaje en progreso
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * A trip the team's pilot is driving right now, exactly as `/start` leaves it.
+ *
+ * @param  array{carrier: Carrier, owner: User, pilot: User, vehicle: Vehicle}  $team
+ * @param  array<string, mixed>  $attributes
+ */
+function tripDrivenBy(array $team, array $attributes = []): Trip
+{
+    return tripAssignedTo($team, [
+        'status' => TripStatus::InRoute,
+        'start_date' => now()->subHours(2),
+        ...$attributes,
+    ]);
+}
+
+it('devuelve el viaje en ruta del piloto autenticado con las quince claves del listado', function () {
+    $team = tripTeam();
+    $trip = tripDrivenBy($team);
+
+    $response = asUser($team['pilot'])->getJson('/api/trips/current')
+        ->assertOk()
+        ->assertJsonPath('statusCode', 200)
+        ->assertJsonPath('message', 'Viaje en progreso obtenido correctamente')
+        ->assertJsonPath('data.id', $trip->id)
+        ->assertJsonPath('data.status', TripStatus::InRoute->value)
+        ->assertJsonPath('data.pilotName', $team['pilot']->name);
+
+    expect(array_keys($response->json('data')))->toBe(tripListResourceKeys())
+        ->and($response->json('data'))->not->toHaveKeys(['polyline', 'points']);
+});
+
+it('devuelve 200 con data en null cuando el piloto no está conduciendo nada', function () {
+    asUser(userWithRole(UserRole::Pilot))->getJson('/api/trips/current')
+        ->assertOk()
+        ->assertExactJson([
+            'statusCode' => 200,
+            'message' => 'Viaje en progreso obtenido correctamente',
+            'data' => null,
+        ]);
+});
+
+it('no devuelve como en progreso un viaje que solo está asignado ni uno ya finalizado', function (TripStatus $status) {
+    $team = tripTeam();
+    tripDrivenBy($team, ['status' => $status]);
+
+    asUser($team['pilot'])->getJson('/api/trips/current')
+        ->assertOk()
+        ->assertJsonPath('data', null);
+})->with([
+    'pending' => TripStatus::Pending,
+    'finished' => TripStatus::Finished,
+]);
+
+it('no devuelve un viaje que el administrador devolvió a pendiente conservando su fecha de arranque', function () {
+    $team = tripTeam();
+    $trip = tripDrivenBy($team, ['status' => TripStatus::Pending]);
+
+    /** La combinación contradictoria que permite el PATCH general: pending con startDate puesto. */
+    expect($trip->start_date)->not->toBeNull();
+
+    asUser($team['pilot'])->getJson('/api/trips/current')
+        ->assertOk()
+        ->assertJsonPath('data', null);
+});
+
+it('no filtra el viaje en ruta de otro piloto', function () {
+    $team = tripTeam();
+    tripDrivenBy($team);
+
+    $otroPiloto = userWithRole(UserRole::Pilot);
+    $team['carrier']->pilots()->attach($otroPiloto);
+
+    asUser($otroPiloto)->getJson('/api/trips/current')
+        ->assertOk()
+        ->assertJsonPath('data', null);
+});
+
+it('devuelve null cuando el viaje que conducía fue borrado, sin 400 ni 404', function () {
+    $team = tripTeam();
+    $trip = tripDrivenBy($team);
+
+    asUser(userWithRole(UserRole::Administrator))->deleteJson("/api/trips/{$trip->id}")->assertOk();
+
+    asUser($team['pilot'])->getJson('/api/trips/current')
+        ->assertOk()
+        ->assertJsonPath('data', null);
+});
+
+it('devuelve el más reciente cuando el piloto tiene dos viajes en ruta', function () {
+    $team = tripTeam();
+
+    tripDrivenBy($team, ['start_date' => now()->subDay()]);
+    $reciente = tripDrivenBy($team, ['start_date' => now()->subMinutes(10)]);
+
+    asUser($team['pilot'])->getJson('/api/trips/current')
+        ->assertOk()
+        ->assertJsonPath('data.id', $reciente->id);
+});
+
+it('rechaza con 403 el viaje en progreso a todo rol que no sea piloto', function (UserRole $role) {
+    asUser(userWithRole($role))->getJson('/api/trips/current')
+        ->assertForbidden()
+        ->assertExactJson([
+            'statusCode' => 403,
+            'message' => 'No tienes permisos para acceder a este recurso',
+            'data' => null,
+        ]);
+})->with(tripNonPilotRoles());
+
+it('abre la misma ventana que el POST de posiciones', function () {
+    $team = tripTeam();
+    $trip = tripDrivenBy($team);
+
+    asUser($team['pilot'])->getJson('/api/trips/current')->assertJsonPath('data.id', $trip->id);
+    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", ['latitude' => 14.6, 'longitude' => -90.5])
+        ->assertCreated();
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+
+    asUser($team['pilot'])->getJson('/api/trips/current')->assertJsonPath('data', null);
+    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", ['latitude' => 14.6, 'longitude' => -90.5])
+        ->assertStatus(400);
+});
 
 /*
 |--------------------------------------------------------------------------
