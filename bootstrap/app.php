@@ -18,6 +18,11 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    /** El proyecto no tiene sesión: la ruta por defecto de Broadcast usa el guard web, así que se monta a mano bajo api con jwt.auth. */
+    ->withBroadcasting(
+        __DIR__.'/../routes/channels.php',
+        ['prefix' => 'api', 'middleware' => ['jwt.auth']],
+    )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'jwt.auth' => Authenticate::class,

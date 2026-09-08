@@ -28,6 +28,16 @@ Antes de `php artisan test`:
 
 Otro requisito de entorno, de SPEC 05: `upload_max_filesize` y `post_max_size` ≥ 4M para la subida de imágenes.
 
+Desde SPEC 26 hay un **tercer requisito, y es un proceso permanente**: el seguimiento en vivo de los viajes se emite por websocket con Laravel Reverb, así que en cada entorno donde se quiera ver el mapa moverse tiene que estar corriendo
+
+```bash
+php artisan reverb:start
+```
+
+Sin ese proceso **la API sigue funcionando entera**: el piloto reporta su posición, la fila se guarda en `trip_positions` y el `POST` responde 201 igual. Lo único que se pierde es el aviso en vivo — el fallo del broadcast se registra en el log y no revienta la petición —, así que «el mapa no se mueve» es un síntoma de servidor caído, no de código.
+
+Requiere las claves `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET`, `REVERB_HOST`, `REVERB_PORT` y `REVERB_SCHEME` en el `.env` (ver `.env.example`) y que `REVERB_PORT` sea **alcanzable desde el navegador**; detrás de HTTPS el websocket tiene que salir por `wss` a través del proxy. La suite de tests no levanta nada: `phpunit.xml` mantiene `BROADCAST_CONNECTION=null`.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
