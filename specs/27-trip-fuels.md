@@ -1,6 +1,6 @@
 # SPEC 27 — Cargas de combustible del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01, SPEC 06, SPEC 24
 > **Fecha:** 2026-09-10
 > **Objetivo:** Publicar el dominio `TripFuel` —las cargas de combustible que la empresa transportista registra sobre un viaje y el piloto asignado confirma—, exigiendo la primera de ellas en la misma llamada que asigna piloto y vehículo.

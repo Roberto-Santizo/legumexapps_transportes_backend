@@ -11,6 +11,7 @@ use App\Models\Location;
 use App\Models\PilotDocument;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripFuel;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Place\PolylineDecoder;
@@ -188,6 +189,32 @@ function tripAssignedTo(array $team, array $attributes = []): Trip
 }
 
 /**
+ * Confirm one fuel load of the given trip, which is what `/start` demands since SPEC 27.
+ *
+ * Every flow that reaches `/start` has to pass through here: `/assignment` leaves its
+ * load unconfirmed on purpose —registering is not confirming—, so the trip stays
+ * blocked until its pilot confirms. When the trip was assigned straight in the database
+ * with `tripAssignedTo()` there is no load at all, and the factory plants a confirmed
+ * one; when it was assigned through the API, the row already exists and gets its two
+ * columns written together, exactly as the service would.
+ */
+function tripFuelConfirmed(int $tripId): TripFuel
+{
+    $fuel = TripFuel::query()->where('trip_id', '=', $tripId)->orderBy('id')->first();
+
+    if ($fuel === null) {
+        return TripFuel::factory()->confirmed()->create(['trip_id' => $tripId]);
+    }
+
+    $fuel->update([
+        'loaded_at' => now(),
+        'confirmed_by' => $fuel->trip->pilot_id,
+    ]);
+
+    return $fuel;
+}
+
+/**
  * A valid store payload with every field `StoreTripRequest` declares as required.
  *
  * @param  array<string, mixed>  $overrides
@@ -212,7 +239,7 @@ function tripPayload(array $overrides = []): array
 }
 
 /**
- * The 32 keys `TripResource` promises, in the order the resource declares them.
+ * The 35 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
  * its name —the vehicle adds a third key, `vehicleImage`—, and `points` is derived
@@ -234,6 +261,7 @@ function tripResourceKeys(): array
         'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
         'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
+        'totalFuelGallons',
         'createdAt', 'updatedAt', 'deletedAt',
     ];
 }
@@ -378,6 +406,8 @@ it('saca el viaje del listado de la empresa B en cuanto lo asigna la A, y lo dej
     asUser($empresaA['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $empresaA['pilot']->id,
         'vehicleId' => $empresaA['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])->assertOk();
 
     expect(collect(asUser($empresaA['owner'])->getJson('/api/trips')->json('data'))->pluck('id')->all())->toBe([$trip->id])
@@ -912,6 +942,8 @@ it('asigna piloto y vehículo escribiendo los tres campos juntos', function () {
     asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertOk()
         ->assertJsonPath('statusCode', 200)
@@ -996,6 +1028,8 @@ it('rechaza con 400 un usuario que no tiene rol de piloto', function (UserRole $
     asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $noPiloto->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertStatus(400)
         ->assertExactJson([
@@ -1019,6 +1053,8 @@ it('rechaza con 400 un piloto que no pertenece a ninguna empresa', function () {
     asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $suelto->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertStatus(400)
         ->assertJsonPath('message', 'El piloto seleccionado no pertenece a ninguna empresa transportista');
@@ -1032,6 +1068,8 @@ it('rechaza con 400 un vehículo que no está activo', function (VehicleStatus $
     asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $vehiculo->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertStatus(400)
         ->assertExactJson([
@@ -1054,6 +1092,8 @@ it('rechaza con 400 un piloto y un vehículo de empresas distintas', function ()
     asUser($empresaA['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $empresaA['pilot']->id,
         'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertStatus(400)
         ->assertExactJson([
@@ -1073,6 +1113,8 @@ it('rechaza con 403 al transportista B sobre un viaje que ya tomó la empresa A'
     asUser($empresaB['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $empresaB['pilot']->id,
         'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertForbidden()
         ->assertExactJson([
@@ -1104,6 +1146,8 @@ it('deja que la empresa A reasigne su propio viaje mientras siga pendiente', fun
     asUser($companero)->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $otroPiloto->id,
         'vehicleId' => $otroVehiculo->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertOk()
         ->assertJsonPath('data.pilotId', $otroPiloto->id)
@@ -1132,6 +1176,8 @@ it('rechaza con 400 reasignar un viaje que ya no está pendiente', function (str
     asUser($empresaA['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $otroPiloto->id,
         'vehicleId' => $empresaA['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertStatus(400)
         ->assertExactJson([
@@ -1151,11 +1197,15 @@ it('deja una sola escritura cuando dos empresas se disputan el mismo viaje libre
     asUser($empresaA['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $empresaA['pilot']->id,
         'vehicleId' => $empresaA['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])->assertOk();
 
     asUser($empresaB['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $empresaB['pilot']->id,
         'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])->assertForbidden();
 
     $fresco = $trip->fresh();
@@ -1171,6 +1221,8 @@ it('responde 404 al asignar un id inexistente', function () {
     asUser($team['owner'])->patchJson('/api/trips/999999/assignment', [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertNotFound()
         ->assertJsonPath('message', 'El viaje no existe');
@@ -1185,6 +1237,9 @@ it('responde 404 al asignar un id inexistente', function () {
 it('arranca el viaje del piloto asignado con la hora del servidor', function () {
     $team = tripTeam();
     $trip = tripAssignedTo($team);
+
+    /** Sin una carga confirmada el viaje no arranca desde SPEC 27. */
+    tripFuelConfirmed($trip->id);
 
     $antes = now()->subSecond();
 
@@ -1206,6 +1261,8 @@ it('arranca el viaje del piloto asignado con la hora del servidor', function () 
 it('ignora la fecha que venga en el cuerpo de /start', function () {
     $team = tripTeam();
     $trip = tripAssignedTo($team);
+
+    tripFuelConfirmed($trip->id);
 
     asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start", [
         'startDate' => '01-01-2020 08:00:00',
@@ -1236,6 +1293,8 @@ it('rechaza con 403 el arranque de un piloto que no es el asignado', function ()
 it('rechaza con 400 el segundo arranque del mismo viaje', function () {
     $team = tripTeam();
     $trip = tripAssignedTo($team);
+
+    tripFuelConfirmed($trip->id);
 
     asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")->assertOk();
 
@@ -1760,6 +1819,8 @@ it('responde 400, y no 404, en las cuatro escrituras sobre un viaje borrado', fu
     asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])
         ->assertStatus(400)
         ->assertExactJson($esperado);
@@ -1846,7 +1907,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 15 claves en el listado y las 34 del detalle, y no las confunde', function () {
+it('devuelve 15 claves en el listado y las 35 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -1854,7 +1915,7 @@ it('devuelve 15 claves en el listado y las 34 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(34)
+    expect(tripResourceKeys())->toHaveCount(35)
         ->and(tripListResourceKeys())->toHaveCount(15)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripResourceKeys());
@@ -1954,6 +2015,8 @@ it('escribe vehicleImage en la respuesta de la asignación', function () {
     $data = asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])->assertOk()->json('data');
 
     expect($data['vehicleImage'])->toStartWith('http')
@@ -2026,7 +2089,11 @@ it('devuelve deletedAt en null en los seis endpoints que lo pintan y no son el D
         ->and(asUser($team['owner'])->patchJson("/api/trips/{$id}/assignment", [
             'pilotId' => $team['pilot']->id,
             'vehicleId' => $team['vehicle']->id,
+            'fuelGallons' => 45.5,
+            'fuelType' => 'diesel',
         ])->assertOk()->json('data.deletedAt'))->toBeNull()
+        /** El piloto confirma la carga que dejó la asignación: sin eso, /start responde 400. */
+        ->and(tripFuelConfirmed($id)->loaded_at)->not->toBeNull()
         ->and(asUser($team['pilot'])->patchJson("/api/trips/{$id}/start")->assertOk()->json('data.deletedAt'))->toBeNull()
         ->and(asUser($team['pilot'])->patchJson("/api/trips/{$id}/finish")->assertOk()->json('data.deletedAt'))->toBeNull();
 });
@@ -2096,6 +2163,8 @@ it('devuelve las dos fotos del piloto en los siete endpoints que pintan el TripR
     asUser($team['owner'])->patchJson("/api/trips/{$id}/assignment", [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])->assertOk()
         ->assertJsonPath('data.pilotDpiImage', $dpi)
         ->assertJsonPath('data.pilotLicenseImage', $license);
@@ -2106,6 +2175,8 @@ it('devuelve las dos fotos del piloto en los siete endpoints que pintan el TripR
 
     asUser($admin)->patchJson("/api/trips/{$id}", ['order' => 'ord-2026-9999'])->assertOk()
         ->assertJsonPath('data.pilotDpiImage', $dpi);
+
+    tripFuelConfirmed($id);
 
     asUser($team['pilot'])->patchJson("/api/trips/{$id}/start")->assertOk()
         ->assertJsonPath('data.pilotDpiImage', $dpi);
@@ -2203,7 +2274,11 @@ it('deja a un piloto sin documentos iniciar sesión, unirse, cobrar salario y ar
     asUser($carrier->owner)->patchJson("/api/trips/{$id}/assignment", [
         'pilotId' => $pilot->id,
         'vehicleId' => $vehicle->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ])->assertOk();
+
+    tripFuelConfirmed($id);
 
     asUser($pilot)->patchJson("/api/trips/{$id}/start")->assertOk()
         ->assertJsonPath('data.status', TripStatus::InRoute->value)
@@ -2214,4 +2289,318 @@ it('deja a un piloto sin documentos iniciar sesión, unirse, cobrar salario y ar
         ->assertJsonPath('data.pilotLicenseImage', null);
 
     $this->assertDatabaseCount('pilot_documents', 0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 27 — El combustible en la asignación y en el arranque
+|--------------------------------------------------------------------------
+*/
+
+it('rechaza con 422 una asignación sin los dos campos de combustible', function (array $extra, array $campos, string $mensaje) {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        ...$extra,
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors($campos)
+        ->assertJsonFragment([$mensaje]);
+
+    expect($trip->fresh()->assigned_by)->toBeNull();
+
+    $this->assertDatabaseCount('trip_fuels', 0);
+})->with([
+    'sin galones' => [['fuelType' => 'diesel'], ['fuelGallons'], 'Los galones de combustible son obligatorios'],
+    'sin tipo' => [['fuelGallons' => 45.5], ['fuelType'], 'El tipo de combustible es obligatorio'],
+    'sin ninguno de los dos' => [[], ['fuelGallons', 'fuelType'], 'Los galones de combustible son obligatorios'],
+]);
+
+it('rechaza con 422 un tipo de combustible fuera del enum al asignar', function (string $fuelType) {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => $fuelType,
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['fuelType'])
+        ->assertJsonFragment(['El tipo de combustible seleccionado no es válido']);
+
+    expect($trip->fresh()->assigned_by)->toBeNull();
+
+    $this->assertDatabaseCount('trip_fuels', 0);
+})->with([
+    'un tipo inventado' => 'gasolina',
+    'el valor del enum en mayúsculas' => 'DIESEL',
+]);
+
+it('rechaza con 422 unos galones que no son una cantidad positiva', function (mixed $fuelGallons, string $mensaje) {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => $fuelGallons,
+        'fuelType' => 'diesel',
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['fuelGallons'])
+        ->assertJsonFragment([$mensaje]);
+
+    expect($trip->fresh()->assigned_by)->toBeNull();
+
+    $this->assertDatabaseCount('trip_fuels', 0);
+})->with([
+    'cero' => [0, 'Los galones de combustible deben ser mayores a 0'],
+    'negativos' => [-10, 'Los galones de combustible deben ser mayores a 0'],
+    'no numéricos' => ['cuarenta', 'Los galones de combustible deben ser un número'],
+]);
+
+it('deja exactamente una carga sin confirmar al asignar el viaje', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ])
+        ->assertOk()
+        /** La suma solo cuenta lo confirmado, así que un viaje recién asignado sigue en 0.00. */
+        ->assertJsonPath('data.totalFuelGallons', '0.00');
+
+    $this->assertDatabaseCount('trip_fuels', 1);
+
+    $this->assertDatabaseHas('trip_fuels', [
+        'trip_id' => $trip->id,
+        'gallons' => '45.50',
+        'fuel_type' => 'diesel',
+        'loaded_at' => null,
+        'confirmed_by' => null,
+        /** El autor de la primera carga es quien asignó, no el piloto. */
+        'registered_by' => $team['owner']->id,
+    ]);
+});
+
+it('añade una segunda carga al reasignar el viaje, sin pisar la primera', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    $otroPiloto = userWithRole(UserRole::Pilot);
+    $team['carrier']->pilots()->attach($otroPiloto);
+    $otroVehiculo = Vehicle::factory()->create(['carrier_id' => $team['carrier']->id]);
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ])->assertOk();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $otroPiloto->id,
+        'vehicleId' => $otroVehiculo->id,
+        'fuelGallons' => 12.25,
+        'fuelType' => 'premium',
+    ])->assertOk();
+
+    $this->assertDatabaseCount('trip_fuels', 2);
+
+    expect(TripFuel::query()->where('trip_id', '=', $trip->id)->orderBy('id')->pluck('gallons')->all())
+        ->toBe(['45.50', '12.25']);
+});
+
+it('no deja ninguna carga cuando la asignación falla por una de sus guardas', function () {
+    $empresaA = tripTeam();
+    $empresaB = tripTeam();
+
+    /** El viaje ya lo tomó otra empresa: 403. */
+    $ajeno = tripAssignedTo($empresaA);
+
+    asUser($empresaB['owner'])->patchJson("/api/trips/{$ajeno->id}/assignment", [
+        'pilotId' => $empresaB['pilot']->id,
+        'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ])->assertForbidden();
+
+    /** El viaje ya no está pendiente: 400. */
+    $enRuta = tripAssignedTo($empresaA, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+
+    asUser($empresaA['owner'])->patchJson("/api/trips/{$enRuta->id}/assignment", [
+        'pilotId' => $empresaA['pilot']->id,
+        'vehicleId' => $empresaA['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ])->assertStatus(400);
+
+    /** La tripulación no es asignable —vehículo de otra empresa—: 400. */
+    $libre = Trip::factory()->create();
+
+    asUser($empresaA['owner'])->patchJson("/api/trips/{$libre->id}/assignment", [
+        'pilotId' => $empresaA['pilot']->id,
+        'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ])->assertStatus(400);
+
+    $this->assertDatabaseCount('trip_fuels', 0);
+});
+
+it('rechaza con 400 el arranque de un viaje sin ninguna carga de combustible', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertStatus(400)
+        ->assertExactJson([
+            'statusCode' => 400,
+            'message' => 'Debes confirmar al menos una carga de combustible antes de iniciar el viaje',
+            'data' => null,
+        ]);
+
+    $fresco = $trip->fresh();
+
+    expect($fresco->status)->toBe(TripStatus::Pending)
+        ->and($fresco->start_date)->toBeNull();
+});
+
+it('rechaza con 400 el arranque cuando la única carga está sin confirmar', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    TripFuel::factory()->create(['trip_id' => $trip->id]);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'Debes confirmar al menos una carga de combustible antes de iniciar el viaje');
+
+    $fresco = $trip->fresh();
+
+    expect($fresco->status)->toBe(TripStatus::Pending)
+        ->and($fresco->start_date)->toBeNull();
+});
+
+it('arranca el viaje en cuanto el piloto confirma la carga que dejó la asignación', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ])->assertOk();
+
+    $carga = asUser($team['pilot'])->getJson("/api/trips/{$trip->id}/fuels")->assertOk()->json('data.0');
+
+    asUser($team['pilot'])->patchJson("/api/trip-fuels/{$carga['id']}/confirm")->assertOk();
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertOk()
+        ->assertJsonPath('data.status', TripStatus::InRoute->value)
+        /** Confirmada la carga, la suma del detalle ya la cuenta. */
+        ->assertJsonPath('data.totalFuelGallons', '45.50');
+
+    expect($trip->fresh()->status)->toBe(TripStatus::InRoute);
+});
+
+it('sigue diciendo que el viaje ya fue iniciado sobre un viaje en curso, y no habla de combustible', function () {
+    $team = tripTeam();
+
+    /** En curso y sin ninguna carga: la guarda del combustible va detrás y no se llega a ella. */
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(2)]);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertStatus(400)
+        ->assertExactJson([
+            'statusCode' => 400,
+            'message' => 'El viaje ya fue iniciado',
+            'data' => null,
+        ]);
+});
+
+it('sigue rechazando con 403 al piloto que no es el asignado, antes de mirar el combustible', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id]);
+
+    $otroPiloto = userWithRole(UserRole::Pilot);
+    $team['carrier']->pilots()->attach($otroPiloto);
+
+    asUser($otroPiloto)->patchJson("/api/trips/{$trip->id}/start")
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes iniciar un viaje que no tienes asignado');
+
+    expect($trip->fresh()->start_date)->toBeNull();
+});
+
+it('cierra el viaje aunque tenga cargas sin confirmar: /finish no mira el combustible', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    TripFuel::factory()->count(2)->create(['trip_id' => $trip->id]);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")
+        ->assertOk()
+        ->assertJsonPath('data.status', TripStatus::Finished->value)
+        ->assertJsonPath('data.totalFuelGallons', '0.00');
+
+    expect($trip->fresh()->status)->toBe(TripStatus::Finished);
+});
+
+it('ignora con 200 el combustible mandado al PATCH general del administrador', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'order' => 'ord-2026-9999',
+        'fuelGallons' => 90,
+        'fuelType' => 'premium',
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.order', 'ORD-2026-9999')
+        ->assertJsonPath('data.totalFuelGallons', '0.00');
+
+    /** El administrador no carga combustible por ninguna vía. */
+    $this->assertDatabaseCount('trip_fuels', 0);
+});
+
+it('ignora un filtro de combustible en el listado de viajes, sin vaciarlo ni dar 422', function (string $query) {
+    Trip::factory()->count(3)->create();
+
+    $response = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips?{$query}")->assertOk();
+
+    expect($response->json('data'))->toHaveCount(3)
+        ->and($response->json('data.0'))->not->toHaveKey('totalFuelGallons');
+})->with([
+    'fuelType' => 'fuelType=diesel',
+    'fuelGallons' => 'fuelGallons=45.5',
+    'los dos a la vez' => 'fuelType=basura&fuelGallons=abc',
+]);
+
+it('suma en totalFuelGallons solo las cargas confirmadas del detalle', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 30.25]);
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 12.75]);
+    TripFuel::factory()->create(['trip_id' => $trip->id, 'gallons' => 100]);
+
+    /** La carga confirmada de otro viaje no se suma en este. */
+    TripFuel::factory()->confirmed()->create(['gallons' => 500]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalFuelGallons', '43.00');
 });
