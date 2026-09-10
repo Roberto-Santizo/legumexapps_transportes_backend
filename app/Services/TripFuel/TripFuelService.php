@@ -2,8 +2,13 @@
 
 namespace App\Services\TripFuel;
 
+use App\Enums\TripStatus;
+use App\Errors\BadRequestError;
+use App\Errors\ForbiddenError;
+use App\Errors\NotFoundError;
 use App\Interfaces\Trip\TripServiceInterface;
 use App\Interfaces\TripFuel\TripFuelServiceInterface;
+use App\Models\Trip;
 use App\Models\TripFuel;
 use App\Models\User;
 use Override;
@@ -71,13 +76,88 @@ class TripFuelService implements TripFuelServiceInterface
     #[Override]
     public function create(User $user, int $tripId, array $data): TripFuel
     {
-        //
+        $trip = $this->resolveFuelableTrip($user, $tripId);
+
+        /**
+         * Nace sin confirmar: registrar no es confirmar. `loaded_at` y `confirmed_by`
+         * quedan en null hasta que el piloto asignado pase por /confirm.
+         */
+        return TripFuel::create([
+            'trip_id' => $trip->id,
+            'gallons' => $data['gallons'],
+            'fuel_type' => $data['fuelType'],
+            'loaded_at' => null,
+            'confirmed_by' => null,
+            /** El autor sale del usuario autenticado, nunca del body. */
+            'registered_by' => $user->id,
+        ]);
     }
 
     #[Override]
     public function confirm(User $user, int $tripFuelId): TripFuel
     {
         //
+    }
+
+    /**
+     * Resolve the trip a carrier company is registering a fuel load on.
+     *
+     * The four guards of the POST, in the order the contract fixes —the literal
+     * precedent of SPEC 26—: the trip must exist, must not be deleted, must have been
+     * taken by the caller's company and must not be finished. Hence a trip that is both
+     * deleted and someone else's answers 400 and not 403.
+     *
+     * Reads withTrashed() on purpose —like resolveWritableTrip() in the trip domain— so
+     * a deleted trip answers 400 «El viaje ya fue eliminado» and stays distinguishable
+     * from an id that never existed.
+     */
+    private function resolveFuelableTrip(User $user, int $tripId): Trip
+    {
+        $trip = Trip::withTrashed()->find($tripId);
+
+        if ($trip === null) {
+            throw new NotFoundError('El viaje no existe');
+        }
+
+        if ($trip->trashed()) {
+            throw new BadRequestError('El viaje ya fue eliminado');
+        }
+
+        $this->ensureCarrierTookTheTrip($user, $trip);
+
+        /**
+         * Se carga combustible en `pending` Y en `in_route` —una recarga en carretera es
+         * el caso real—, nunca después: un viaje cerrado ya no recibe nada.
+         */
+        if ($trip->status === TripStatus::Finished) {
+            throw new BadRequestError('El viaje ya fue finalizado');
+        }
+
+        return $trip;
+    }
+
+    /**
+     * Refuse a company that did not take this trip.
+     *
+     * Unlike the pool of SPEC 24, an unassigned trip is **not** free here: a load with
+     * no pilot to confirm it would be born stuck, so «nobody took it» and «another
+     * company took it» share the same 403.
+     *
+     * The comparison lands on the **company** of `assigned_by` and not on the user
+     * itself, exactly as every scope check of SPEC 24 does: any user of the company
+     * that took the trip may register a load, not only the person who assigned it.
+     */
+    private function ensureCarrierTookTheTrip(User $user, Trip $trip): void
+    {
+        $carrier = $user->currentCarrier();
+
+        if ($carrier === null) {
+            throw new ForbiddenError('No perteneces a ninguna empresa transportista');
+        }
+
+        if ($trip->assignedBy?->currentCarrier()?->id !== $carrier->id) {
+            throw new ForbiddenError('No puedes registrar combustible en un viaje que no tomó tu empresa transportista');
+        }
     }
 
     /**
