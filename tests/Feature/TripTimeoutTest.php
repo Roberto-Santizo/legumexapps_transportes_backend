@@ -149,6 +149,137 @@ it('devuelve las nueve claves del recurso', function () {
     ]);
 });
 
+/*
+|--------------------------------------------------------------------------
+| Cierre por fin de viaje
+|--------------------------------------------------------------------------
+*/
+
+it('cierra la parada abierta al finalizar el viaje y deja el punto de cierre en null', function () {
+    ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
+
+    $timeout = TripTimeout::factory()->open()->create(['trip_id' => $trip->id]);
+
+    asUser($pilot)->patchJson("/api/trips/{$trip->id}/finish")->assertStatus(200);
+
+    $timeout->refresh();
+
+    expect($timeout->ended_at)->not->toBeNull()
+        ->and($timeout->end_position_id)->toBeNull();
+});
+
+it('no escribe nada en las paradas al finalizar un viaje que no tenía ninguna abierta', function () {
+    ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
+
+    $closed = TripTimeout::factory()->create(['trip_id' => $trip->id]);
+    $endedAt = $closed->ended_at;
+    $endPositionId = $closed->end_position_id;
+
+    asUser($pilot)->patchJson("/api/trips/{$trip->id}/finish")->assertStatus(200);
+
+    $closed->refresh();
+
+    expect(TripTimeout::where('trip_id', $trip->id)->count())->toBe(1)
+        ->and($closed->ended_at->toDateTimeString())->toBe($endedAt->toDateTimeString())
+        ->and($closed->end_position_id)->toBe($endPositionId);
+});
+
+it('no toca ninguna parada al iniciar el viaje', function () {
+    $trip = Trip::factory()->assigned()->create();
+    $pilot = User::findOrFail($trip->pilot_id);
+
+    $timeout = TripTimeout::factory()->open()->create(['trip_id' => $trip->id]);
+
+    asUser($pilot)->patchJson("/api/trips/{$trip->id}/start")->assertStatus(200);
+
+    expect($timeout->refresh()->ended_at)->toBeNull();
+});
+
+it('no toca ninguna parada con el PATCH general ni con el DELETE del administrador', function () {
+    ['trip' => $trip] = tripWithTimeouts();
+
+    $timeout = TripTimeout::factory()->open()->create(['trip_id' => $trip->id]);
+    $administrator = userWithRole(UserRole::Administrator);
+
+    asUser($administrator)->patchJson("/api/trips/{$trip->id}", ['observations' => 'Revisión en ruta'])
+        ->assertStatus(200);
+
+    expect($timeout->refresh()->ended_at)->toBeNull();
+
+    asUser($administrator)->deleteJson("/api/trips/{$trip->id}")->assertStatus(200);
+
+    /** La baja lógica del viaje no se lleva por delante su rastro ni sus paradas. */
+    expect($timeout->refresh()->ended_at)->toBeNull()
+        ->and(TripTimeout::where('trip_id', $trip->id)->count())->toBe(1);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Detección por el POST de posiciones
+|--------------------------------------------------------------------------
+|
+| Se viaja en el tiempo entre peticiones porque el piso de 15 segundos de SPEC 26
+| descartaría la segunda y la tercera, y un punto descartado no abre ni cierra nada.
+|
+*/
+
+it('abre y luego cierra una parada a partir de las posiciones que reporta el piloto', function () {
+    ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
+    $administrator = userWithRole(UserRole::Administrator);
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'latitude' => 14.6282,
+        'longitude' => -90.5229,
+    ])->assertStatus(201);
+
+    $this->travel(20)->seconds();
+
+    /** Dos metros escasos: el camión está parado y la parada se abre en el punto anterior. */
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'latitude' => 14.62822,
+        'longitude' => -90.5229,
+    ])->assertStatus(201);
+
+    $open = asUser($administrator)->getJson("/api/trips/{$trip->id}/timeouts")->json('data');
+
+    expect($open)->toHaveCount(1)
+        ->and($open[0]['endedAt'])->toBeNull()
+        ->and($open[0]['durationMinutes'])->toBeNull()
+        ->and($open[0]['latitude'])->toBe('14.62820000');
+
+    $this->travel(20)->seconds();
+
+    /** Más de cien metros: el camión arrancó y el punto cierra la parada. */
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'latitude' => 14.6292,
+        'longitude' => -90.5229,
+    ])->assertStatus(201);
+
+    $closed = asUser($administrator)->getJson("/api/trips/{$trip->id}/timeouts")->json('data');
+
+    expect($closed)->toHaveCount(1)
+        ->and($closed[0]['endedAt'])->not->toBeNull()
+        ->and($closed[0]['endPositionId'])->not->toBeNull()
+        ->and($closed[0]['durationMinutes'])->toBeGreaterThan(0);
+});
+
+it('no toca ninguna parada cuando el piso de quince segundos descarta la petición', function () {
+    ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'latitude' => 14.6282,
+        'longitude' => -90.5229,
+    ])->assertStatus(201);
+
+    /** Sin viajar en el tiempo: la segunda llega dentro del piso y se descarta. */
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'latitude' => 14.62822,
+        'longitude' => -90.5229,
+    ])->assertStatus(200);
+
+    expect(TripTimeout::where('trip_id', $trip->id)->count())->toBe(0);
+});
+
 it('acota el tamaño de página a diez y aplana los metadatos en la raíz', function () {
     ['trip' => $trip] = tripWithTimeouts();
 
