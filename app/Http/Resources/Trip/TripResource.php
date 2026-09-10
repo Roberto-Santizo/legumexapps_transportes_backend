@@ -335,6 +335,17 @@ class TripResource extends JsonResource
             'assignedById' => $this->assigned_by,
             'assignedByName' => $this->assignedBy?->name,
             'registeredByName' => $this->registeredBy?->name,
+            /**
+             * Los galones de las cargas CONFIRMADAS del viaje (SPEC 27), no de todas: el
+             * número que importa es cuánto combustible llegó de verdad al camión, así que un
+             * viaje recién asignado sale en "0.00" teniendo ya una carga registrada. El
+             * listado de /api/trips/{trip}/fuels enseña las sin confirmar, así que el cero es
+             * explicable.
+             *
+             * Lo resuelve el withSum de TripService, no las filas: el detalle no carga
+             * ninguna carga y sigue sin exponer el listado.
+             */
+            'totalFuelGallons' => number_format((float) ($this->total_fuel_gallons ?? 0), 2, '.', ''),
             'createdAt' => $this->created_at?->format('d-m-Y h:i:s A'),
             'updatedAt' => $this->updated_at?->format('d-m-Y h:i:s A'),
             'deletedAt' => $this->deleted_at?->format('d-m-Y h:i:s A'),

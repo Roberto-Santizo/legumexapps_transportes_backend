@@ -204,7 +204,10 @@ class TripService implements TripServiceInterface
          * que nunca existió, y los dos casos salen por el mismo 404. La distinción solo la
          * hace resolveWritableTrip(), para dar un 400 con sentido a quien intenta escribir.
          */
-        $trip = Trip::query()->with(self::RELATIONS)->find($id);
+        $trip = Trip::query()
+            ->with(self::RELATIONS)
+            ->withSum($this->confirmedFuelGallonsSum(), 'gallons')
+            ->find($id);
 
         if ($trip === null) {
             throw new NotFoundError('El viaje no existe');
@@ -272,7 +275,7 @@ class TripService implements TripServiceInterface
             'registered_by' => $user->id,
         ]);
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     #[Override]
@@ -312,7 +315,7 @@ class TripService implements TripServiceInterface
             $trip->update($payload);
         }
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     #[Override]
@@ -388,7 +391,7 @@ class TripService implements TripServiceInterface
             return $trip;
         });
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     #[Override]
@@ -423,7 +426,7 @@ class TripService implements TripServiceInterface
             'status' => TripStatus::InRoute,
         ]);
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     #[Override]
@@ -447,7 +450,7 @@ class TripService implements TripServiceInterface
             'status' => TripStatus::Finished,
         ]);
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     /**
@@ -470,6 +473,7 @@ class TripService implements TripServiceInterface
         /** Con los borrados a la vista: sin ellos, el segundo DELETE solo podría ser un 404. */
         $trip = Trip::withTrashed()
             ->with(self::RELATIONS)
+            ->withSum($this->confirmedFuelGallonsSum(), 'gallons')
             ->when($lock, fn (Builder $query) => $query->lockForUpdate())
             ->find($id);
 
@@ -774,6 +778,34 @@ class TripService implements TripServiceInterface
     private function resolveAssignerCarrierId(Trip $trip): ?int
     {
         return $trip->assignedBy?->currentCarrier()?->id;
+    }
+
+    /**
+     * The withSum/loadSum spec that feeds `totalFuelGallons` (SPEC 27).
+     *
+     * A method and not a constant because the relation carries a closure: only the
+     * **confirmed** loads count, since the number that matters is how much fuel actually
+     * reached the truck. Summing this way keeps the detail from loading the rows —a trip
+     * with a hundred loads would paint none of them— and lands the value on the model as
+     * `total_fuel_gallons`, which is the single attribute `TripResource` reads.
+     *
+     * @return array<string, callable>
+     */
+    private function confirmedFuelGallonsSum(): array
+    {
+        return ['fuels as total_fuel_gallons' => fn (Builder $query) => $query->whereNotNull('loaded_at')];
+    }
+
+    /**
+     * Load everything a detail read paints: the eight relations and the fuel sum.
+     *
+     * Used by the five writes, which already hold the row: `loadSum()` re-reads the sum
+     * **after** the write, so an assignment that just inserted a load reports the truth
+     * and not the value the row carried when it was resolved.
+     */
+    private function loadDetail(Trip $trip): Trip
+    {
+        return $trip->load(self::RELATIONS)->loadSum($this->confirmedFuelGallonsSum(), 'gallons');
     }
 
     /**
