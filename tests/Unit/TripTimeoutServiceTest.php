@@ -4,11 +4,13 @@ use App\Enums\UserRole;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
 use App\Interfaces\TripTimeout\TripTimeoutServiceInterface;
+use App\Models\Carrier;
 use App\Models\Trip;
 use App\Models\TripPosition;
 use App\Models\TripTimeout;
 use App\Models\User;
 use App\Services\TripTimeout\TripTimeoutService;
+use Carbon\CarbonInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -31,7 +33,7 @@ function tripTimeoutServiceUser(UserRole $role): User
  * The detection is fed with positions built here on purpose: it must be measurable
  * without the 15 second floor of SPEC 26 getting in the way.
  */
-function tripTimeoutPosition(Trip $trip, float $latitude, float $longitude, ?Carbon\CarbonInterface $recordedAt = null): TripPosition
+function tripTimeoutPosition(Trip $trip, float $latitude, float $longitude, ?CarbonInterface $recordedAt = null): TripPosition
 {
     return TripPosition::factory()->create([
         'trip_id' => $trip->id,
@@ -268,3 +270,54 @@ it('delega en el dominio de viajes el 404 de un viaje borrado', function () {
 
     tripTimeoutService()->getTimeouts(tripTimeoutServiceUser(UserRole::Administrator), $trip->id, []);
 })->throws(NotFoundError::class);
+
+it('acota el tamaño de página a cien cuando el limit se pasa de rosca', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    TripTimeout::factory()->count(3)->create(['trip_id' => $trip->id]);
+
+    $timeouts = tripTimeoutService()->getTimeouts(
+        tripTimeoutServiceUser(UserRole::Administrator),
+        $trip->id,
+        ['limit' => '500'],
+    );
+
+    expect($timeouts)->toBeInstanceOf(LengthAwarePaginator::class)
+        ->and($timeouts->perPage())->toBe(100)
+        ->and($timeouts->total())->toBe(3);
+});
+
+it('rechaza con ForbiddenError al transportista de una empresa que no asignó el viaje', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    tripTimeoutService()->getTimeouts(Carrier::factory()->create()->owner, $trip->id, []);
+})->throws(ForbiddenError::class, 'No puedes acceder a un viaje que no pertenece a tu empresa transportista');
+
+/*
+|--------------------------------------------------------------------------
+| Aislamiento entre viajes
+|--------------------------------------------------------------------------
+*/
+
+it('no toca las paradas de otro viaje al procesar un punto', function () {
+    $otherTrip = Trip::factory()->inRoute()->create();
+    $otherTimeout = TripTimeout::factory()->open()->create(['trip_id' => $otherTrip->id]);
+
+    $trip = Trip::factory()->inRoute()->create();
+
+    tripTimeoutPosition($trip, 14.6282, -90.5229, now()->subMinutes(5));
+
+    /** Abre la parada de su viaje: la del otro sigue abierta y sin tocar. */
+    tripTimeoutService()->trackPosition(tripTimeoutPosition($trip, 14.62822, -90.5229, now()->subMinutes(4)));
+
+    expect(TripTimeout::where('trip_id', $trip->id)->count())->toBe(1)
+        ->and($otherTimeout->refresh()->ended_at)->toBeNull()
+        ->and($otherTimeout->end_position_id)->toBeNull();
+
+    /** Y el punto que cierra la suya tampoco cierra la ajena, aunque esté a cien metros de todo. */
+    tripTimeoutService()->trackPosition(tripTimeoutPosition($trip, 14.6295, -90.5229, now()));
+
+    expect(TripTimeout::where('trip_id', $trip->id)->whereNull('ended_at')->count())->toBe(0)
+        ->and($otherTimeout->refresh()->ended_at)->toBeNull()
+        ->and(TripTimeout::where('trip_id', $otherTrip->id)->count())->toBe(1);
+});
