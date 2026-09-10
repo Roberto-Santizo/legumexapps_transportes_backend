@@ -1,6 +1,6 @@
 # Legumex Transportes — Backend
 
-API REST interna de transportes (Laravel 13 + PHP 8.5). Sin frontend propio: solo expone JSON bajo `/api`. Autenticación con JWT (`php-open-source-saver/jwt-auth`) y documentación OpenAPI con `darkaonline/l5-swagger`.
+API REST interna de transportes (Laravel 13 + PHP 8.5). Sin frontend propio: solo expone JSON bajo `/api`. Autenticación con JWT (`php-open-source-saver/jwt-auth`) y documentación OpenAPI con `darkaonline/l5-swagger`. Desde SPEC 26 hay además un **proceso permanente**, `php artisan reverb:start` (`laravel/reverb`), que empuja las posiciones del viaje por websocket: sin él la API funciona entera —los puntos se guardan igual— pero nadie recibe nada.
 
 ## Arquitectura por capas
 
@@ -18,9 +18,11 @@ Cada recurso se implementa con la misma cadena de archivos, agrupados en subcarp
 
 El service se inyecta **por parámetro del método del controller** (`public function login(LoginRequest $request, AuthServiceInterface $authService)`), no por constructor.
 
-En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`, `/directions`, `/{pilot}/salary`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
+En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, `/quote`, `/directions`, `/{pilot}/salary`, `/{trip}/assignment`, `/{trip}/start`, `/{trip}/finish`, `/{trip}/positions`) se declaran **antes** del resource: si no, las captura el comodín `{carrier}`.
 
-Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `VehicleExpense`, `FuelPrice`, `Product`, `Zone`, `Location`, `FreightRate`, `Pilot`, `Place`, `Accessory`, `AccessoryCharacteristic`, `DeparturePoint` (SPEC 01–21).
+**La única ruta anidada del proyecto es `/api/trips/{trip}/positions` (SPEC 26)**: SPEC 14 y SPEC 18 evitaron a propósito `/api/vehicles/{vehicle}/expenses` y `/api/accessories/{accessory}/characteristics`, pero una posición sin su viaje no significa nada y `{trip}` ya era el parámetro del grupo. Vive en `routes/trips.php`, que por eso —y por el `/current` posterior— declara **once** rutas y no ocho.
+
+Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `VehicleExpense`, `FuelPrice`, `Product`, `Zone`, `Location`, `FreightRate`, `Pilot`, `Place`, `Accessory`, `AccessoryCharacteristic`, `DeparturePoint`, `Client`, `ShippingLine`, `Trip`, `TripPosition` (SPEC 01–26).
 
 ## Respuestas y errores
 
@@ -31,7 +33,7 @@ Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `VehicleExpense`, `Fuel
 
 ## Paginación
 
-- Opt-in por query param `limit`: sin `limit` (o no numérico) el service devuelve una `Collection` completa; con `limit` numérico pagina, acotado a `[10, 100]`. Cada service repite `resolvePerPage()` con sus constantes `MIN_PER_PAGE`/`MAX_PER_PAGE`. Excepción: `FreightRate` no pagina.
+- Opt-in por query param `limit`: sin `limit` (o no numérico) el service devuelve una `Collection` completa; con `limit` numérico pagina, acotado a `[10, 100]`. Cada service repite `resolvePerPage()` con sus constantes `MIN_PER_PAGE`/`MAX_PER_PAGE`. Dos excepciones: `FreightRate` no pagina nunca, y `Trip` baja su `MIN_PER_PAGE` a **1** (`?limit=5` devuelve páginas de cinco), así que solo le muerde el techo.
 - El listado paginado se envuelve en `App\Http\Resources\PaginatedResource` (`new PaginatedResource($paginator, CarrierResource::class)`), y `ResponseHandler` funde `total/currentPage/lastPage` en la raíz del sobre, no bajo `meta`.
 
 ## Autenticación y autorización
@@ -45,6 +47,7 @@ Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `VehicleExpense`, `Fuel
 - Middlewares de autorización (alias en `bootstrap/app.php`), ambos resuelven el usuario con `auth('api')->user()` y **devuelven** `ResponseHandler::error(new ForbiddenError(...))` en vez de lanzar, porque el `try/catch` del controller no ve excepciones de middleware:
   - `role:admin,carrier` — filtro grueso por rol.
   - `carrier.required` (`EnsureUserHasCarrier`) — exige vínculo con una empresa, consultando la BD (`$user->currentCarrier()`), no el claim del token, que puede llevar hasta 1 h obsoleto. `administrator` y `manager` están exentos.
+- **Tercera vía de autorización desde SPEC 26**, y la primera que corre fuera del ciclo de una ruta de la API: el callback de `routes/channels.php`, que devuelve `bool` en vez de lanzar. `bootstrap/app.php` monta su ruta a mano con `->withBroadcasting(__DIR__.'/../routes/channels.php', ['prefix' => 'api', 'middleware' => ['jwt.auth']])` → **`POST /api/broadcasting/auth`**, porque el `Broadcast::routes()` por defecto usa el guard `web` y este proyecto no tiene sesión.
 
 ## Dominio Carriers
 
@@ -92,7 +95,7 @@ Segunda spec aditiva sobre un dominio publicado (tras SPEC 13) y **primera que t
 - **`DELETE` borra también el objeto del bucket** — única excepción a «el `DELETE` no toca el archivo»: aquí la fila desaparece de verdad.
 - Filtro tolerante nuevo `isInvoiced` y tres claves nuevas en el Resource: `isInvoiced`, `invoiceUrl` (absoluta o `null`) e `invoiceType` (`jpg|png|pdf|null`, derivada de la extensión de la key, sin columna propia). El resto del contrato de SPEC 14 —roles, ámbito, orden, `totalAmount`— intacto.
 
-## Dominio Pilots (salarios)
+## Dominio Pilots (salarios y documentos)
 
 Primer dominio publicado **sobre una tabla pivote existente**: `carrier_pilots` gana la columna `salary` (`decimal(10,2)` nullable, mensual y en GTQ por convención — la columna no lo dice) y la bitácora `carrier_pilot_salary_histories`.
 
@@ -105,6 +108,19 @@ Primer dominio publicado **sobre una tabla pivote existente**: `carrier_pilots` 
 - **Mandar el mismo salario responde 400** y no escribe en la bitácora, para que toda fila del historial sea un cambio real. La comparación va sobre el valor formateado a dos decimales (`salaryValue()`), así que `4500`, `4500.00` y `4500.004` son el mismo salario. Bajar el salario está permitido.
 - El UPDATE y la fila de bitácora corren en la **misma transacción**, con `lockForUpdate` sobre el pivote; `changed_by` sale del usuario autenticado, nunca del body. La bitácora es de solo escritura y solo lectura: `created_at` es la fecha de vigencia y no hay `reason`, `notes` ni `effective_from`. Se ordena por `id desc`, no por `created_at`, que empataría entre dos cambios del mismo segundo.
 - Listado e historial paginan opt-in con `limit`, como el resto del proyecto.
+
+### Documentos del piloto (SPEC 25)
+
+Foto del anverso del DPI y de la licencia, exigidas **solo al piloto** y **solo en el registro**. Es la primera spec que toca `Auth` desde SPEC 10 y **no crea dominio**: sin service, sin contrato, sin provider y sin una sola ruta nueva.
+
+- Tabla `pilot_documents`, 1:1 con el usuario (`user_id` **único**, `dpi_image`, `license_image`, `timestamps`): ninguna columna nullable —si la fila existe, existen los dos archivos—, sin `status`, sin `deleted_at` y **sin `registered_by`**, porque la crea el propio usuario que se registra. El modelo no tiene `casts()`, como `AccessoryCharacteristic`. Se llega por `User::pilotDocument()` (`HasOne`) y por ningún otro sitio.
+- **`POST /api/auth/register` pasa a `multipart/form-data`** y, para `role=pilot`, de cuatro campos a seis: cambio incompatible sin periodo de gracia, como el `POST` de vehículos en SPEC 13. `dpi` y `license` son `required_if:role,pilot` —**los dos o ninguno**: mandar uno solo es 422— y un `carrier` que los mande **los ve ignorados en silencio**, con 201 y sin fila, precedente literal del archivo de un gasto con `is_invoiced=false`.
+- Es **la única subida del proyecto en una ruta pública**: `register` no lleva `jwt.auth`, así que hasta SPEC 25 ningún archivo entraba al bucket sin un token detrás.
+- Los archivos se guardan **tal cual llegan** con `storeUpload()` bajo `pilot-documents`: `ImageProcessorServiceInterface` no interviene, porque el recorte cuadrado a 800×800 dejaría un DPI ilegible —mismo argumento que llevó a `storeUpload()` con las facturas—. La URL resultante es pública y sin caducidad, como la imagen de un vehículo.
+- **Orden a prueba de huérfanos**: los dos archivos se suben **antes** de abrir la transacción; si falla la subida del segundo se borra el primero, y si falla el commit se borran los dos con `delete()` —que nunca lanza— y se propaga el error original. El correo de confirmación sigue saliendo fuera de la transacción.
+- Tres Resources ganan las mismas dos claves, resueltas a URL absoluta: `UserResource` (8 → 10) y `PilotResource` (7 → 9) como `dpiImage`/`licenseImage`, y `TripResource` (32 → 34) como **`pilotDpiImage`/`pilotLicenseImage`**, prefijadas porque ese recurso mezcla cuatro entidades. `CarrierPilotResource` y `TripListResource` quedan **intactos** a propósito.
+- El eager loading va donde hace falta y no más: `PilotService` carga `user.pilotDocument` y `TripService::RELATIONS` lleva `pilot.pilotDocument`, pero `LIST_RELATIONS` carga `pilot` a secas — el listado de viajes nunca toca la tabla.
+- No hay forma de corregir un documento: sin `PATCH`, sin endpoint propio (**no existe `GET /api/pilots/{pilot}/documents`**) y sin borrado. Nada se bloquea por falta de documentos y no hubo backfill, así que un `null` puede significar «no es piloto», «piloto anterior a SPEC 25» o «viaje sin piloto asignado», y el frontend no puede distinguirlos.
 
 ## Dominio Accessories (SPEC 17)
 
@@ -126,15 +142,15 @@ Pares nombre/valor libres colgando de un accesorio: **el primer dominio cuyo con
 - `accessory_id` inmutable en el `PATCH`; `DELETE` es **borrado físico**. El `status` del accesorio no importa: uno `inactive` o `under_repair` lista y acepta características igual. Sin filtros ni `search`; orden `id ASC` y paginación opt-in.
 - `AccessoryResource` **no cambia de forma**: el inventario no gana `characteristics` ni contador, y no se puede buscar accesorios por característica — el índice va siempre accesorio → características.
 
-## Catálogos nacionales (fuel prices, products, zones, locations, departure points, freight rates)
+## Catálogos nacionales (fuel prices, products, zones, locations, departure points, freight rates, clients, shipping lines)
 
-Seis dominios que no pertenecen a ninguna empresa y comparten reglas:
+Ocho dominios que no pertenecen a ninguna empresa y comparten las reglas de abajo — con la salvedad de que `Client` y `ShippingLine` rompen dos: no se dan de baja con un `status` booleano sino con `SoftDeletes` real, y son los únicos sin ninguna ruta fija antes del `apiResource`.
 
 - **Ninguna ruta lleva `carrier.required`**: son datos nacionales. La lectura queda abierta a cualquier autenticado (`jwt.auth` a secas) y toda escritura es `role:administrator`. Única excepción: `GET /api/freight-rates/{id}` también es admin — quien no administra tarifas cotiza con `/quote`.
 - Las rutas fijas (`/current`, `/quote`, `/{id}/toggle-status`, `/{id}/deactivate`) van **antes** del `apiResource`, que se declara sobre `'/'` con `->parameters(['' => 'fuelPrice'])`.
 - `registered_by` sale siempre del usuario autenticado, nunca del body, y **no se reescribe** en `update`.
 - Los filtros de listado son tolerantes: un `status`/`locationId`/`lat,lng` inválido se **ignora** en vez de vaciar el listado (`filter_var(..., FILTER_NULL_ON_FAILURE)`).
-- El nombre único (`Product`, `Zone`, `Location`, `DeparturePoint`, y fuera de aquí `Accessory`) se normaliza con `Model::normalizeName()` (trim + colapsar espacios + mayúsculas), compartido por FormRequest y service; el service revalida con `ensureNameIsAvailable($name, $ignoreId)` **aunque haya índice único**, para que una llamada directa dé 400 y no 500.
+- El nombre único (`Product`, `Zone`, `Location`, `DeparturePoint`, `Client`, `ShippingLine`, y fuera de aquí `Accessory`) se normaliza con `Model::normalizeName()` (trim + colapsar espacios + mayúsculas), compartido por FormRequest y service; el service revalida con `ensureNameIsAvailable($name, $ignoreId)` **aunque haya índice único**, para que una llamada directa dé 400 y no 500.
 
 ### Fuel Prices
 
@@ -193,6 +209,22 @@ Puntos de partida anclados a Google Places. **Primer dominio que nace como copia
 - El listado **no pagina nunca**: devuelve `Collection` ordenada por `fuel_type, fuel_min` (la tabla de precios se lee entera), filtrable por `locationId`.
 - Tras SPEC 15 el dominio **no conoce ni zonas ni PostGIS**: `FreightRateService` dejó de inyectar `ZoneServiceInterface` y se quedó sin constructor.
 
+### Clients (SPEC 22 · SPEC 24)
+
+Catálogo de dos campos —`code` y `name`— y el primero que se aparta del patrón de baja de los demás.
+
+- Tabla `clients`: `id`, `code` (`varchar(15)`, único), `name` (único), `registered_by`, `timestamps` y `deleted_at`. Sin `status` y sin `casts()` en el modelo. Cinco rutas (`apiResource('/')->parameters(['' => 'client'])`) y **ninguna ruta fija antes del resource** —no hay `/toggle-status` ni `/restore`—; lectura para cualquier autenticado, escritura solo `administrator`.
+- **`SoftDeletes` real, no baja lógica**: la fila desaparece del listado y del `show` (**404**), a diferencia de `Product`/`Location`/`Zone`/`DeparturePoint`, que siguen listando lo desactivado. `PATCH` o `DELETE` sobre uno borrado es **400 «El cliente ya fue eliminado»**, distinguible de un id inexistente porque `resolveWritableClient()` es el único sitio que lee `withTrashed()`. Sin `restore` ni `?trashed=true`: un borrado erróneo se arregla tocando la base.
+- **La unicidad es global y un borrado no la libera**: la fila con `deleted_at` sigue ocupando su `code` y su `name` para siempre. Es el bando contrario al de `FreightRate`, que renuncia al índice único precisamente para poder reutilizar un `fuel_min` borrado. Por eso los mensajes dicen «que puede haber sido eliminado»: el alta choca con una fila invisible en todos los endpoints.
+- **Los duplicados son 400 desde el service, nunca 422** (bando de `Accessory`, no la asimetría 422/400 de `Location`), y **ningún FormRequest lleva regla `unique`**: la de Laravel no ve las filas borradas y dejaría pasar un valor ocupado hasta reventar contra el índice con un 500. Si chocan los dos campos, gana el mensaje del código.
+- **Normalización asimétrica entre sus dos campos**: `normalizeName()` colapsa espacios interiores; `normalizeCode()` solo hace trim + mayúsculas, y un `code` con cualquier espacio es **422** (`regex:/^\S+$/u`) — se rechaza, no se arregla.
+- `ClientResource` con **siete claves**, incluida `deletedAt`: `null` en `index`, `show`, `store` y `update`, y **con fecha solo en la respuesta del `DELETE`**, porque `destroy()` devuelve el modelo ya borrado. Filtro tolerante `search` (`LIKE` sobre `code` **y** `name`, agrupado), orden `id ASC`, paginación opt-in.
+- **SPEC 24 le añadió una guarda al `destroy`**: 400 «No se puede eliminar el cliente porque tiene viajes asociados», contando **también los viajes borrados** (`trips()->withTrashed()->exists()`) — si no, borrar el viaje y luego el cliente dejaría la FK de un viaje soft-deleted apuntando a una fila soft-deleted. Es la única modificación que otra spec ha hecho a este dominio.
+
+### Shipping Lines (SPEC 23 · SPEC 24)
+
+**Gemelo reducido de `Client`** y **primer dominio del proyecto con un solo campo de negocio**: `name`. Todo lo demás se copia deliberadamente —`SoftDeletes`, reparto de roles, cinco rutas sin ninguna fija, `withTrashed()` interno, 400 en el segundo `DELETE`, unicidad global que el borrado no libera, duplicado a 400 desde el service, `search`, orden `id ASC`, paginación opt-in y la guarda de viajes de SPEC 24—, sin `code`: desaparecen `normalizeCode()`, el `regex` de espacios, el segundo índice único y el segundo `ensure…IsAvailable()`. `ShippingLineResource` tiene **seis claves**, las de `Client` menos `code`.
+
 ## Dominio Places (Google Places)
 
 Primer dominio **sin tabla, sin modelo y sin migración** — un proxy de lectura — y el primero que sale por su cuenta a una API de terceros. Tres rutas con `jwt.auth` a secas, sin `role:` ni `carrier.required`: `GET /api/places?search=` (texto de 3 a 200 caracteres), `GET /api/places/{place}` y `GET /api/places/directions` (SPEC 16), declaradas con el mismo `apiResource('/')->parameters(['' => 'place'])->only(['index', 'show'])` de los catálogos — con `/directions` **antes** del resource, o el comodín `{place}` la captura y busca un lugar llamado "directions".
@@ -213,16 +245,55 @@ Primer dominio **sin tabla, sin modelo y sin migración** — un proxy de lectur
 - **Orden de fallo, cada paso con su mensaje**: `locationId` inexistente → 422 (`exists:` del FormRequest); destino inactivo → 400; Google sin rutas (200 con `{}` o `routes: []`) → **404**, porque el proveedor funcionó; cualquier otro fallo → 503 genérico. `duration` llega como cadena `"6300s"` (convención `protobuf.Duration`): se parsea quitando la `s`, y cualquier otra forma es 503.
 - `DirectionsResource` con seis claves: `locationId`, `locationName`, `distanceKilometers` (metros/1000, 2 decimales), `durationHours` (segundos/3600), `polyline` y `points`. Las dos primeras las pone el Resource: el contrato no sabe que existe un destino registrado.
 
+## Dominio Trips (SPEC 24)
+
+El viaje de exportación que enlaza cliente, naviera, punto de partida y puerto de destino. Es la spec con **más dependencias del proyecto** —consume ocho dominios ya publicados— y la tabla con **más claves foráneas**: ocho, ninguna con `cascade`, y **ninguna es `carrier_id`**.
+
+- 19 columnas de negocio + `timestamps` + `deleted_at`; `polyline` y `observations` son `TEXT`. Enum `App\Enums\TripStatus` con **tres** casos (`pending`, `in_route`, `finished`) y **sin `cancelled`**: un viaje que no se hará se borra. El `status` nace en `pending`, no se acepta en el `POST` y sale con el valor crudo del enum en inglés.
+- **El `PATCH` deja de ser el único camino de escritura**: tres rutas fijas de acción, cada una con su rol y su efecto, declaradas antes del `apiResource`.
+
+  | Ruta | Middleware | Efecto |
+  |---|---|---|
+  | `PATCH /{trip}/assignment` | `role:carrier` + `carrier.required` | Fija `pilot_id`, `vehicle_id` y `assigned_by`; **no toca `status`** |
+  | `PATCH /{trip}/start` | `role:pilot` (el asignado) | `start_date = now()`, `status = in_route` |
+  | `PATCH /{trip}/finish` | `role:pilot` (el asignado) | `end_date = now()`, `status = finished` |
+
+  Las dos últimas no llevan FormRequest ni aceptan cuerpo: la fecha es el `now()` del servidor.
+- **`GET /trips/current`** es la cuarta ruta fija y la única sin `{trip}`: `role:pilot`, sin parámetros ni cuerpo, devuelve el viaje `in_route` del piloto autenticado por `TripListResource` —las 15 claves del listado, sin `polyline` ni `points`— o **`data: null` con 200**, nunca 404: no conducir es el estado ordinario de un piloto, al revés que en `/fuel-prices/current`, donde la ausencia sí es 404. Lee el **`status`, no `start_date`**, así que un viaje devuelto a `pending` conservando su arranque no sale; es **la misma condición** que abre el `POST /{trip}/positions`. Con dos `in_route` a la vez —el dominio no valida solape— gana el de `start_date` más reciente.
+- **Ámbito adquirido, no heredado** — el primero del proyecto. Un viaje nace de nadie: `administrator` y `manager` los ven todos; el `pilot` **solo** aquellos donde `pilot_id` es él, sin ver la bolsa; cualquier otro ve la **bolsa libre** (`pending` con `pilot_id` y `vehicle_id` nulos) **más** lo que asignó su empresa. `assigned_by` guarda el **id del usuario**, pero el filtro compara la **empresa** de ese usuario (`User::currentCarrier()`): así el viaje no queda huérfano de vista si su asignador se da de baja, y reasignarlo puede hacerlo cualquiera de esa empresa, no solo la persona exacta. El ámbito se aplica **antes** que los filtros.
+- **Un viaje borrado es 404 en `GET /{trip}` y 400 en las cinco rutas de escritura**: `getTripById()` no lee `withTrashed()` y `resolveWritableTrip()` sí («El viaje ya fue eliminado»). Cuarto dominio con `SoftDeletes`, tras `FreightRate`, `Client` y `ShippingLine`, y sin `restore`.
+- Validaciones cruzadas al escribir, cada una con su **400** y su mensaje, repartidas entre `ensureCatalogsAreUsable()` y `ensureCrewIsAssignable()`: el destino debe ser de tipo **`port`** (SPEC 21) y estar activo, el punto de partida activo, cliente y naviera **no borrados** —pasan el `exists:` del FormRequest, que lee la tabla en crudo—, el piloto debe ser un `pilot` vinculado a una empresa, el vehículo `active` (`inactive` y `under_repair` se rechazan) y **ambos de la misma empresa**. Las fechas se validan en el alta (`ship_date >= recolection_date` y las dos en el futuro); el `PATCH` **pierde el `after:now`**.
+- `assign()` es la única acción con **`lockForUpdate`**, y toda la comprobación corre dentro de la transacción: un viaje libre lo toma cualquier empresa; uno ya tomado, solo la que lo tomó (**403**); y solo mientras siga `pending` (**400**).
+- Normalización asimétrica, con el precedente de SPEC 18: `order` y `container` a **MAYÚSCULAS** con espacios colapsados (`Trip::normalizeReference()`, compartida por ambos); `destination`, `transport` y `observations` **solo `trim`**. Ninguno es único: dos viajes pueden compartir orden y contenedor.
+- **`polyline` obligatoria** en el alta y en el `PATCH` general, resuelta por el frontend con `GET /api/places/directions`: **la API nunca llama a Google**, igual que `Location` con su `googlePlaceId`. Si el `PATCH` cambia el destino, la polilínea guardada queda obsoleta y la API no dice nada.
+- **Dos Resources**, a diferencia del resto del proyecto: `TripResource` (**34 claves**, ids planos con su nombre al lado y `points` decodificados por el `PolylineDecoder` de SPEC 16) en los siete endpoints restantes, y `TripListResource` (**15 claves**) solo en el listado — sin ids de relación, sin `polyline` ni `points`, sin imágenes y sin las tres marcas de tiempo, para que un `limit=100` no decodifique cien polilíneas. El detalle carga ocho relaciones (con `pilot.pilotDocument`); el listado, seis (sin `client` ni `assignedBy`).
+- Filtros tolerantes `status`, `clientId`, `shippingLineId`, `locationId`, `pilotId`, `vehicleId` y `search` (`LIKE` sobre `order` y `container`), más `dateFrom`/`dateTo` en **`Y-m-d` estricto** y por día completo sobre `recolection_date`. Orden fijo `recolection_date desc, id desc` y paginación opt-in **`[1, 100]`**, la única del proyecto sin piso de 10.
+- Lo que el `PATCH` general **no** acepta: `pilot_id`, `vehicle_id`, `assigned_by` ni `registered_by` — se ignoran en silencio con 200. Un administrador **no puede asignar por ninguna vía**, y una vez asignados, piloto y vehículo **no vuelven a `null`**: se pueden cambiar mientras el viaje siga `pending`, pero no regresa a la bolsa.
+- **El hueco declarado: no hay máquina de estados.** El `PATCH` del administrador acepta cualquiera de los tres `status` sin comprobar el orden, así que puede llevar un viaje de `finished` a `pending` dejando `start_date` y `end_date` puestos. Tampoco hay bitácora, ni cancelación, ni validación de solape de piloto o vehículo.
+
+### Seguimiento en vivo (SPEC 26)
+
+**Reabre lo que SPEC 24 cerró** —aquella dejó el tiempo real explícitamente fuera de alcance— y rompe tres cosas de golpe: la primera dependencia de infraestructura nueva desde el arranque, la primera salida del proyecto que no es una petición HTTP (la API **empuja** datos) y la primera ruta anidada.
+
+- Tabla `trip_positions`: `trip_id`, `pilot_id`, `latitude` `decimal(10,8)`, `longitude` `decimal(11,8)`, `recorded_at` y `timestamps`. **Ninguna columna nullable y ningún índice único** —dos puntos idénticos son legítimos: un camión parado sigue reportando—, un índice compuesto `(trip_id, recorded_at)` que sirve a las dos únicas consultas del dominio, y FK **sin `cascade`**. `recorded_at` lo pone el servidor con `now()`, nunca el dispositivo. No hay `registered_by`: aquí el autor es `pilot_id`.
+- Dos rutas anidadas: `POST /api/trips/{trip}/positions` con `role:pilot`, y `GET /api/trips/{trip}/positions` con `jwt.auth` a secas — **el veto al piloto en la lectura lo aplica el service, no el middleware**. `TripPositionService` inyecta `TripServiceInterface` **por constructor** para no duplicar la matriz de ámbito de SPEC 24 (precedente: el `FreightRateService` que inyectaba `ZoneServiceInterface` hasta SPEC 15).
+- **Cuatro guardas del `POST`, y su orden es contrato**: viaje inexistente → **404**; borrado → **400**; quien llama no es su `pilot_id` → **403**; no está `in_route` → **400**. De ahí que un viaje **borrado y ajeno responda 400, no 403**.
+- **Piso de 15 segundos**: si el último punto del viaje tiene menos de 15 s, la petición responde **200 sin guardar y sin emitir**, devolviendo el punto ya existente; **201 solo cuando se escribió**. Silencio deliberado, con el precedente del archivo ignorado de SPEC 19, y es el único freno: no hay rate limiting ni 429.
+- Evento `App\Events\Trip\TripPositionUpdated` con **`ShouldBroadcastNow`** —sale dentro de la petición del piloto, porque el proyecto no declara ningún worker—, sobre `PrivateChannel('trips.{tripId}')`, alias de broadcast `.trip.position.updated` y payload de **seis** claves (`tripId`, `latitude`, `longitude`, `recordedAt`, `pilotId`, `pilotName`), que **no coincide** con las cinco del `TripPositionResource` (`id`, `latitude`, `longitude`, `recordedAt`, `pilotId`).
+- Autorización del canal en `routes/channels.php`, con dos reglas en este orden: el rol **no puede ser `pilot`** —ni siquiera el asignado— y el usuario debe alcanzar el viaje según el ámbito de SPEC 24, resuelto reusando `TripServiceInterface::getTripById()` en `try/catch`: si lanza, el callback devuelve `false`. **El piloto emite y nada más**: queda fuera del canal **y** fuera del `GET`.
+- **Si Reverb está caído, el punto se guarda igual**: el `event()` va en `try/catch` con `Log::error` y el `POST` responde 201.
+- Orden `recorded_at asc, id asc` —**invertido respecto a todos los demás listados del proyecto**—, sin ningún filtro y con paginación opt-in `[10, 100]`. Nada se borra jamás: no hay `DELETE`, ni `PATCH`, ni purga por antigüedad, y la baja lógica del viaje **no toca** el rastro. `Trip` **no gana** una relación `positions()`, igual que `Vehicle` no ganó `expenses()`, y ni `TripResource` ni `TripListResource` cambian de forma.
+
 ## Almacenamiento de archivos
 
 - Dos contratos en `app/Interfaces/Storage/`, con sus reglas de sustitución escritas en el PHPDoc (qué lanza, qué acepta `null`, qué garantiza la salida), implementados en `app/Services/Storage/` y bindeados por `StorageProvider`:
   - `FileStorageServiceInterface` → `S3FileStorageService`: `store(bytes, directory, extension)` / `storeUpload(UploadedFile, directory)` / `delete(?key)` / `url(?key)`. `storeUpload()` (SPEC 19) persiste el archivo **tal cual llega**, sin pasar por el procesador de imágenes: una factura recortada a un cuadrado es ilegible. Trabaja contra `Storage::disk()` **por defecto**, nunca contra `'s3'` escrito a mano (por eso el `Storage::fake()` de los tests lo intercepta). Sube con ACL `public-read` explícita; sin ella el objeto queda privado y la URL permanente da 403. Traduce tanto el `false` de retorno como cualquier `Throwable` a `BadRequestError`; `delete()` nunca lanza.
   - `ImageProcessorServiceInterface` → `ImageProcessorService`: `normalizeSquare(UploadedFile)` devuelve `array{contents, extension}`. Recorte cuadrado centrado con `cover()` a **800×800** (Intervention Image, driver GD), recomprimido conservando el formato de entrada (jpg calidad 80 o png). `SIDE` y `JPEG_QUALITY` son constantes de clase, no configuración.
 - Ningún archivo fuera de `app/Services/Storage/` menciona `Storage::`, el nombre del disco ni `Intervention\`.
-- Los dos contratos se inyectan **por constructor** en los services de dominio (la regla de inyectar por parámetro es solo del controller), que aportan su propio prefijo con una constante propia: `IMAGE_DIRECTORY` (`carriers`, `vehicles`) e `INVOICE_DIRECTORY` (`invoices`).
+- Los dos contratos se inyectan **por constructor** en los services de dominio (la regla de inyectar por parámetro es solo del controller), que aportan su propio prefijo con una constante propia: `IMAGE_DIRECTORY` (`carriers`, `vehicles`), `INVOICE_DIRECTORY` (`invoices`) y `PILOT_DOCUMENT_DIRECTORY` (`pilot-documents`, SPEC 25). `AuthService` inyecta `FileStorageServiceInterface` junto al `AuthEmailsInterface` que ya tenía, y con él **`POST /api/auth/register` es la única subida del proyecto en una ruta pública**.
 - La columna del archivo (`image`, `invoice`) guarda la **key completa** (`carriers/{uuid}.png`), no la URL: cambiar de proveedor no obliga a migrar datos. El Resource la resuelve a URL pública con `app(FileStorageServiceInterface::class)->url($this->image)` — localización de servicio consciente, porque un `JsonResource` se instancia con `new`.
 - Ciclo de vida: procesar → subir → persistir. En `update` con imagen nueva, el archivo anterior se borra **después** de guardar la fila. El `DELETE` no toca el archivo en ningún dominio, **salvo el gasto de vehículo** (SPEC 19), donde la fila se borra de verdad y arrastra el objeto del bucket.
-- Validación: `image` es `mimes:jpg,jpeg,png` + `max:3072` (3 MB, en kilobytes) en los cuatro FormRequests; la factura del gasto añade `pdf` con el mismo tope. Requiere `upload_max_filesize`/`post_max_size` ≥ 4M en cada entorno; si PHP corta antes, el error que ve el usuario es un `required` confuso.
+- Validación: `image` es `mimes:jpg,jpeg,png` + `max:3072` (3 MB, en kilobytes) en los cuatro FormRequests; la factura del gasto añade `pdf` con el mismo tope, y los documentos del piloto añaden la regla `image` **además** de `mimes`, para descartar un PDF renombrado. Requiere `upload_max_filesize`/`post_max_size` ≥ 4M en cada entorno; si PHP corta antes, el error que ve el usuario es un `required` confuso.
 
 ## Documentación OpenAPI
 
@@ -236,7 +307,8 @@ Primer dominio **sin tabla, sin modelo y sin migración** — un proxy de lectur
 - Helpers globales en `tests/Pest.php`: `seedAuthCode()` (planta un código conocido, porque el service solo guarda el hash), `resetAuthState()` (limpia guards y singletons de JWT entre peticiones del mismo test) y `fakeDefaultDisk()` (sustituye el disco por defecto por un fake **con `url`**, porque uno pelado devolvería rutas relativas y la API promete URLs absolutas).
 - Dobles de los contratos sustituibles en `tests/Doubles/` (`InMemoryFileStorageService`, `StaticImageProcessorService`, `InMemoryPlaceService`): se bindean en el contenedor para probar sustituibilidad y los caminos de error sin decodificar imágenes de verdad ni llamar a Google.
 - Helpers locales por archivo de test (ver `tests/Feature/CarrierTest.php`): `userWithRole()`, `asUser()` (llama a `resetAuthState()` y adjunta el token) y un `<recurso>Endpoints()` que alimenta los datasets de middleware.
-- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service. Lo que no es service tiene su propio Unit test: `ZoneGeometryTest` (WKT ↔ GeoJSON), `ZoneResourceTest`, `FreightRateModelTest`, `AccessoryResourceTest` (el `currentValue` derivado) y `PolylineDecoderTest` (la polilínea, sin red). El proveedor externo se prueba en `GooglePlacesServiceTest` con `Http::fake()`.
+- Cada dominio lleva Feature test (HTTP, roles y validación) + Unit test del service. Lo que no es service tiene su propio Unit test: `ZoneGeometryTest` (WKT ↔ GeoJSON), `ZoneResourceTest`, `FreightRateModelTest`, `AccessoryResourceTest` (el `currentValue` derivado), `PolylineDecoderTest` (la polilínea, sin red), `TripPositionUpdatedTest` (canal, alias y las seis claves del payload) y `TripChannelTest`. El proveedor externo se prueba en `GooglePlacesServiceTest` con `Http::fake()`.
+- **La suite no levanta Reverb**: `phpunit.xml` mantiene `BROADCAST_CONNECTION=null` y `QUEUE_CONNECTION=sync`. Por eso `TripChannelTest` saca el callback del canal con `ReflectionProperty` sobre `channels` del broadcaster en vez de llamar a `POST /api/broadcasting/auth`: con el `NullBroadcaster` esa ruta autorizaría a cualquiera.
 - Ejecutar: `php artisan test --compact` (o `--filter=`).
 
 ## Flujo de trabajo
@@ -260,6 +332,7 @@ This application is a Laravel application and its main Laravel ecosystems packag
 - php - 8.5
 - laravel/framework (LARAVEL) - v13
 - laravel/prompts (PROMPTS) - v0
+- laravel/reverb (REVERB) - v1
 - laravel/boost (BOOST) - v2
 - laravel/mcp (MCP) - v0
 - laravel/pail (PAIL) - v1

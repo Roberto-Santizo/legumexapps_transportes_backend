@@ -153,4 +153,35 @@ interface TripServiceInterface
      * begins.
      */
     public function finish(User $user, int $id): Trip;
+
+    /**
+     * Return the trip the given user is driving right now, null while there is none.
+     *
+     * "Right now" is read on the **status**, not on the dates: a trip is in progress when
+     * it is in_route, which is exactly the window between its pilot pressing /start and
+     * pressing /finish. A trip the administrator moved back to pending keeping its
+     * start_date is therefore **not** in progress — the general PATCH has no state
+     * machine, and this is one of the places where that shows.
+     *
+     * It is deliberately the very same condition POST /api/trips/{trip}/positions asks
+     * for: if this returns a trip, that endpoint takes points for it; if it returns null,
+     * that endpoint answers 400. The two questions are one question.
+     *
+     * A null is a **normal answer and not an error**, so nothing is thrown for it —
+     * unlike FuelPriceService::getCurrentByType(), where a type with no current price is
+     * an anomaly of the catalog and comes out as a 404. Not driving is the ordinary state
+     * of a pilot.
+     *
+     * No role and no scope are checked here: the route already reserves it for a pilot,
+     * and a pilot is always inside the scope of his own trips. Calling it with a user of
+     * any other role simply returns null, because no trip carries his id in pilot_id.
+     *
+     * Deleted trips are left out by the soft delete scope, so a trip deleted while its
+     * pilot was driving it reads as "no trip in progress" instead of failing.
+     *
+     * Nothing stops a pilot from holding two in_route trips at once —the domain validates
+     * no overlap—, so the pick is made deterministic instead of arbitrary: the one with
+     * the most recent start_date, with the id breaking a tie.
+     */
+    public function getCurrentTrip(User $user): ?Trip;
 }

@@ -216,6 +216,28 @@ class TripService implements TripServiceInterface
     }
 
     #[Override]
+    public function getCurrentTrip(User $user): ?Trip
+    {
+        /**
+         * Las seis relaciones del listado y no las ocho del detalle: la respuesta se pinta
+         * con TripListResource, así que cargar client, assignedBy y los documentos del
+         * piloto sería pagar tres joins que nadie lee.
+         *
+         * Sin withTrashed() —como el listado— y sin applyScope(): la condición sobre
+         * pilot_id **es** el ámbito del piloto, y volver a aplicarlo sería repetirse.
+         */
+        return Trip::query()
+            ->with(self::LIST_RELATIONS)
+            ->where('pilot_id', '=', $user->id)
+            /** Sobre el status y no sobre start_date: un viaje devuelto a pending no está en curso. */
+            ->where('status', '=', TripStatus::InRoute->value)
+            /** Nada impide dos viajes en curso a la vez, así que el desempate se escribe aquí. */
+            ->orderByDesc('start_date')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    #[Override]
     public function create(User $user, array $data): Trip
     {
         $catalogs = $this->mapCatalogs($data);

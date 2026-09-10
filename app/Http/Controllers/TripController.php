@@ -17,9 +17,9 @@ use OpenApi\Attributes as OA;
 #[OA\Tag(
     name: 'Trips',
     description: <<<'TEXT'
-    Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con OCHO ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general. Los ocho exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».
+    Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con NUEVE ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».
 
-    PERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».
+    PERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».
 
     ATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.
 
@@ -178,6 +178,77 @@ class TripController extends Controller
                 : TripListResource::collection($trips);
 
             return ResponseHandler::success($data, 'Viajes obtenidos correctamente', 200);
+        } catch (\Throwable $th) {
+            return ResponseHandler::error($th);
+        }
+    }
+
+    #[OA\Get(
+        path: '/api/trips/current',
+        operationId: 'currentTrip',
+        summary: 'Obtener el viaje que el piloto está conduciendo ahora mismo',
+        description: <<<'TEXT'
+        Responde una sola pregunta: ¿el piloto autenticado está conduciendo un viaje en este momento? Devuelve ese viaje, o null. Es el endpoint que debe llamar la app del piloto AL ABRIRSE y después de cada login, para saber si tiene que reanudar el envío de posiciones sin recorrer el listado y quedarse con el primer elemento.
+
+        ATENCIÓN — ES EXCLUSIVA DEL ROL pilot (middleware role:pilot): un administrator, un carrier o un manager reciben 403, igual que en /start y /finish. NO TIENE PARÁMETROS: pregunta siempre por el usuario autenticado, así que NO SIRVE para consultar a otro piloto —para eso está GET /api/trips?pilotId=—. No lleva carrier.required.
+
+        ATENCIÓN — «SIN VIAJE» ES 200 CON data EN null, NO 404. No estar conduciendo es el estado ordinario de un piloto, no una anomalía: el cliente debe leer data === null como «ahora mismo no», nunca como un error. Es DELIBERADAMENTE DISTINTO de GET /api/fuel-prices/current, que sí devuelve 404 cuando un tipo de combustible se queda sin precio vigente, porque allí la ausencia sí es un hueco del catálogo.
+
+        ATENCIÓN — «EN PROGRESO» SE LEE SOBRE status, NO SOBRE LAS FECHAS. Solo cuenta el viaje in_route, que es exactamente la ventana entre el /start y el /finish de su piloto. Un viaje pending YA ASIGNADO A ÉL NO SALE —está asignado, no en curso—, uno finished tampoco, y uno que el administrador devolvió a pending CONSERVANDO SU startDate TAMPOCO: el PATCH general no tiene máquina de estados y este endpoint mira el status, no la fecha.
+
+        ATENCIÓN — ES LA MISMA CONDICIÓN QUE ABRE POST /api/trips/{trip}/positions. Si esto devuelve un viaje, ese endpoint acepta puntos para él; si devuelve null, ese endpoint responde 400 «El viaje no está en ruta». Las dos preguntas son la misma, y por eso conviene resolver esta antes de arrancar el rastreo.
+
+        ATENCIÓN — DEVUELVE UN TripListItem DE 15 CLAVES, NO EL Trip DE 34. No trae polyline ni points, así que NO ALCANZA PARA PINTAR EL MAPA: hay que pedir GET /api/trips/{trip} con el id devuelto. Un viaje BORRADO mientras su piloto lo conducía sale como null, sin 400 ni 404.
+
+        Si un piloto llegara a tener dos viajes in_route a la vez —el dominio no valida solape—, se devuelve el del startDate más reciente, y el id desempata.
+        TEXT,
+        security: [['bearerAuth' => []]],
+        tags: ['Trips'],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Consulta resuelta. data trae el TripListItem del viaje in_route del piloto autenticado —con las mismas 15 claves del listado y las fechas en el formato propio d-m-Y h:i:s A—, o null si no está conduciendo ninguno. LOS DOS CASOS SON 200: no hay 404 en este endpoint.',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'statusCode', type: 'integer', example: 200),
+                        new OA\Property(property: 'message', type: 'string', example: 'Viaje en progreso obtenido correctamente'),
+                        new OA\Property(
+                            property: 'data',
+                            description: 'El viaje en curso, o null cuando el piloto no está conduciendo ninguno.',
+                            nullable: true,
+                            oneOf: [new OA\Schema(ref: '#/components/schemas/TripListItem')],
+                        ),
+                    ],
+                    type: 'object',
+                ),
+            ),
+            new OA\Response(
+                response: 401,
+                description: 'Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado',
+                content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
+            ),
+            new OA\Response(
+                response: 403,
+                description: 'El rol del usuario autenticado no es pilot —administrator, carrier y manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso. Este endpoint NO tiene el 403 de ámbito del show: no hay recurso ajeno que pedir, porque no acepta parámetros.',
+                content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
+            ),
+        ],
+    )]
+    public function current(TripServiceInterface $tripService)
+    {
+        try {
+            $trip = $tripService->getCurrentTrip(auth('api')->user());
+
+            /**
+             * El ternario no es adorno: TripListResource pinta las claves del modelo, así
+             * que instanciarlo con null reventaría dentro de toArray(). El null llega
+             * entero hasta el sobre, donde ResponseHandler lo emite como data: null.
+             */
+            return ResponseHandler::success(
+                $trip === null ? null : new TripListResource($trip),
+                'Viaje en progreso obtenido correctamente',
+                200,
+            );
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }
