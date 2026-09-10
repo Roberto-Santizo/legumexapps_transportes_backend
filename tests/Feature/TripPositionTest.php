@@ -311,6 +311,13 @@ it('rechaza con 422 el cuerpo vacío señalando las dos coordenadas', function (
 it('devuelve 200 con el punto anterior y no escribe nada antes de los quince segundos', function () {
     Event::fake([TripPositionUpdated::class]);
 
+    /**
+     * El reloj se congela porque el margen del piso es de un solo segundo: sin congelar,
+     * el tiempo real que tarda la propia petición se suma a los 14 s viajados y el punto
+     * acaba escribiéndose bajo carga.
+     */
+    $this->freezeTime();
+
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
 
     $primero = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
