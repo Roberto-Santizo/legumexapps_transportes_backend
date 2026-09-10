@@ -33,7 +33,39 @@ class TripFuelService implements TripFuelServiceInterface
     #[Override]
     public function getTripFuels(User $user, int $tripId, array $filters): array
     {
-        //
+        /**
+         * El ámbito de SPEC 24 no se reescribe: getTripById() ya lanza 404 fuera del
+         * alcance de quien pregunta y 403 fuera de su empresa. Y aquí, a diferencia del
+         * rastro de SPEC 26, NO hay una regla extra contra el piloto: el asignado lee las
+         * cargas de su propio viaje, porque el dato es sobre él.
+         */
+        $trip = $this->tripService->getTripById($user, $tripId);
+
+        $query = TripFuel::query()
+            ->with(['confirmedBy', 'registeredBy'])
+            ->where('trip_id', $trip->id);
+
+        /**
+         * El acumulado se calcula sobre la consulta clonada y ANTES de paginar, así que
+         * ?limit=10 sobre un viaje de 25 cargas sigue devolviendo el total del viaje.
+         * Solo cuentan las confirmadas: el número que importa es cuánto combustible llegó
+         * de verdad al camión, aunque eso deje un viaje recién asignado en "0.00".
+         */
+        $totalGallons = (clone $query)->whereNotNull('loaded_at')->sum('gallons');
+
+        /**
+         * Orden fijo `id ASC`: `loaded_at` es nullable y no sirve para ordenar, y
+         * `created_at` empataría entre dos cargas del mismo segundo. El id es la
+         * cronología real de registro.
+         */
+        $query->orderBy('id');
+
+        $perPage = $this->resolvePerPage($filters['limit'] ?? null);
+
+        return [
+            'fuels' => $perPage === null ? $query->get() : $query->paginate($perPage),
+            'totalGallons' => number_format((float) $totalGallons, 2, '.', ''),
+        ];
     }
 
     #[Override]
