@@ -96,7 +96,37 @@ class TripFuelService implements TripFuelServiceInterface
     #[Override]
     public function confirm(User $user, int $tripFuelId): TripFuel
     {
-        //
+        $fuel = TripFuel::with('trip')->find($tripFuelId);
+
+        if ($fuel === null) {
+            throw new NotFoundError('La carga de combustible no existe');
+        }
+
+        /**
+         * Confirmar es del piloto asignado y solo suyo. No se mira el `status` del viaje:
+         * un piloto puede confirmar la carga de un viaje ya finalizado —papeleo atrasado—,
+         * y prohibirlo solo crearía filas imposibles de cerrar.
+         */
+        if ($fuel->trip?->pilot_id !== $user->id) {
+            throw new ForbiddenError('No puedes confirmar la carga de un viaje que no tienes asignado');
+        }
+
+        /**
+         * Reconfirmar es 200 sin escribir nada: `loaded_at` es un hecho que ya ocurrió y
+         * repetir la llamada no lo cambia. Un móvil con mala señal reintenta y no debe ver
+         * un error, con el precedente del piso de 15 segundos de SPEC 26.
+         */
+        if ($fuel->loaded_at !== null) {
+            return $fuel;
+        }
+
+        /** Las dos columnas se escriben juntas, nunca una sin la otra, y la fecha es la del servidor. */
+        $fuel->update([
+            'loaded_at' => now(),
+            'confirmed_by' => $user->id,
+        ]);
+
+        return $fuel;
     }
 
     /**
