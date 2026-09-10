@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\FuelType;
 use App\Enums\LocationType;
 use App\Enums\TripStatus;
 use App\Enums\UserRole;
@@ -14,6 +15,7 @@ use App\Models\DeparturePoint;
 use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripFuel;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Trip\TripService;
@@ -530,6 +532,8 @@ it('escribe piloto, vehículo y autor de la asignación juntos', function () {
     $asignado = tripService()->assign($team['owner'], $trip->id, [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ]);
 
     expect($asignado->pilot_id)->toBe($team['pilot']->id)
@@ -547,6 +551,8 @@ it('lanza ForbiddenError cuando quien asigna no tiene empresa', function () {
     tripService()->assign(tripServiceUser(UserRole::Carrier), $trip->id, [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ]);
 })->throws(ForbiddenError::class, 'Necesitas pertenecer a una empresa transportista para asignar un viaje');
 
@@ -563,6 +569,8 @@ it('lanza ForbiddenError cuando el viaje ya lo tomó otra empresa', function () 
     tripService()->assign($empresaB['owner'], $trip->id, [
         'pilotId' => $empresaB['pilot']->id,
         'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ]);
 })->throws(ForbiddenError::class, 'No puedes asignar un viaje que ya tomó otra empresa transportista');
 
@@ -580,6 +588,8 @@ it('lanza BadRequestError al reasignar un viaje que ya no está pendiente', func
     tripService()->assign($team['owner'], $trip->id, [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ]);
 })->with([
     'en ruta' => TripStatus::InRoute,
@@ -593,6 +603,8 @@ it('lanza BadRequestError cuando el usuario elegido no es piloto', function () {
     tripService()->assign($team['owner'], $trip->id, [
         'pilotId' => $team['owner']->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ]);
 })->throws(BadRequestError::class, 'El usuario seleccionado no es un piloto');
 
@@ -603,6 +615,8 @@ it('lanza BadRequestError cuando el piloto no pertenece a ninguna empresa', func
     tripService()->assign($team['owner'], $trip->id, [
         'pilotId' => tripServiceUser(UserRole::Pilot)->id,
         'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ]);
 })->throws(BadRequestError::class, 'El piloto seleccionado no pertenece a ninguna empresa transportista');
 
@@ -613,6 +627,8 @@ it('lanza BadRequestError cuando el vehículo no está activo', function (Vehicl
     tripService()->assign($team['owner'], $trip->id, [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => Vehicle::factory()->create(['carrier_id' => $team['carrier']->id, 'status' => $status])->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ]);
 })->with([
     'inactivo' => VehicleStatus::Inactive,
@@ -627,12 +643,14 @@ it('lanza BadRequestError cuando el piloto y el vehículo son de empresas distin
     tripService()->assign($empresaA['owner'], $trip->id, [
         'pilotId' => $empresaA['pilot']->id,
         'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
     ]);
 })->throws(BadRequestError::class, 'El piloto y el vehículo deben pertenecer a la misma empresa transportista');
 
 it('lanza NotFoundError al asignar un id inexistente y BadRequestError sobre uno borrado', function () {
     $team = tripServiceTeam();
-    $data = ['pilotId' => $team['pilot']->id, 'vehicleId' => $team['vehicle']->id];
+    $data = ['pilotId' => $team['pilot']->id, 'vehicleId' => $team['vehicle']->id, 'fuelGallons' => 45.5, 'fuelType' => 'diesel'];
     $borrado = Trip::factory()->trashed()->create();
 
     expect(fn () => tripService()->assign($team['owner'], 999999, $data))
@@ -654,6 +672,9 @@ it('arranca el viaje con la hora del servidor y lo pone en ruta', function () {
         'vehicle_id' => $team['vehicle']->id,
         'assigned_by' => $team['owner']->id,
     ]);
+
+    /** Desde SPEC 27 el arranque exige al menos una carga confirmada. */
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id]);
 
     $antes = now()->subSecond();
     $iniciado = tripService()->start($team['pilot'], $trip->id);
@@ -857,4 +878,115 @@ it('carga las seis relaciones del listado y ninguna más', function () {
     expect(array_keys($trip->getRelations()))->toEqualCanonicalizing([
         'shippingLine', 'departurePoint', 'location', 'pilot', 'vehicle', 'registeredBy',
     ]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 27 — La carga que escribe assign() y la guarda de start()
+|--------------------------------------------------------------------------
+*/
+
+it('inserta la primera carga sin confirmar dentro de la transacción de la asignación', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create();
+
+    $asignado = tripService()->assign($team['owner'], $trip->id, [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ]);
+
+    $fuel = TripFuel::query()->where('trip_id', '=', $trip->id)->sole();
+
+    expect(TripFuel::count())->toBe(1)
+        ->and($fuel->gallons)->toBe('45.50')
+        ->and($fuel->fuel_type)->toBe(FuelType::Diesel)
+        ->and($fuel->loaded_at)->toBeNull()
+        ->and($fuel->confirmed_by)->toBeNull()
+        /** El autor de la primera carga es quien asignó, no el piloto. */
+        ->and($fuel->registered_by)->toBe($team['owner']->id)
+        /**
+         * La suma solo cuenta lo confirmado: sin ninguna carga confirmada el withSum no
+         * devuelve cero sino null, y es el Resource el que lo pinta como "0.00".
+         */
+        ->and($asignado->total_fuel_gallons)->toBeNull();
+});
+
+it('añade otra carga al reasignar, sin pisar ni borrar la anterior', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create();
+
+    $otroPiloto = tripServiceUser(UserRole::Pilot);
+    $team['carrier']->pilots()->attach($otroPiloto);
+
+    $data = [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ];
+
+    tripService()->assign($team['owner'], $trip->id, $data);
+    tripService()->assign($team['owner'], $trip->id, [...$data, 'pilotId' => $otroPiloto->id, 'fuelGallons' => 12.25]);
+
+    expect(TripFuel::query()->where('trip_id', '=', $trip->id)->orderBy('id')->pluck('gallons')->all())
+        ->toBe(['45.50', '12.25']);
+});
+
+it('no deja ninguna carga cuando la asignación se cae por una de sus guardas', function () {
+    $empresaA = tripServiceTeam();
+    $empresaB = tripServiceTeam();
+    $trip = Trip::factory()->create();
+
+    expect(fn () => tripService()->assign($empresaA['owner'], $trip->id, [
+        'pilotId' => $empresaA['pilot']->id,
+        'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ]))->toThrow(BadRequestError::class);
+
+    expect(TripFuel::count())->toBe(0)
+        ->and($trip->fresh()->assigned_by)->toBeNull();
+});
+
+it('lanza BadRequestError al arrancar sin ninguna carga confirmada', function (bool $conCargaSinConfirmar) {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create([
+        'pilot_id' => $team['pilot']->id,
+        'vehicle_id' => $team['vehicle']->id,
+        'assigned_by' => $team['owner']->id,
+    ]);
+
+    if ($conCargaSinConfirmar) {
+        TripFuel::factory()->create(['trip_id' => $trip->id]);
+    }
+
+    expect(fn () => tripService()->start($team['pilot'], $trip->id))
+        ->toThrow(BadRequestError::class, 'Debes confirmar al menos una carga de combustible antes de iniciar el viaje');
+
+    $fresco = $trip->fresh();
+
+    expect($fresco->status)->toBe(TripStatus::Pending)
+        ->and($fresco->start_date)->toBeNull();
+})->with([
+    'sin ninguna carga' => false,
+    'con una carga sin confirmar' => true,
+]);
+
+it('devuelve la suma de las cargas confirmadas en el detalle del viaje', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create([
+        'pilot_id' => $team['pilot']->id,
+        'vehicle_id' => $team['vehicle']->id,
+        'assigned_by' => $team['owner']->id,
+    ]);
+
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 30.25]);
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 12.75]);
+    TripFuel::factory()->create(['trip_id' => $trip->id, 'gallons' => 100]);
+
+    $detalle = tripService()->getTripById(tripServiceUser(UserRole::Administrator), $trip->id);
+
+    expect((float) $detalle->total_fuel_gallons)->toBe(43.0);
 });

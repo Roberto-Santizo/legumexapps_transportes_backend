@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -121,6 +122,22 @@ class Trip extends Model
     public function registeredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'registered_by');
+    }
+
+    /**
+     * The fuel loads registered on this trip (SPEC 27).
+     *
+     * The only relation of the project that exists **for a sum and not for a payload**:
+     * neither `TripResource` nor `TripListResource` exposes the rows, the same way
+     * `Vehicle` never gained `expenses()` nor `Trip` gained `positions()`. It is here
+     * because `totalFuelGallons` is resolved with `withSum` —restricted to the confirmed
+     * loads— and that needs the relation to hang off.
+     *
+     * @return HasMany<TripFuel, $this>
+     */
+    public function fuels(): HasMany
+    {
+        return $this->hasMany(TripFuel::class);
     }
 
     /**

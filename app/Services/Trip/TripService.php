@@ -16,6 +16,7 @@ use App\Models\DeparturePoint;
 use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripFuel;
 use App\Models\TripTimeout;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -204,7 +205,10 @@ class TripService implements TripServiceInterface
          * que nunca existió, y los dos casos salen por el mismo 404. La distinción solo la
          * hace resolveWritableTrip(), para dar un 400 con sentido a quien intenta escribir.
          */
-        $trip = Trip::query()->with(self::RELATIONS)->find($id);
+        $trip = Trip::query()
+            ->with(self::RELATIONS)
+            ->withSum($this->confirmedFuelGallonsSum(), 'gallons')
+            ->find($id);
 
         if ($trip === null) {
             throw new NotFoundError('El viaje no existe');
@@ -272,7 +276,7 @@ class TripService implements TripServiceInterface
             'registered_by' => $user->id,
         ]);
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     #[Override]
@@ -312,7 +316,7 @@ class TripService implements TripServiceInterface
             $trip->update($payload);
         }
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     #[Override]
@@ -368,10 +372,27 @@ class TripService implements TripServiceInterface
                 'assigned_by' => $user->id,
             ]);
 
+            /**
+             * La primera carga se inserta dentro de la misma transacción y detrás del mismo
+             * lock (SPEC 27): si el INSERT falla, la asignación entera se deshace y ningún
+             * viaje queda asignado con cero cargas. Reasignar AÑADE otra fila en vez de pisar
+             * la anterior, así que la reasignación deja el único rastro de esta spec —piloto
+             * y vehículo no lo dejan—.
+             */
+            TripFuel::create([
+                'trip_id' => $trip->id,
+                'gallons' => $data['fuelGallons'],
+                'fuel_type' => $data['fuelType'],
+                /** Nace sin confirmar: la confirma su piloto por /api/trip-fuels/{tripFuel}/confirm. */
+                'loaded_at' => null,
+                'confirmed_by' => null,
+                'registered_by' => $user->id,
+            ]);
+
             return $trip;
         });
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     #[Override]
@@ -385,13 +406,28 @@ class TripService implements TripServiceInterface
             throw new BadRequestError('El viaje ya fue iniciado');
         }
 
+        /**
+         * Cuarta y última guarda (SPEC 27), deliberadamente DESPUÉS de «El viaje ya fue
+         * iniciado» para que un reintento sobre un viaje en curso no hable de combustible.
+         *
+         * Es lo que convierte la confirmación del piloto en un requisito real y no en un
+         * trámite: sin ella, `loaded_at` sería una fecha que nadie mira. Consecuencia
+         * buscada: el piloto se bloquea a sí mismo hasta confirmar. Consecuencia no
+         * buscada: si su empresa no registra ninguna carga, el viaje no arranca por
+         * ninguna vía —el administrador tampoco puede desbloquearlo, porque su PATCH no
+         * toca trip_fuels—.
+         */
+        if (! $trip->fuels()->whereNotNull('loaded_at')->exists()) {
+            throw new BadRequestError('Debes confirmar al menos una carga de combustible antes de iniciar el viaje');
+        }
+
         /** La hora la pone el servidor: aceptarla del cuerpo permitiría declarar un arranque que no fue. */
         $trip->update([
             'start_date' => now(),
             'status' => TripStatus::InRoute,
         ]);
 
-        return $trip->load(self::RELATIONS);
+        return $this->loadDetail($trip);
     }
 
     #[Override]
@@ -465,6 +501,7 @@ class TripService implements TripServiceInterface
         /** Con los borrados a la vista: sin ellos, el segundo DELETE solo podría ser un 404. */
         $trip = Trip::withTrashed()
             ->with(self::RELATIONS)
+            ->withSum($this->confirmedFuelGallonsSum(), 'gallons')
             ->when($lock, fn (Builder $query) => $query->lockForUpdate())
             ->find($id);
 
@@ -769,6 +806,34 @@ class TripService implements TripServiceInterface
     private function resolveAssignerCarrierId(Trip $trip): ?int
     {
         return $trip->assignedBy?->currentCarrier()?->id;
+    }
+
+    /**
+     * The withSum/loadSum spec that feeds `totalFuelGallons` (SPEC 27).
+     *
+     * A method and not a constant because the relation carries a closure: only the
+     * **confirmed** loads count, since the number that matters is how much fuel actually
+     * reached the truck. Summing this way keeps the detail from loading the rows —a trip
+     * with a hundred loads would paint none of them— and lands the value on the model as
+     * `total_fuel_gallons`, which is the single attribute `TripResource` reads.
+     *
+     * @return array<string, callable>
+     */
+    private function confirmedFuelGallonsSum(): array
+    {
+        return ['fuels as total_fuel_gallons' => fn (Builder $query) => $query->whereNotNull('loaded_at')];
+    }
+
+    /**
+     * Load everything a detail read paints: the eight relations and the fuel sum.
+     *
+     * Used by the five writes, which already hold the row: `loadSum()` re-reads the sum
+     * **after** the write, so an assignment that just inserted a load reports the truth
+     * and not the value the row carried when it was resolved.
+     */
+    private function loadDetail(Trip $trip): Trip
+    {
+        return $trip->load(self::RELATIONS)->loadSum($this->confirmedFuelGallonsSum(), 'gallons');
     }
 
     /**

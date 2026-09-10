@@ -6675,7 +6675,7 @@
                     "Trips"
                 ],
                 "summary": "Obtener un viaje por id",
-                "description": "Devuelve un viaje concreto con sus 34 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.\n\nATENCIÓN — UN VIAJE FUERA DE ÁMBITO RESPONDE 403, NO 404, y es deliberado: el ámbito esconde filas de un listado, no pretende que nunca se publicaran. Es lo contrario del viaje borrado, que sí es 404. Los dos mensajes de 403 son distintos según el rol: un pilot que pide un viaje que no tiene asignado recibe «No puedes acceder a un viaje que no tienes asignado»; un carrier que pide uno tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista».\n\nQué alcanza cada rol: administrator y manager, CUALQUIER viaje; un carrier, los de la BOLSA —pending con pilotId y vehicleId en null— y los que asignó su propia empresa, comparando la empresa de assignedBy y no el usuario exacto; un pilot, SOLO aquellos donde pilotId es él —ni siquiera los de la bolsa—.\n\nATENCIÓN — UN VIAJE BORRADO RESPONDE 404 CON EL MISMO MENSAJE QUE UN id INEXISTENTE («El viaje no existe»), y es deliberado: quien lee no distingue «ya no está» de «nunca existió». Las cinco rutas de escritura sí los distinguen, con 400 «El viaje ya fue eliminado». No hay parámetro que devuelva los borrados ni endpoint /restore.\n\nEl deletedAt de esta respuesta es SIEMPRE null: por definición, aquí solo se alcanzan viajes vivos. No hay consulta por order ni por container: para eso está el filtro search del listado, que además tampoco es único.",
+                "description": "Devuelve un viaje concreto con sus 35 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.\n\nATENCIÓN — UN VIAJE FUERA DE ÁMBITO RESPONDE 403, NO 404, y es deliberado: el ámbito esconde filas de un listado, no pretende que nunca se publicaran. Es lo contrario del viaje borrado, que sí es 404. Los dos mensajes de 403 son distintos según el rol: un pilot que pide un viaje que no tiene asignado recibe «No puedes acceder a un viaje que no tienes asignado»; un carrier que pide uno tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista».\n\nQué alcanza cada rol: administrator y manager, CUALQUIER viaje; un carrier, los de la BOLSA —pending con pilotId y vehicleId en null— y los que asignó su propia empresa, comparando la empresa de assignedBy y no el usuario exacto; un pilot, SOLO aquellos donde pilotId es él —ni siquiera los de la bolsa—.\n\nATENCIÓN — UN VIAJE BORRADO RESPONDE 404 CON EL MISMO MENSAJE QUE UN id INEXISTENTE («El viaje no existe»), y es deliberado: quien lee no distingue «ya no está» de «nunca existió». Las cinco rutas de escritura sí los distinguen, con 400 «El viaje ya fue eliminado». No hay parámetro que devuelva los borrados ni endpoint /restore.\n\nEl deletedAt de esta respuesta es SIEMPRE null: por definición, aquí solo se alcanzan viajes vivos. No hay consulta por order ni por container: para eso está el filtro search del listado, que además tampoco es único.",
                 "operationId": "showTrip",
                 "parameters": [
                     {
@@ -6755,7 +6755,7 @@
                     "Trips"
                 ],
                 "summary": "Eliminar un viaje",
-                "description": "Da de baja un viaje. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nES UN BORRADO LÓGICO (soft delete): la fila SIGUE EN LA BASE con su deleted_at puesto, pero DESAPARECE de la API para siempre. No se lista, no se consulta por id —el GET responde 404— y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni un status— que la devuelva, ni endpoint /restore. UN VIAJE BORRADO POR ERROR SOLO SE RECUPERA DESDE LA BASE DE DATOS.\n\nATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 34 claves. En los otros siete endpoints es siempre null.\n\nNO HAY CONFIRMACIÓN Y NO SE COMPRUEBA EL ESTADO: se borra igual un viaje pending que uno in_route o uno ya finished, y también uno que una empresa ya tomó, sin avisar a nadie —no hay notificaciones—. De hecho, BORRAR Y VOLVER A CREAR ES LA ÚNICA SALIDA cuando un viaje se queda atascado: el administrador no puede asignar y no se puede desasignar.\n\nEL SEGUNDO DELETE RESPONDE 400 «El viaje ya fue eliminado», NO 404, y así se distingue de un id que nunca existió, que sí es 404.\n\nLos catálogos a los que apuntaba el viaje NO se tocan, y borrarlo NO LIBERA NADA: la guarda que impide eliminar un cliente o una naviera con viajes MIRA TAMBIÉN LOS VIAJES BORRADOS, así que borrar el viaje no habilita borrar después su cliente ni su naviera —siguen respondiendo 400 «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados»—.",
+                "description": "Da de baja un viaje. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.\n\nES UN BORRADO LÓGICO (soft delete): la fila SIGUE EN LA BASE con su deleted_at puesto, pero DESAPARECE de la API para siempre. No se lista, no se consulta por id —el GET responde 404— y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni un status— que la devuelva, ni endpoint /restore. UN VIAJE BORRADO POR ERROR SOLO SE RECUPERA DESDE LA BASE DE DATOS.\n\nATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 35 claves. En los otros siete endpoints es siempre null.\n\nNO HAY CONFIRMACIÓN Y NO SE COMPRUEBA EL ESTADO: se borra igual un viaje pending que uno in_route o uno ya finished, y también uno que una empresa ya tomó, sin avisar a nadie —no hay notificaciones—. De hecho, BORRAR Y VOLVER A CREAR ES LA ÚNICA SALIDA cuando un viaje se queda atascado: el administrador no puede asignar y no se puede desasignar.\n\nEL SEGUNDO DELETE RESPONDE 400 «El viaje ya fue eliminado», NO 404, y así se distingue de un id que nunca existió, que sí es 404.\n\nLos catálogos a los que apuntaba el viaje NO se tocan, y borrarlo NO LIBERA NADA: la guarda que impide eliminar un cliente o una naviera con viajes MIRA TAMBIÉN LOS VIAJES BORRADOS, así que borrar el viaje no habilita borrar después su cliente ni su naviera —siguen respondiendo 400 «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados»—.",
                 "operationId": "destroyTrip",
                 "parameters": [
                     {
@@ -6957,7 +6957,7 @@
                     "Trips"
                 ],
                 "summary": "Tomar un viaje asignándole piloto y vehículo",
-                "description": "Es el acto por el que una EMPRESA TRANSPORTISTA TOMA un viaje: escribe pilotId, vehicleId y assignedBy de una sola vez, los tres juntos —no existe un viaje con piloto y sin assignedBy—.\n\nATENCIÓN — ES EXCLUSIVA DEL ROL carrier Y ADEMÁS EXIGE EMPRESA. Lleva role:carrier Y carrier.required. UN administrator RECIBE 403 AQUÍ: no puede asignar por ninguna vía, porque asignar es decidir por el transportista, y el PATCH general tampoco acepta esos campos. Un manager y un pilot también reciben 403. Y un carrier QUE TODAVÍA NO HA REGISTRADO SU EMPRESA recibe 403 del middleware carrier.required, «Debes estar vinculado a un transportista para acceder a este recurso», ANTES DE LLEGAR AL SERVICE.\n\nQUIÉN PUEDE TOMAR QUÉ: un viaje de la BOLSA —pending con pilotId y vehicleId en null— está libre para CUALQUIER empresa; una vez tomado, solo la empresa de su assignedBy puede volver a tocarlo, y puede hacerlo CUALQUIER USUARIO de esa empresa, no solo la persona exacta que asignó. Otra empresa recibe 403 «No puedes asignar un viaje que ya tomó otra empresa transportista».\n\nATENCIÓN — REASIGNAR SOLO MIENTRAS EL VIAJE SIGA pending. En in_route o finished la respuesta es 400 «Solo se puede asignar un viaje pendiente»: cambiarle el piloto a un viaje ya arrancado dejaría un startDate puesto por alguien que ya no aparece en el registro.\n\nATENCIÓN — NO EXISTE LA DESASIGNACIÓN. Los dos campos son obligatorios y null es 422: pilot_id y vehicle_id NO VUELVEN NUNCA a null y el viaje no regresa a la bolsa. CONSECUENCIA REAL: si una empresa toma un viaje por error y no lo suelta, o si nadie lo toma, NADIE PUEDE DESATASCARLO POR API —la única salida es que el administrador lo borre y lo cree de nuevo—.\n\nREPARTO 422 / 400: un pilotId o un vehicleId INVENTADO es 422, por el exists:; que el usuario tenga rol pilot, que tenga empresa, que el vehículo esté active y que los dos sean de LA MISMA EMPRESA son reglas de negocio y salen como 400.\n\nTodo el chequeo corre DENTRO DE UNA TRANSACCIÓN CON BLOQUEO DE FILA, así que dos transportistas que intenten tomar el mismo viaje libre a la vez no se pisan: solo uno gana y el otro recibe 403 o 400, nunca dos escrituras.\n\nSobre un viaje BORRADO responde 400 «El viaje ya fue eliminado», no 404.",
+                "description": "Es el acto por el que una EMPRESA TRANSPORTISTA TOMA un viaje: escribe pilotId, vehicleId y assignedBy de una sola vez, los tres juntos —no existe un viaje con piloto y sin assignedBy—, Y ADEMÁS INSERTA LA PRIMERA CARGA DE COMBUSTIBLE del viaje.\n\nATENCIÓN — CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA (SPEC 27): EL CUERPO PASÓ DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType, los cuatro obligatorios—. Un cliente que siga mandando solo los dos primeros recibe 422 en TODAS sus asignaciones. Asignar tripulación y asignar combustible son el mismo acto, así que ningún viaje queda asignado con cero cargas.\n\nATENCIÓN — LA CARGA SE CREA DENTRO DE LA MISMA TRANSACCIÓN Y DETRÁS DEL MISMO BLOQUEO: si el INSERT falla, o si falla cualquiera de las guardas (403 o 400), NO QUEDA NINGUNA FILA en trip_fuels. Nace SIN CONFIRMAR, así que la respuesta trae totalFuelGallons en \"0.00\" —solo suman las confirmadas— y EL VIAJE NO PUEDE ARRANCAR hasta que su piloto pase por PATCH /api/trip-fuels/{tripFuel}/confirm: /start responde 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje».\n\nATENCIÓN — REASIGNAR AÑADE OTRA CARGA, NO PISA LA ANTERIOR: dos asignaciones válidas dejan DOS filas en trip_fuels y las dos sumarán en cuanto se confirmen. Es el único rastro que deja una reasignación —piloto y vehículo se sobrescriben sin historial—, y como la tabla es append-only, esa carga de más no se puede borrar ni corregir por API.\n\nATENCIÓN — ES EXCLUSIVA DEL ROL carrier Y ADEMÁS EXIGE EMPRESA. Lleva role:carrier Y carrier.required. UN administrator RECIBE 403 AQUÍ: no puede asignar por ninguna vía, porque asignar es decidir por el transportista, y el PATCH general tampoco acepta esos campos. Un manager y un pilot también reciben 403. Y un carrier QUE TODAVÍA NO HA REGISTRADO SU EMPRESA recibe 403 del middleware carrier.required, «Debes estar vinculado a un transportista para acceder a este recurso», ANTES DE LLEGAR AL SERVICE.\n\nQUIÉN PUEDE TOMAR QUÉ: un viaje de la BOLSA —pending con pilotId y vehicleId en null— está libre para CUALQUIER empresa; una vez tomado, solo la empresa de su assignedBy puede volver a tocarlo, y puede hacerlo CUALQUIER USUARIO de esa empresa, no solo la persona exacta que asignó. Otra empresa recibe 403 «No puedes asignar un viaje que ya tomó otra empresa transportista».\n\nATENCIÓN — REASIGNAR SOLO MIENTRAS EL VIAJE SIGA pending. En in_route o finished la respuesta es 400 «Solo se puede asignar un viaje pendiente»: cambiarle el piloto a un viaje ya arrancado dejaría un startDate puesto por alguien que ya no aparece en el registro.\n\nATENCIÓN — NO EXISTE LA DESASIGNACIÓN. Los cuatro campos son obligatorios y null es 422: pilot_id y vehicle_id NO VUELVEN NUNCA a null y el viaje no regresa a la bolsa. CONSECUENCIA REAL: si una empresa toma un viaje por error y no lo suelta, o si nadie lo toma, NADIE PUEDE DESATASCARLO POR API —la única salida es que el administrador lo borre y lo cree de nuevo—.\n\nREPARTO 422 / 400: un pilotId o un vehicleId INVENTADO es 422, por el exists:; que el usuario tenga rol pilot, que tenga empresa, que el vehículo esté active y que los dos sean de LA MISMA EMPRESA son reglas de negocio y salen como 400.\n\nTodo el chequeo corre DENTRO DE UNA TRANSACCIÓN CON BLOQUEO DE FILA, así que dos transportistas que intenten tomar el mismo viaje libre a la vez no se pisan: solo uno gana y el otro recibe 403 o 400, nunca dos escrituras.\n\nSobre un viaje BORRADO responde 400 «El viaje ya fue eliminado», no 404.",
                 "operationId": "assignTrip",
                 "parameters": [
                     {
@@ -6983,7 +6983,7 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Viaje asignado correctamente. Devuelve el viaje con pilotId/pilotName, vehicleId/vehiclePlate y assignedById/assignedByName ya escritos —assignedById es el usuario autenticado, nunca lo que venga en el cuerpo—. ATENCIÓN: el status NO cambia, sigue siendo pending; quien lo mueve es el piloto con /start. A partir de aquí el viaje SALE DE LA BOLSA y deja de verlo cualquier otra empresa.",
+                        "description": "Viaje asignado correctamente. Devuelve el viaje con pilotId/pilotName, vehicleId/vehiclePlate y assignedById/assignedByName ya escritos —assignedById es el usuario autenticado, nunca lo que venga en el cuerpo—. ATENCIÓN: el status NO cambia, sigue siendo pending; quien lo mueve es el piloto con /start. A partir de aquí el viaje SALE DE LA BOLSA y deja de verlo cualquier otra empresa. ATENCIÓN — totalFuelGallons VUELVE EN \"0.00\" aunque la carga se haya creado: solo suman las cargas CONFIRMADAS, y esta nace sin confirmar. Para verla hay que pedir GET /api/trips/{trip}/fuels, que la lista con isConfirmed en false.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -7046,7 +7046,7 @@
                         }
                     },
                     "422": {
-                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors}. Casos: falta pilotId o vehicleId —no se puede asignar solo uno— (El piloto es obligatorio / El vehículo es obligatorio); se envía NULL en cualquiera de los dos, porque LA DESASIGNACIÓN NO EXISTE; o el id NO EXISTE en su tabla (El piloto seleccionado no existe / El vehículo seleccionado no existe). ATENCIÓN — un piloto sin rol de piloto, un piloto sin empresa, un vehículo no activo o una pareja de empresas distintas NO caen aquí: son 400.",
+                        "description": "Datos inválidos, con el formato propio de Laravel {message, errors}. Casos: falta cualquiera de los CUATRO campos (El piloto es obligatorio / El vehículo es obligatorio / Los galones de combustible son obligatorios / El tipo de combustible es obligatorio); se envía NULL en cualquiera de ellos, porque LA DESASIGNACIÓN NO EXISTE; el id NO EXISTE en su tabla (El piloto seleccionado no existe / El vehículo seleccionado no existe); fuelGallons no es numérico, es 0 o es negativo (Los galones de combustible deben ser un número / Los galones de combustible deben ser mayores a 0); o fuelType queda fuera de los cuatro casos del enum (El tipo de combustible seleccionado no es válido). ATENCIÓN — ES EL 422 QUE ROMPE A LOS CLIENTES ANTERIORES A SPEC 27: un cuerpo con solo pilotId y vehicleId cae aquí con los dos mensajes de combustible. Y un piloto sin rol de piloto, un piloto sin empresa, un vehículo no activo o una pareja de empresas distintas NO caen aquí: son 400.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -7069,7 +7069,7 @@
                     "Trips"
                 ],
                 "summary": "Iniciar un viaje",
-                "description": "Marca el arranque real del viaje: escribe startDate y mueve status a in_route.\n\nATENCIÓN — NO TIENE CUERPO. No lleva FormRequest y no acepta ningún campo: LA FECHA LA PONE EL now() DEL SERVIDOR y mandarla en el body NO SE USA. Es deliberado: aceptarla del cliente permitiría a un piloto declarar que arrancó tres horas antes, y como no hay bitácora nadie lo notaría. El coste asumido es que un piloto sin señal no puede registrar el arranque a la hora en que ocurrió.\n\nATENCIÓN — ES EXCLUSIVA DEL ROL pilot (middleware role:pilot): un administrator, un carrier o un manager reciben 403 del middleware. Y dentro, SOLO EL PILOTO ASIGNADO la alcanza: otro piloto —aunque sea de la misma empresa— recibe 403 «No puedes iniciar un viaje que no tienes asignado». La marca de ejecución es de quien conduce, no de su empresa.\n\nSOBRE UN VIAJE YA INICIADO ES 400 «El viaje ya fue iniciado»: se comprueba startDate, no el status, así que un viaje que el administrador devolvió a pending conservando su startDate TAMPOCO se puede volver a iniciar.\n\nSobre un viaje BORRADO responde 400 «El viaje ya fue eliminado», y esa comprobación va ANTES que la del piloto: un piloto ajeno sobre un viaje borrado ve el 400, no el 403.\n\nNo hay ruta inversa: no existe /unstart ni forma de limpiar startDate. Lo más parecido es que el administrador mueva el status a mano con el PATCH general, pero LA FECHA SE QUEDA.",
+                "description": "Marca el arranque real del viaje: escribe startDate y mueve status a in_route.\n\nATENCIÓN — NO TIENE CUERPO. No lleva FormRequest y no acepta ningún campo: LA FECHA LA PONE EL now() DEL SERVIDOR y mandarla en el body NO SE USA. Es deliberado: aceptarla del cliente permitiría a un piloto declarar que arrancó tres horas antes, y como no hay bitácora nadie lo notaría. El coste asumido es que un piloto sin señal no puede registrar el arranque a la hora en que ocurrió.\n\nATENCIÓN — ES EXCLUSIVA DEL ROL pilot (middleware role:pilot): un administrator, un carrier o un manager reciben 403 del middleware. Y dentro, SOLO EL PILOTO ASIGNADO la alcanza: otro piloto —aunque sea de la misma empresa— recibe 403 «No puedes iniciar un viaje que no tienes asignado». La marca de ejecución es de quien conduce, no de su empresa.\n\nSOBRE UN VIAJE YA INICIADO ES 400 «El viaje ya fue iniciado»: se comprueba startDate, no el status, así que un viaje que el administrador devolvió a pending conservando su startDate TAMPOCO se puede volver a iniciar.\n\nATENCIÓN — DESDE SPEC 27 EXIGE AL MENOS UNA CARGA DE COMBUSTIBLE CONFIRMADA: si el viaje no tiene ninguna fila de trip_fuels con loadedAt puesto, la respuesta es 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje». Con una carga REGISTRADA PERO SIN CONFIRMAR responde igualmente 400: lo que cuenta es la confirmación del piloto, no el alta de la empresa. ES LA CUARTA Y ÚLTIMA GUARDA, deliberadamente DESPUÉS de «El viaje ya fue iniciado», para que reintentar sobre un viaje en curso siga hablando del arranque y no del combustible.\n\nCONSECUENCIA — EL PILOTO SE BLOQUEA A SÍ MISMO HASTA CONFIRMAR, y si su empresa no ha registrado ninguna carga EL VIAJE NO ARRANCA POR NINGUNA VÍA: el administrador tampoco puede desbloquearlo, porque su PATCH general no toca trip_fuels. La única salida es POST /api/trips/{trip}/fuels del carrier —o la carga que ya creó /assignment— más PATCH /api/trip-fuels/{tripFuel}/confirm del piloto. LOS VIAJES ASIGNADOS ANTES DE SPEC 27 TIENEN CERO CARGAS y caen aquí: no hubo backfill a propósito.\n\nPATCH /api/trips/{trip}/finish NO comprueba nada de combustible: un viaje in_route se cierra aunque tenga cargas sin confirmar.\n\nSobre un viaje BORRADO responde 400 «El viaje ya fue eliminado», y esa comprobación va ANTES que la del piloto: un piloto ajeno sobre un viaje borrado ve el 400, no el 403.\n\nNo hay ruta inversa: no existe /unstart ni forma de limpiar startDate. Lo más parecido es que el administrador mueva el status a mano con el PATCH general, pero LA FECHA SE QUEDA.",
                 "operationId": "startTrip",
                 "parameters": [
                     {
@@ -7108,7 +7108,7 @@
                         }
                     },
                     "400": {
-                        "description": "Dos casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404, y se comprueba antes que el piloto— y «El viaje ya fue iniciado» —el viaje ya tiene startDate, aunque su status haya vuelto a pending—.",
+                        "description": "Tres casos con su mensaje literal, comprobados en este orden: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404, y se comprueba antes que el piloto—; «El viaje ya fue iniciado» —el viaje ya tiene startDate, aunque su status haya vuelto a pending—; y, desde SPEC 27, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje» —el viaje no tiene ninguna carga con loadedAt puesto, ya sea porque no tiene cargas o porque las que tiene siguen sin confirmar—. ATENCIÓN — el orden es contrato: sobre un viaje YA EN CURSO el mensaje sigue siendo el del arranque y no habla de combustible.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -7231,6 +7231,297 @@
                     },
                     "404": {
                         "description": "El id no corresponde a ningún viaje, ni vivo ni borrado. Mensaje: El viaje no existe.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trips/{trip}/fuels": {
+            "get": {
+                "tags": [
+                    "Trip Fuels"
+                ],
+                "summary": "Listar las cargas de combustible de un viaje",
+                "description": "Devuelve las cargas de combustible del viaje —confirmadas y pendientes, mezcladas— más el acumulado de las CONFIRMADAS en la raíz del sobre.\n\nLA RUTA NO LLEVA role: Y LA ALCANZAN LOS CUATRO ROLES, acotados por el ámbito de SPEC 24, que este dominio no reescribe: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa MÁS la bolsa libre (los pending sin tripulación); y un pilot, SOLO aquellos donde él es el pilotId. ATENCIÓN — AQUÍ EL PILOTO ASIGNADO SÍ LEE, al contrario que en GET /api/trips/{trip}/positions, donde cualquier pilot recibe 403: allí él es el emisor y leerse a sí mismo no aporta, aquí el dato es sobre él y lo necesita. Fuera de ámbito es 403 y no 404 —se confirma que el viaje existe—, con dos mensajes distintos según el rol.\n\nUn viaje SIN NINGUNA CARGA devuelve 200 con data vacío y totalGallons \"0.00\", NUNCA 404: es el estado de todo viaje pending sin asignar y de todos los viajes asignados antes de SPEC 27. Un viaje BORRADO o inexistente es 404 «El viaje no existe», indistinguibles entre sí.\n\nATENCIÓN — totalGallons NO ES total. totalGallons es la SUMA de los galones de las cargas CONFIRMADAS, como cadena de dos decimales, calculada sobre la consulta clonada y ANTES de paginar; total es el CONTEO de cargas que aporta el paginador y solo aparece al paginar. Con 25 cargas y ?limit=10 la respuesta trae 10 elementos en data, total en 25 y totalGallons con el total del viaje, no el de la página. SOLO CUENTAN LAS CONFIRMADAS: un viaje recién asignado devuelve \"0.00\" teniendo ya una carga en data con isConfirmed en false, y ese cero es explicable, no un error. Es el mismo número que el totalFuelGallons del detalle del viaje.\n\nNO HAY NI UN SOLO FILTRO: no existe fuelType, ni isConfirmed, ni dateFrom, ni dateTo, ni pilotId. Cualquier query param que no sea limit o page se ignora, y separar confirmadas de pendientes es trabajo del frontend con la clave isConfirmed.\n\nEL ORDEN ES FIJO id ASCENDENTE —la cronología real de registro, de la primera carga a la última—, sin sortBy ni order. ATENCIÓN — es al revés que el rastro de SPEC 26, que ordena por recorded_at: aquí loadedAt es nullable y no sirve para ordenar, y created_at empataría entre dos cargas del mismo segundo.\n\nATENCIÓN — EL limit SE ACOTA A [10, 100], a diferencia de GET /api/trips, que no tiene piso de 10 y respeta el tamaño pedido tal cual.",
+                "operationId": "indexTripFuels",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Id numérico del viaje cuyas cargas se consultan (trips.id), EN LA URL: no hay query param tripId que lo sustituya ni listado global de cargas. Un id inexistente o de un viaje borrado devuelve 404 «El viaje no existe»; uno fuera del ámbito del usuario, 403.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que ACTIVA la paginación: si se omite, o si no es numérico (limit=abc), se devuelven TODAS las cargas del viaje sin error y sin metadatos de paginación. Si es numérico se ACOTA a [10, 100]: limit=1 y limit=5 devuelven páginas de 10, y limit=500 devuelve páginas de 100. Paginar NO cambia totalGallons, que se calcula antes de paginar sobre todas las cargas confirmadas del viaje.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico. Como el orden es id ascendente, page=1 son las cargas más antiguas del viaje y la última página, las más recientes.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Cargas de combustible obtenidas correctamente. Sin limit se devuelve TripFuelListResponse con todas las cargas del viaje; con limit numérico, PaginatedTripFuelListResponse, con total, currentPage y lastPage APLANADOS EN LA RAÍZ del sobre, no bajo meta. LAS DOS FORMAS INCLUYEN totalGallons en la raíz. Un viaje sin cargas devuelve data vacío y totalGallons \"0.00\", nunca 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/TripFuelListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedTripFuelListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El viaje existe pero queda fuera del ámbito de quien pregunta, con DOS mensajes según el rol: un pilot que no es el asignado recibe «No puedes acceder a un viaje que no tienes asignado» —el asignado SÍ entra, a diferencia del rastro de SPEC 26—; y un carrier que pide un viaje tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista». Fuera de ámbito es 403, NO 404. ATENCIÓN — la bolsa libre (un pending sin asignar) NO cae aquí: es 200 con data vacío, aunque el POST sobre ese mismo viaje sí sea 403.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El viaje no existe o fue borrado —los dos casos son indistinguibles a propósito—. El mensaje devuelto es: El viaje no existe. ATENCIÓN — que el viaje esté borrado no significa que sus cargas se hayan perdido: las filas siguen en la tabla, simplemente ya no hay forma de leerlas por API.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Trip Fuels"
+                ],
+                "summary": "Registrar una carga de combustible en un viaje",
+                "description": "Registra UNA carga de combustible sobre un viaje que la empresa transportista ya tomó. Es la segunda vía de alta del dominio: la PRIMERA carga de todo viaje la crea PATCH /api/trips/{trip}/assignment, y este endpoint sirve para las siguientes —una recarga en carretera es el caso real—.\n\nATENCIÓN — ES EXCLUSIVO DEL ROL carrier (middleware role:carrier): un administrator, un manager o un pilot reciben 403 «No tienes permisos para acceder a este recurso». EL ADMINISTRADOR NO PUEDE CARGAR COMBUSTIBLE POR NINGUNA VÍA, y su PATCH general de un viaje no escribe nada en trip_fuels. La ruta NO lleva carrier.required: un carrier sin empresa registrada lo para el SERVICE con 403 «No perteneces a ninguna empresa transportista».\n\nATENCIÓN — SOLO LA EMPRESA QUE TOMÓ EL VIAJE. La comparación cae sobre la EMPRESA de assignedBy, no sobre la persona: cualquier compañero de esa empresa puede registrar cargas, no solo quien asignó. Y un viaje SIN ASIGNAR NO ES LIBRE AQUÍ, al contrario que en la lectura: la bolsa se lee con 200 pero cargarla es 403, porque una carga sin piloto que la confirme nacería atascada.\n\nCUATRO GUARDAS EN ORDEN FIJO, Y ESE ORDEN ES CONTRATO: 1) viaje inexistente → 404 «El viaje no existe»; 2) viaje borrado → 400 «El viaje ya fue eliminado»; 3) el viaje no lo tomó tu empresa, o no está asignado → 403 «No puedes registrar combustible en un viaje que no tomó tu empresa transportista»; 4) el viaje está finished → 400 «El viaje ya fue finalizado». CONSECUENCIA REAL: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403 del ajeno.\n\nSE CARGA EN pending Y EN in_route, NUNCA DESPUÉS. Un viaje ya finalizado no recibe nada más, y no hay ninguna otra restricción de estado: no hace falta que el piloto haya confirmado la carga anterior para registrar otra.\n\nATENCIÓN — LA CARGA NACE SIN CONFIRMAR Y NO SUMA TODAVÍA. La respuesta trae isConfirmed en false, loadedAt en null y confirmedByName en null, y estos galones NO entran ni en el totalGallons del listado ni en el totalFuelGallons del viaje hasta que el piloto asignado pase por PATCH /api/trip-fuels/{tripFuel}/confirm. Registrar no es confirmar, y quien registra NO puede confirmar: son roles distintos.\n\nATENCIÓN — SIN VALIDACIÓN CRUZADA Y SIN VUELTA ATRÁS. gallons solo se valida numérico y mayor que 0: no se compara contra vehicles.kilometersPerGallon, ni contra la distancia del viaje, ni contra un techo, ni contra lo ya cargado. Y la tabla es APPEND-ONLY —no hay PATCH ni DELETE de una carga—, así que un 450 tecleado en vez de un 45 se queda para siempre y no se puede compensar, porque los galones no admiten negativos. EL FRONTEND DEBE CONFIRMAR LA CANTIDAD ANTES DE MANDAR ESTA PETICIÓN.\n\nCada carga lleva SU PROPIO fuelType: dos cargas del mismo viaje pueden no coincidir y ambas se guardan. Tampoco hay control de duplicados: dos cargas idénticas seguidas son legítimas —dos camionadas iguales— y nada las serializa, porque sumar es conmutativo.\n\nNO SE EMITE NADA: registrar una carga no manda correo y no emite por Reverb. El canal privado trips.{tripId} sigue llevando solo posiciones. Y el viaje no cambia: registrar no toca su status ni sus fechas.",
+                "operationId": "storeTripFuel",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Id numérico del viaje sobre el que se registra la carga (trips.id), EN LA URL: no viaja en el cuerpo. Debe ser un viaje EXISTENTE, NO BORRADO, TOMADO POR LA EMPRESA DE QUIEN LLAMA y NO FINALIZADO; cada incumplimiento tiene su propio código en ese orden (404, 400, 403, 400).",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreTripFuelRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Carga de combustible registrada correctamente. La fila quedó escrita en trip_fuels y nace SIN CONFIRMAR: isConfirmed en false, loadedAt en null y confirmedByName en null. registeredByName es el usuario autenticado, nunca lo que venga en el cuerpo, y gallons vuelve como STRING de dos decimales, así que no es idénticamente el valor enviado. Estos galones no suman en ningún total hasta que el piloto confirme.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Carga de combustible registrada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/TripFuel"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio incumplida, con DOS mensajes posibles: «El viaje ya fue eliminado» —se comprueba ANTES que la empresa, así que un viaje borrado y ajeno da este 400 y no el 403— y «El viaje ya fue finalizado», que es la ÚLTIMA de las cuatro guardas. Un viaje pending o in_route pasa las dos.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Sin permiso para registrar. TRES CAUSAS DISTINTAS con mensajes distintos: el middleware role:carrier rechaza a administrator, manager y pilot con «No tienes permisos para acceder a este recurso»; un carrier que todavía no ha registrado su empresa recibe del service «No perteneces a ninguna empresa transportista»; y un carrier cuya empresa no tomó el viaje —INCLUIDO EL CASO DE UN VIAJE SIN ASIGNAR, que sí se puede leer— recibe «No puedes registrar combustible en un viaje que no tomó tu empresa transportista».",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El viaje no existe. El mensaje devuelto es: El viaje no existe. Es la PRIMERA de las cuatro guardas del service, pero solo se llega a ella con un cuerpo VÁLIDO: un id inventado con un cuerpo inválido devuelve 422, no 404, porque el FormRequest se resuelve antes que el controlador. Un viaje BORRADO no cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Galones o tipo de combustible ausentes o inválidos, con el formato propio de Laravel {message, errors}. Mensajes literales: Los galones son obligatorios / Los galones deben ser un número / Los galones deben ser mayores a 0 / El tipo de combustible es obligatorio / El tipo de combustible seleccionado no es válido. Un cuerpo vacío señala los dos campos, y 0 o un negativo en gallons caen aquí. ATENCIÓN — es lo PRIMERO en fallar después del middleware de rol: el FormRequest se resuelve antes que el controlador, así que un cuerpo inválido devuelve 422 aunque el viaje no exista, esté borrado, sea ajeno o ya esté finalizado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trip-fuels/{tripFuel}/confirm": {
+            "patch": {
+                "tags": [
+                    "Trip Fuels"
+                ],
+                "summary": "Confirmar una carga de combustible",
+                "description": "El piloto asignado da fe de haber recibido la carga: escribe loadedAt con el now() del SERVIDOR y confirmedBy con su propio id. Es lo que convierte los galones en combustible que cuenta: HASTA QUE SE CONFIRMA, la carga NO suma en el totalGallons del listado ni en el totalFuelGallons del viaje, y el viaje NO PUEDE ARRANCAR —PATCH /api/trips/{trip}/start responde 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje»—.\n\nATENCIÓN — NO TIENE CUERPO. No lleva FormRequest y no acepta ningún campo: mandar loadedAt, gallons o cualquier otra cosa NO CAMBIA NADA y no da 422, igual que en /start y /finish de SPEC 24. Confirmar es dar fe de lo asignado, no reportar una cantidad distinta: si mandara un número propio dejaría de ser una confirmación y habría dos cifras que cuadrar.\n\nATENCIÓN — LA RUTA NO ESTÁ ANIDADA, a diferencia de las otras dos del dominio: es /api/trip-fuels/{tripFuel}/confirm y el parámetro es el id de LA CARGA, no del viaje —el id de la carga ya identifica el viaje—. No existe ningún GET /api/trip-fuels/{tripFuel} de detalle: el id se obtiene del listado del viaje.\n\nATENCIÓN — ES EXCLUSIVA DEL ROL pilot (middleware role:pilot) Y ADEMÁS SOLO DEL PILOTO ASIGNADO al viaje de esa carga: un administrator, un carrier o un manager reciben 403 del middleware —ni siquiera la empresa que registró la carga puede confirmarla—, y cualquier otro piloto recibe 403 «No puedes confirmar la carga de un viaje que no tienes asignado».\n\nATENCIÓN — RECONFIRMAR ES 200 SIN ESCRIBIR NADA. Si loadedAt ya tiene valor se devuelve la carga TAL CUAL, con su fecha ORIGINAL y su confirmedByName original, sin tocar la fila. Es silencio deliberado y no un 400: loadedAt es un hecho que ya ocurrió, y un móvil con mala señal reintenta y no debe ver un error —el precedente es el piso de 15 segundos de SPEC 26—. El mensaje es el mismo en los dos casos, así que LA RESPUESTA NO DISTINGUE una primera confirmación de una repetida: si hace falta saberlo, hay que comparar loadedAt con la hora de la llamada.\n\nATENCIÓN — NO SE MIRA EL status DEL VIAJE. Se puede confirmar la carga de un viaje ya finished —papeleo atrasado— y también de uno pending o in_route: prohibirlo solo crearía filas imposibles de cerrar. Lo único que se comprueba es que el viaje de la carga tenga a quien llama como pilot_id.\n\nATENCIÓN — LA CARGA DE UN VIAJE BORRADO NO SE PUEDE CONFIRMAR, Y EL CÓDIGO ES 403, NO 400. Este endpoint no tiene una guarda propia de borrado como las otras rutas del proyecto: el viaje se resuelve por la relación, que no ve las filas con borrado lógico, así que la carga queda «sin viaje» y hasta su propio piloto recibe 403 «No puedes confirmar la carga de un viaje que no tienes asignado». Es indistinguible de una carga ajena.\n\nNO SE PUEDE DESCONFIRMAR: loadedAt no vuelve nunca a null por ninguna vía, y tampoco hay forma de rechazar una carga ni de anotar una discrepancia. Confirmar no toca el viaje: no cambia su status ni sus fechas, no manda correo y no emite por Reverb.",
+                "operationId": "confirmTripFuel",
+                "parameters": [
+                    {
+                        "name": "tripFuel",
+                        "in": "path",
+                        "description": "Id numérico de LA CARGA de combustible (trip_fuels.id), no del viaje: esta ruta es la única del dominio que no está anidada bajo {trip}. Se obtiene del listado GET /api/trips/{trip}/fuels, porque no hay endpoint de detalle. Un id inexistente devuelve 404 «La carga de combustible no existe»; una carga de un viaje que no es del piloto autenticado, 403.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 37
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Carga de combustible confirmada correctamente. MISMO STATUS Y MISMO MENSAJE en los dos casos: si la carga estaba sin confirmar, loadedAt trae el now() del servidor y confirmedByName al piloto autenticado; si YA ESTABA CONFIRMADA, se devuelve la carga tal cual con su loadedAt ORIGINAL y no se escribió nada. A partir de aquí estos galones SÍ suman en totalGallons y en totalFuelGallons.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Carga de combustible confirmada correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/TripFuel"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Sin permiso para confirmar. DOS ORÍGENES: el middleware role:pilot rechaza a administrator, carrier y manager con «No tienes permisos para acceder a este recurso» —la empresa que registró la carga TAMPOCO puede confirmarla—; y un pilot que no es el pilot_id del viaje de esa carga recibe del service «No puedes confirmar la carga de un viaje que no tienes asignado». ESE MISMO 403 CUBRE DOS CASOS MÁS, indistinguibles del anterior: una carga cuyo viaje todavía no tiene piloto asignado, y una carga cuyo viaje FUE BORRADO —no hay 400 de borrado en este endpoint—.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El id no corresponde a ninguna carga. El mensaje devuelto es: La carga de combustible no existe. No hay más 404 en este endpoint: nada se borra nunca de trip_fuels, así que un id que existió sigue existiendo.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -10244,6 +10535,35 @@
                 },
                 "type": "object"
             },
+            "StoreTripFuelRequest": {
+                "title": "Registro de una carga de combustible",
+                "description": "Cuerpo JSON con el que la empresa transportista registra UNA carga de combustible sobre un viaje que ya tomó. EXACTAMENTE DOS CAMPOS —gallons y fuelType— Y LOS DOS SON OBLIGATORIOS. Un cuerpo vacío es 422 señalando los dos.\n\nATENCIÓN — NO SE ACEPTA tripId: el viaje va EN LA URL (/api/trips/{trip}/fuels), igual que en las posiciones de SPEC 26. Y tampoco se acepta nada del ciclo de vida de la carga: loadedAt, confirmedBy ni registeredBy. La fecha la pone el servidor con now() CUANDO EL PILOTO CONFIRMA, el piloto sale de su propio token en esa otra llamada y el autor del alta sale del token de quien registra. Mandar cualquiera de ellos SE DESCARTA EN SILENCIO, con 201 y sin 422, como el vehicleId de un gasto de vehículo.\n\nATENCIÓN — LA CARGA NACE SIN CONFIRMAR Y NO HAY FORMA DE CREARLA YA CONFIRMADA. Registrar no es confirmar: quien registra es el transportista y quien confirma es el piloto asignado, con PATCH /api/trip-fuels/{tripFuel}/confirm. Hasta entonces isConfirmed es false, loadedAt es null y ESTOS GALONES NO SUMAN NI EN totalGallons NI EN totalFuelGallons.\n\nATENCIÓN — NO HAY NINGUNA VALIDACIÓN CRUZADA SOBRE gallons. No se compara contra vehicles.kilometersPerGallon, ni contra la distancia del viaje, ni contra un techo de negocio, ni contra lo ya cargado: 5 000 galones en una rastra se aceptan con 201. Y como la tabla es APPEND-ONLY —no hay PATCH ni DELETE de una carga—, un 450 tecleado en vez de un 45 se queda para siempre y no se puede compensar, porque los galones no admiten negativos. EL FRONTEND DEBE CONFIRMAR LA CANTIDAD ANTES DE MANDAR EL POST.\n\nATENCIÓN — fuelType SE VALIDA SOLO CONTRA EL ENUM. No se exige que ese tipo tenga un FuelPrice vigente (SPEC 06): se puede cargar diesel aunque ningún precio de diesel esté active, porque aquí NO SE GUARDA NINGÚN PRECIO NI NINGÚN COSTO. Es una etiqueta, no una llave foránea. Cada carga lleva su propio tipo: dos cargas del mismo viaje pueden no coincidir y ambas se guardan.\n\nATENCIÓN — LA VALIDACIÓN DEL CUERPO CORRE ANTES QUE LAS CUATRO GUARDAS DEL SERVICE, no después: solo el middleware role:carrier (403) va por delante. Un cuerpo inválido sobre un viaje INEXISTENTE devuelve 422, no 404, y sobre un viaje borrado, ajeno o ya finalizado también 422, no 400 ni 403. El orden de las cuatro guardas entre sí sí es contrato, pero solo se llega a ellas con un cuerpo válido.",
+                "required": [
+                    "gallons",
+                    "fuelType"
+                ],
+                "properties": {
+                    "gallons": {
+                        "description": "Galones de esta carga. OBLIGATORIO, numérico y MAYOR QUE CERO (min:0.01), con los mensajes literales: Los galones son obligatorios / Los galones deben ser un número / Los galones deben ser mayores a 0. Se guarda como decimal(8,2) y SALE COMO STRING de dos decimales en la respuesta, así que el valor devuelto no es idénticamente el enviado (20 entra y \"20.00\" sale). Acepta número o cadena numérica. 0 y los negativos son 422: no hay cargas de cero ni correcciones en negativo.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 20,
+                        "minimum": 0.01
+                    },
+                    "fuelType": {
+                        "description": "Tipo de combustible de ESTA carga, uno de los cuatro casos del enum FuelType de SPEC 06 y con el valor CRUDO EN INGLÉS (regular, premium, diesel, diesel_premium). OBLIGATORIO; fuera del enum es 422 (mensajes: El tipo de combustible es obligatorio / El tipo de combustible seleccionado no es válido). ATENCIÓN — no se comprueba contra la tabla fuel_prices: no se exige que el tipo tenga un precio vigente y no se guarda ni el precio ni el costo de la carga.",
+                        "type": "string",
+                        "example": "diesel",
+                        "enum": [
+                            "regular",
+                            "premium",
+                            "diesel",
+                            "diesel_premium"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
             "StoreTripPositionRequest": {
                 "title": "Reporte de una posición del viaje",
                 "description": "Cuerpo JSON con el que el piloto asignado reporta dónde está. EXACTAMENTE DOS CAMPOS —latitude y longitude— Y LOS DOS SON OBLIGATORIOS. Un cuerpo vacío es 422 señalando las dos coordenadas.\n\nATENCIÓN — UN PUNTO POR PETICIÓN. No se acepta un array de puntos: no hay envío en lote y no lo habrá en esta spec. Un piloto que estuvo sin señal PIERDE EL TRAMO: cuando recupere red mandará su posición actual y el rastro tendrá un hueco en línea recta entre dos puntos lejanos, sin que nada indique que faltó cobertura.\n\nATENCIÓN — recordedAt Y pilotId NO SE ACEPTAN Y MANDARLOS SE DESCARTA EN SILENCIO, con 200/201 y sin 422. La hora la pone el servidor con now() —aceptarla del dispositivo la haría falsificable y desordenaría el rastro— y el autor sale del token del piloto autenticado. Tampoco se acepta tripId: el viaje va en la URL. Cualquier otra clave del cuerpo se ignora igual.\n\nATENCIÓN — NO HAY NINGUNA VALIDACIÓN GEOGRÁFICA. Los rangos son los del sistema de coordenadas y NADA MÁS: no se comprueba que el punto caiga cerca de la polyline del viaje, ni dentro de Guatemala, ni que el salto contra el punto anterior sea físicamente posible. Un piloto puede reportar coordenadas en Noruega y la API las guarda con 201. Es riesgo de dato falso, no de fuga: no toca ningún otro viaje ni ninguna otra empresa.\n\nNO HAY TELEMETRÍA: no se acepta speed, heading, accuracy, altitude ni battery. Solo dónde y cuándo.\n\nATENCIÓN — LA VALIDACIÓN DEL CUERPO CORRE ANTES QUE LAS CUATRO GUARDAS DEL SERVICE, no después: solo el middleware role:pilot (403) va por delante. Un cuerpo inválido sobre un viaje INEXISTENTE devuelve 422, no 404, y sobre un viaje ajeno o que no está en ruta también 422, no 403 ni 400. El orden de las cuatro guardas entre sí sí es contrato, pero solo se llega a ellas con un cuerpo válido: un cuerpo perfecto sobre un viaje pending sigue siendo 400.",
@@ -10273,10 +10593,12 @@
             },
             "AssignTripRequest": {
                 "title": "Asignación de tripulación a un viaje",
-                "description": "Cuerpo JSON con el que una empresa transportista TOMA un viaje. EXACTAMENTE DOS CAMPOS —pilotId y vehicleId— Y LOS DOS SON OBLIGATORIOS: no se puede asignar solo el piloto o solo el vehículo, y faltar cualquiera de ellos es 422.\n\nATENCIÓN — ES EXCLUSIVO DEL ROL carrier Y ADEMÁS EXIGE EMPRESA. La ruta lleva role:carrier y carrier.required: un administrator, un manager o un pilot reciben 403 «No tienes permisos para acceder a este recurso», y un carrier que todavía no ha registrado su empresa recibe 403 «Debes estar vinculado a un transportista para acceder a este recurso» ANTES DE LLEGAR AL SERVICE. EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA, y el PATCH general tampoco acepta estos dos campos.\n\nATENCIÓN — NO EXISTE LA DESASIGNACIÓN. Mandar null en cualquiera de los dos es 422: una vez tomado, un viaje NO VUELVE NUNCA A LA BOLSA y pilot_id y vehicle_id no regresan a null por ninguna vía. Se pueden CAMBIAR —reasignar— pero solo mientras el viaje siga pending y solo desde la empresa que ya lo tomó; sobre un viaje in_route o finished la respuesta es 400 «Solo se puede asignar un viaje pendiente». Consecuencia real: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, la única salida por API es borrarlo y crearlo de nuevo.\n\nassignedBy NO SE ENVÍA: sale del usuario autenticado, que por el middleware es siempre un transportista, y se escribe junto con los otros dos —no existe un viaje con piloto y sin assignedBy—. Guarda el USUARIO, pero el ámbito compara su EMPRESA: cualquier compañero de esa empresa ve el viaje y puede reasignarlo.\n\nATENCIÓN — REPARTO 422 / 400: el exists: convierte un id inventado en 422; que el usuario tenga rol de piloto, que tenga empresa, que el vehículo esté active y que los dos sean de la MISMA empresa son reglas de negocio y salen como 400 desde el service, cada una con su mensaje literal.\n\nLa escritura corre dentro de una transacción con bloqueo de fila, así que dos transportistas que intenten tomar el mismo viaje a la vez no se pisan: solo uno gana y el otro recibe 403 o 400.",
+                "description": "Cuerpo JSON con el que una empresa transportista TOMA un viaje. EXACTAMENTE CUATRO CAMPOS —pilotId, vehicleId, fuelGallons y fuelType— Y LOS CUATRO SON OBLIGATORIOS: no se puede asignar solo el piloto, solo el vehículo ni la tripulación sin combustible, y faltar cualquiera de ellos es 422.\n\nATENCIÓN — CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA (SPEC 27). Este cuerpo pasó de DOS campos a CUATRO: un cliente que siga mandando solo pilotId y vehicleId recibe 422 EN TODAS SUS ASIGNACIONES, con «Los galones de combustible son obligatorios» y «El tipo de combustible es obligatorio». No hay periodo de convivencia ni valor por defecto, igual que el POST de vehículos en SPEC 13, el de destinos en SPEC 21 y el register de SPEC 25. Asignar tripulación y asignar combustible son el mismo acto: así ningún viaje queda asignado con cero cargas.\n\nATENCIÓN — LA ASIGNACIÓN INSERTA LA PRIMERA CARGA DE COMBUSTIBLE, dentro de la MISMA TRANSACCIÓN y detrás del mismo bloqueo de fila: si el INSERT falla, la asignación entera se deshace y NO QUEDA NINGUNA FILA en trip_fuels. Igual que si falla cualquiera de las guardas (403 o 400): no se crea nada. La carga nace SIN CONFIRMAR —loadedAt y confirmedBy en null—, así que el viaje sale de aquí con totalFuelGallons en \"0.00\" hasta que el piloto pase por PATCH /api/trip-fuels/{tripFuel}/confirm, Y NO PUEDE ARRANCAR MIENTRAS NO LO HAGA: /start responde 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje».\n\nATENCIÓN — REASIGNAR AÑADE OTRA CARGA, NO PISA LA ANTERIOR. Cada llamada válida deja una fila nueva en trip_fuels, así que reasignar dos veces un viaje pending deja DOS cargas y las dos suman en cuanto se confirmen. Es el único rastro que deja una reasignación —piloto y vehículo se sobrescriben sin dejar historial— y sale gratis. Y como la tabla es APPEND-ONLY, esa carga de más no se puede borrar ni corregir por API.\n\nATENCIÓN — ES EXCLUSIVO DEL ROL carrier Y ADEMÁS EXIGE EMPRESA. La ruta lleva role:carrier y carrier.required: un administrator, un manager o un pilot reciben 403 «No tienes permisos para acceder a este recurso», y un carrier que todavía no ha registrado su empresa recibe 403 «Debes estar vinculado a un transportista para acceder a este recurso» ANTES DE LLEGAR AL SERVICE. EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA, y el PATCH general tampoco acepta estos dos campos.\n\nATENCIÓN — NO EXISTE LA DESASIGNACIÓN. Mandar null en cualquiera de los cuatro es 422: una vez tomado, un viaje NO VUELVE NUNCA A LA BOLSA y pilot_id y vehicle_id no regresan a null por ninguna vía. Se pueden CAMBIAR —reasignar— pero solo mientras el viaje siga pending y solo desde la empresa que ya lo tomó; sobre un viaje in_route o finished la respuesta es 400 «Solo se puede asignar un viaje pendiente». Consecuencia real: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, la única salida por API es borrarlo y crearlo de nuevo.\n\nassignedBy NO SE ENVÍA, y tampoco nada del ciclo de vida de la carga —loadedAt, confirmedBy ni registeredBy—: sale del usuario autenticado, que por el middleware es siempre un transportista, y se escribe junto con los otros dos —no existe un viaje con piloto y sin assignedBy—. Guarda el USUARIO, pero el ámbito compara su EMPRESA: cualquier compañero de esa empresa ve el viaje y puede reasignarlo.\n\nATENCIÓN — REPARTO 422 / 400: el exists: convierte un id inventado en 422; que el usuario tenga rol de piloto, que tenga empresa, que el vehículo esté active y que los dos sean de la MISMA empresa son reglas de negocio y salen como 400 desde el service, cada una con su mensaje literal. Los dos campos de combustible NO añaden ningún 400: se validan solo contra el formato y el enum.\n\nLa escritura corre dentro de una transacción con bloqueo de fila, así que dos transportistas que intenten tomar el mismo viaje a la vez no se pisan: solo uno gana y el otro recibe 403 o 400.",
                 "required": [
                     "pilotId",
-                    "vehicleId"
+                    "vehicleId",
+                    "fuelGallons",
+                    "fuelType"
                 ],
                 "properties": {
                     "pilotId": {
@@ -10288,6 +10610,24 @@
                         "description": "Id del vehículo que hará el viaje (vehicles.id). OBLIGATORIO, entero y con regla exists:vehicles,id (mensajes: El vehículo es obligatorio / El vehículo debe ser un identificador válido / El vehículo seleccionado no existe). ATENCIÓN — debe estar en estado active: un inactive o un under_repair responden 400 «El vehículo seleccionado no está activo». Y debe ser de LA MISMA EMPRESA que el piloto: si no, 400 «El piloto y el vehículo deben pertenecer a la misma empresa transportista». null es 422.",
                         "type": "integer",
                         "example": 8
+                    },
+                    "fuelGallons": {
+                        "description": "Galones de la PRIMERA carga de combustible del viaje, la que esta llamada inserta en trip_fuels. OBLIGATORIO desde SPEC 27 —CAMBIO INCOMPATIBLE—, numérico y MAYOR QUE CERO (min:0.01), con los mensajes literales: Los galones de combustible son obligatorios / Los galones de combustible deben ser un número / Los galones de combustible deben ser mayores a 0. ATENCIÓN — SIN NINGUNA VALIDACIÓN CRUZADA: no se compara contra vehicles.kilometersPerGallon, ni contra la distancia del viaje, ni contra un techo de negocio. Y la carga es INCORREGIBLE: la tabla es append-only, así que un 450 en vez de un 45 se queda para siempre. La carga nace SIN CONFIRMAR, así que estos galones NO suman en totalFuelGallons hasta que el piloto la confirme.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 45.5,
+                        "minimum": 0.01
+                    },
+                    "fuelType": {
+                        "description": "Tipo de combustible de esa primera carga, uno de los cuatro casos del enum FuelType de SPEC 06 y con el valor CRUDO EN INGLÉS (regular, premium, diesel, diesel_premium). OBLIGATORIO desde SPEC 27; fuera del enum es 422 (mensajes: El tipo de combustible es obligatorio / El tipo de combustible seleccionado no es válido). ATENCIÓN — no se comprueba contra la tabla fuel_prices: se puede asignar diesel aunque ningún precio de diesel esté active, porque aquí no se guarda ni el precio ni el costo. Es POR CARGA: las siguientes cargas del viaje, registradas con POST /api/trips/{trip}/fuels, pueden llevar otro tipo.",
+                        "type": "string",
+                        "example": "diesel",
+                        "enum": [
+                            "regular",
+                            "premium",
+                            "diesel",
+                            "diesel_premium"
+                        ]
                     }
                 },
                 "type": "object"
@@ -12288,6 +12628,100 @@
                     }
                 ]
             },
+            "TripFuel": {
+                "title": "Carga de combustible de un viaje",
+                "description": "Una carga de combustible que la empresa transportista asignó a un viaje y que su piloto confirma. OCHO CLAVES en camelCase y ninguna más, en este orden: id, tripId, gallons, fuelType, isConfirmed, loadedAt, confirmedByName y registeredByName.\n\nATENCIÓN — SÍ TRAE tripId, al contrario que el punto del rastro de SPEC 26: la confirmación se pide por PATCH /api/trip-fuels/{tripFuel}/confirm, FUERA del viaje, así que la respuesta de esa llamada tiene que decir a qué viaje pertenece la carga.\n\nATENCIÓN — EL CICLO DE VIDA SON DOS ESTADOS Y NO HAY COLUMNA status. isConfirmed es un campo DERIVADO de loadedAt —no existe en la base— y las dos claves cuentan lo mismo: sin confirmar es isConfirmed en false, loadedAt en null y confirmedByName en null; confirmada es isConfirmed en true con las otras dos puestas. No hay un tercer estado, ni rechazo, ni cancelación, y NO SE PUEDE DESCONFIRMAR: loadedAt no vuelve nunca a null.\n\nATENCIÓN — gallons SALE COMO STRING de dos decimales, no como número (\"20.00\", \"45.50\"), igual que price en SPEC 17 y salary en SPEC 11: el modelo NO castea la columna a propósito. El frontend debe convertirlo antes de sumar (parseFloat) y no comparar cargas por igualdad de cadena.\n\nATENCIÓN — loadedAt NO ES ISO 8601: usa el formato propio del proyecto d-m-Y h:i:s A, como el resto del dominio de viajes. Es la HORA DEL SERVIDOR en el momento de confirmar, no la del dispositivo del piloto ni la hora real en que se echó el combustible: si el piloto confirma al día siguiente, la fecha es la del día siguiente.\n\nATENCIÓN — ESTA CARGA ES INMUTABLE Y ETERNA. No hay PATCH ni DELETE de una carga: la tabla es APPEND-ONLY, como trip_positions. Una cantidad mal tecleada se queda para siempre y no se puede compensar, porque los galones no admiten negativos; solo se arregla tocando la base. El DELETE (baja lógica) del viaje tampoco borra ninguna fila.\n\nNO SE GUARDA NINGÚN DINERO: no hay precio unitario, ni costo total, ni moneda, ni proveedor, ni número de factura, ni imagen del cupón. fuelType no se cruza con fuel_prices (SPEC 06) y ningún precio vigente se congela aquí. Tampoco hay galones REALMENTE recibidos distintos de los asignados: el piloto confirma o no confirma, y no reporta una cantidad propia ni una observación.\n\nDe los dos autores solo salen los NOMBRES, sin id: registeredByName es el usuario de la empresa que registró la carga —en la primera fila, quien asignó el viaje— y confirmedByName es el piloto que la confirmó.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la carga (trip_fuels.id). ES EL PARÁMETRO {tripFuel} de PATCH /api/trip-fuels/{tripFuel}/confirm —la única ruta del proyecto que apunta a una carga— y también el criterio de orden del listado (id ASC), que es la cronología real de registro. NO hay ninguna ruta de detalle /api/trip-fuels/{tripFuel}: para ver una carga se lista el viaje.",
+                        "type": "integer",
+                        "example": 37
+                    },
+                    "tripId": {
+                        "description": "Id del viaje al que pertenece la carga (trips.id). Viaja SIEMPRE, aunque en el listado sea redundante con la URL, porque la confirmación se pide desde /api/trip-fuels/{tripFuel}/confirm y ahí es el único sitio donde aparece el viaje. Es INMUTABLE: una carga no se traslada de un viaje a otro por ninguna vía.",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "gallons": {
+                        "description": "Galones de esta carga, SIEMPRE COMO STRING de dos decimales (decimal(8,2) en la base, sin cast en el modelo). Es la cantidad ASIGNADA por la empresa, no la medida por el piloto: no existe un segundo número que cuadrar. ATENCIÓN — solo suma en totalGallons y en totalFuelGallons CUANDO LA CARGA ESTÁ CONFIRMADA. No se valida contra nada más que min:0.01, así que una cantidad absurda se guarda igual y, sin PATCH ni DELETE, se queda para siempre.",
+                        "type": "string",
+                        "example": "45.50"
+                    },
+                    "fuelType": {
+                        "description": "Tipo de combustible de esta carga, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir —traducirlo es cosa del frontend—, como LocationType en SPEC 21 y TripStatus en SPEC 24. Es POR CARGA, no por viaje: dos cargas del mismo viaje pueden diferir. ATENCIÓN — no está respaldado por fuel_prices: no se exigió que el tipo tuviera precio vigente al registrarlo y no se guardó ningún precio.",
+                        "type": "string",
+                        "example": "diesel",
+                        "enum": [
+                            "regular",
+                            "premium",
+                            "diesel",
+                            "diesel_premium"
+                        ]
+                    },
+                    "isConfirmed": {
+                        "description": "Si el piloto asignado ya dio fe de haber recibido la carga. CAMPO DERIVADO, SIN COLUMNA: es exactamente «loadedAt distinto de null», igual que currentValue se deriva en SPEC 17. false es el estado en que NACE toda carga, incluida la que crea /assignment. ATENCIÓN — NO SE PUEDE FILTRAR POR ÉL: el listado no acepta ningún parámetro de estado de confirmación, así que separar confirmadas de pendientes es trabajo del frontend.",
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "loadedAt": {
+                        "description": "Momento en que el piloto CONFIRMÓ la carga, con el formato propio del proyecto d-m-Y h:i:s A, NO en ISO 8601. null mientras no se confirme. La pone el now() del SERVIDOR y no se acepta desde ningún cuerpo. SE ESCRIBE UNA SOLA VEZ Y NO SE PISA: reconfirmar responde 200 devolviendo esta misma fecha original, sin escribir nada. Y no sirve para ordenar el listado —es nullable—, que va por id ASC.",
+                        "type": "string",
+                        "example": "10-09-2026 07:42:18 AM",
+                        "nullable": true
+                    },
+                    "confirmedByName": {
+                        "description": "Nombre del piloto que confirmó la carga, resuelto desde la relación. null mientras no se confirme, y se escribe SIEMPRE junto a loadedAt, nunca una sin la otra. Sale solo el nombre, sin id: hoy coincide con el pilotId del viaje, pero se guarda aparte porque SPEC 24 permite reasignar la tripulación mientras el viaje siga pending.",
+                        "type": "string",
+                        "example": "Juan Pérez",
+                        "nullable": true
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del usuario de la empresa transportista que registró la carga, resuelto desde la relación. En la PRIMERA carga de un viaje es quien lo asignó, porque la crea PATCH /api/trips/{trip}/assignment dentro de su propia transacción. Sale solo el nombre, sin id, y no se envía en el cuerpo: sale siempre del usuario autenticado. No trae el nombre de la empresa: para eso están los endpoints de Carriers.",
+                        "type": "string",
+                        "example": "María López",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "TripFuelListResponse": {
+                "title": "Cargas de combustible sin paginar",
+                "description": "Respuesta de GET /api/trips/{trip}/fuels cuando NO se envía limit, o cuando el limit no es numérico: se devuelven TODAS las cargas del viaje y el sobre NO incluye total, currentPage ni lastPage.\n\ntotalGallons SÍ aparece en esta forma, aunque no haya paginación: es dato de negocio y no metadata del paginador, con el precedente literal de totalAmount en SPEC 14.\n\nEl orden es FIJO id ASCENDENTE —la cronología real de registro— y NO es configurable: no hay sortBy ni order. ATENCIÓN — es AL REVÉS de GET /api/trips/{trip}/positions, que ordena por recorded_at, y aquí no se puede ordenar por fecha porque loadedAt es nullable.\n\nNO HAY NI UN SOLO FILTRO: no existe fuelType, ni isConfirmed, ni dateFrom, ni dateTo, ni pilotId. Cualquier query param que no sea limit o page se ignora. Devuelve las CONFIRMADAS Y LAS PENDIENTES mezcladas, y distinguirlas es trabajo del frontend con la clave isConfirmed.\n\nUn viaje sin ninguna carga —los asignados antes de SPEC 27— devuelve 200 con data vacío y totalGallons \"0.00\", NUNCA 404.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Cargas de combustible obtenidas correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripFuel"
+                        }
+                    },
+                    "totalGallons": {
+                        "description": "SUMA de los galones de las cargas CONFIRMADAS del viaje, como CADENA con dos decimales. ATENCIÓN — SOLO LAS CONFIRMADAS: una carga registrada y no confirmada NO suma, así que un viaje recién asignado devuelve \"0.00\" teniendo ya una carga en data con isConfirmed en false. El cero es explicable, no un error. NO CONFUNDIR CON total: total es el CONTEO de cargas que aporta el paginador y solo aparece al paginar; totalGallons es una CANTIDAD DE COMBUSTIBLE y aparece SIEMPRE, con y sin limit. Se calcula sobre la consulta clonada y ANTES de paginar, así que con ?limit=10 sobre un viaje de 25 cargas sigue siendo el total del viaje y no el de la página. Es el MISMO número que el totalFuelGallons del detalle del viaje. No hay desglose por tipo de combustible ni un segundo total que incluya las pendientes.",
+                        "type": "string",
+                        "example": "145.50"
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedTripFuelListResponse": {
+                "title": "Cargas de combustible paginadas",
+                "description": "Respuesta de GET /api/trips/{trip}/fuels cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS EN LA RAÍZ del sobre, junto a statusCode, message, data y totalGallons, NO anidados bajo meta.\n\nATENCIÓN — en esta forma conviven en la misma raíz totalGallons y total, y NO significan lo mismo: total es el CONTEO de cargas del viaje (un entero) y totalGallons es la SUMA en galones de las CONFIRMADAS (una cadena con dos decimales). Un viaje con tres cargas de 45.50 sin confirmar trae total en 3 y totalGallons en \"0.00\".\n\nATENCIÓN — EL TAMAÑO DE PÁGINA SE ACOTA A [10, 100], a diferencia de GET /api/trips, que no tiene piso de 10 y respeta el limit tal cual. Aquí limit=1 y limit=5 devuelven páginas de 10, y limit=500 devuelve páginas de 100.\n\nEl orden sigue siendo id ASCENDENTE, así que page=1 son las cargas más antiguas del viaje y la última página, las más recientes.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/TripFuelListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
             "TripPosition": {
                 "title": "Punto del rastro de un viaje",
                 "description": "Un punto del rastro de un viaje: dónde estuvo el camión y cuándo. CINCO CLAVES en camelCase y ninguna más, en este orden: id, latitude, longitude, recordedAt y pilotId.\n\nATENCIÓN — NO TRAE tripId. Quien pide el rastro con GET /api/trips/{trip}/positions ya lo lleva en la URL, y quien recibe el evento .trip.position.updated por websocket lo trae dentro del payload. Si el frontend mezcla puntos de varios viajes en la misma estructura, tiene que anotar el viaje por su cuenta.\n\nATENCIÓN — latitude Y longitude SALEN COMO STRING, NO COMO NÚMERO, con ocho decimales fijos («14.62807400», «-90.52255400»), igual que en Location desde SPEC 15: un float redondearía justo la precisión por la que la columna se ensanchó. El frontend debe convertirlas antes de pintarlas en el mapa (parseFloat), y NO comparar puntos por igualdad de cadena.\n\nATENCIÓN — recordedAt ES LA HORA DEL SERVIDOR, NO LA DEL DISPOSITIVO. La pone now() al escribir la fila y no se acepta desde el body: no hay forma de mentir sobre cuándo se estuvo dónde, y el orden del rastro es siempre el de llegada. La contrapartida es que un tramo sin cobertura NO llega tarde: se pierde entero, porque no hay envío en lote.\n\nESTE OBJETO ES INMUTABLE Y ETERNO: no existe PATCH ni DELETE de un punto, no hay purga por antigüedad y el DELETE (baja lógica) del viaje NO borra ninguna fila de trip_positions. Una coordenada mal reportada es historial y se queda.\n\nNO HAY TELEMETRÍA: nada de velocidad, rumbo, precisión del GPS, altitud ni batería. Solo dónde y cuándo.",
@@ -12574,7 +13008,7 @@
             },
             "Trip": {
                 "title": "Viaje de exportación",
-                "description": "El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 34 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.\n\nATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.\n\nATENCIÓN — LAS SIETE FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.\n\nATENCIÓN — EL status PUEDE CONTRADECIR A LAS FECHAS, Y EL RELATO LO CUENTAN LAS FECHAS. No hay máquina de estados: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que existen viajes finished sin startDate y viajes pending con startDate y endDate puestos (un finished devuelto a pending conserva sus dos fechas de ejecución). Cuando status y fechas se contradigan, el frontend debe pintar el relato desde startDate y endDate, no desde status.\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO. Un viaje NO tiene carrierId: nace de nadie y no hay columna de empresa dueña. La empresa entra en escena cuando toma el viaje, y el vínculo se deriva siempre de assignedById. Por eso administrator y manager ven todos los viajes; un carrier ve la bolsa —los pending con pilotId y vehicleId en null— más los asignados por su propia empresa; y un pilot ve SOLO aquellos donde pilotId es él, sin la bolsa.\n\npoints es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.\n\nLas 34 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, createdAt, updatedAt y deletedAt.",
+                "description": "El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 35 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.\n\nATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.\n\nATENCIÓN — LAS SIETE FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.\n\nATENCIÓN — EL status PUEDE CONTRADECIR A LAS FECHAS, Y EL RELATO LO CUENTAN LAS FECHAS. No hay máquina de estados: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que existen viajes finished sin startDate y viajes pending con startDate y endDate puestos (un finished devuelto a pending conserva sus dos fechas de ejecución). Cuando status y fechas se contradigan, el frontend debe pintar el relato desde startDate y endDate, no desde status.\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO. Un viaje NO tiene carrierId: nace de nadie y no hay columna de empresa dueña. La empresa entra en escena cuando toma el viaje, y el vínculo se deriva siempre de assignedById. Por eso administrator y manager ven todos los viajes; un carrier ve la bolsa —los pending con pilotId y vehicleId en null— más los asignados por su propia empresa; y un pilot ve SOLO aquellos donde pilotId es él, sin la bolsa.\n\nATENCIÓN — totalFuelGallons SOLO CUENTA LAS CARGAS CONFIRMADAS (SPEC 27), y es la clave 35, añadida entre registeredByName y createdAt. Sale como CADENA de dos decimales y vale \"0.00\" en todo viaje recién asignado, aunque /assignment ya le haya creado su primera carga: confirmar es cosa del piloto. Mientras valga \"0.00\" el viaje NO PUEDE ARRANCAR. Las cargas en sí NO viajan en este recurso —no hay clave fuels— y se piden aparte con GET /api/trips/{trip}/fuels.\n\npoints es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.\n\nLas 35 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, createdAt, updatedAt y deletedAt.",
                 "properties": {
                     "id": {
                         "description": "Identificador numérico del viaje (trips.id). Es el valor que va en el parámetro {trip} de las seis rutas que lo nombran: detalle, actualización, baja, /assignment, /start y /finish. Sobrevive a la edición y a la reasignación, y sobrevive también al DELETE —la fila sigue en la base con su deleted_at puesto—, pero ese id deja de ser alcanzable: el GET responde 404 y las cinco rutas de escritura responden 400 «El viaje ya fue eliminado».",
@@ -12775,6 +13209,11 @@
                         "type": "string",
                         "example": "Roberto Santizo",
                         "nullable": true
+                    },
+                    "totalFuelGallons": {
+                        "description": "Galones de combustible CONFIRMADOS del viaje (SPEC 27), como CADENA con dos decimales. ATENCIÓN — SOLO SUMA LAS CARGAS CONFIRMADAS por el piloto: un viaje RECIÉN ASIGNADO devuelve \"0.00\" aunque /assignment ya le haya creado su primera carga, porque nace sin confirmar. El cero es explicable, no un error, y la forma de explicarlo es pedir GET /api/trips/{trip}/fuels, que lista las pendientes con isConfirmed en false. Es el MISMO número que el totalGallons de ese listado. Lo resuelve un withSum acotado a loaded_at IS NOT NULL, sin cargar ninguna fila, así que el detalle NO devuelve las cargas: no hay clave fuels ni contador de cargas. ATENCIÓN — mientras este valor sea \"0.00\" EL VIAJE NO PUEDE ARRANCAR: /start responde 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje». Y como la tabla es append-only, un total inflado por una cantidad mal tecleada no se puede corregir por API. NO APARECE EN EL LISTADO: TripListItem sigue en 15 claves.",
+                        "type": "string",
+                        "example": "145.50"
                     },
                     "createdAt": {
                         "description": "Fecha de alta del viaje. Formato propio d-m-Y h:i:s A, NO ISO 8601, por eso se documenta como string sin format date-time. No cambia nunca y no tiene nada que ver con recolectionDate.",
@@ -13373,7 +13812,11 @@
         },
         {
             "name": "Trips",
-            "description": "Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con NUEVE ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nPERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR Y NO SE PUEDE DESASIGNAR. /assignment es exclusiva del carrier, porque asignar es el acto por el que una empresa TOMA el viaje; el PATCH general NO ACEPTA pilotId ni vehicleId y mandarlos se ignora en silencio con 200. pilot_id y vehicle_id NO VUELVEN NUNCA A null —no hay desasignación, y null en /assignment es 422—. Reasignar solo se puede mientras el viaje siga pending: en in_route o finished es 400. CONSECUENCIA REAL: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta los tres valores sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y NO SE RECALCULA NUNCA. polyline es obligatoria en el alta Y en el PATCH; la resuelve el front con GET /api/places/directions (SPEC 16) y LA API NUNCA LLAMA A GOOGLE. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA y la API no avisa.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS con los espacios interiores colapsados; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan exists:, así que un id INVENTADO es 422; pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO, de modo que un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El cliente seleccionado fue eliminado», «La naviera seleccionada fue eliminada», «El destino seleccionado no es un puerto», «El puerto de destino está inactivo», «El punto de partida está inactivo», «El usuario seleccionado no es un piloto», «El piloto seleccionado no pertenece a ninguna empresa transportista», «El vehículo seleccionado no está activo» y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».\n\nCINCO CAMPOS SE DESCARTAN EN EL ALTA SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. El viaje nace pending, sin tripulación, y registeredBy sale del usuario autenticado. En el PATCH, además de pilotId y vehicleId, tampoco se reescriben assignedBy ni registeredBy.\n\n/start Y /finish NO TIENEN CUERPO. La fecha la pone el now() DEL SERVIDOR y mandarla en el body no se usa. start sobre un viaje ya iniciado es 400; finish sobre uno ya finalizado es 400, y sobre uno SIN startDate también es 400. Solo el piloto asignado las alcanza: otro piloto recibe 403.\n\nSOFT DELETES. El listado y el show EXCLUYEN los borrados y no hay parámetro que los devuelva —ni withTrashed, ni onlyTrashed—; un show de un borrado es 404, indistinguible de un id inexistente. En cambio PATCH, /assignment, /start, /finish y el segundo DELETE responden 400 «El viaje ya fue eliminado». NO EXISTE /restore.\n\nEL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.\n\nLA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 15 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 34 claves en camelCase, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.\n\nIMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto."
+            "description": "Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con NUEVE ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nPERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR Y NO SE PUEDE DESASIGNAR. /assignment es exclusiva del carrier, porque asignar es el acto por el que una empresa TOMA el viaje; el PATCH general NO ACEPTA pilotId ni vehicleId y mandarlos se ignora en silencio con 200. pilot_id y vehicle_id NO VUELVEN NUNCA A null —no hay desasignación, y null en /assignment es 422—. Reasignar solo se puede mientras el viaje siga pending: en in_route o finished es 400. CONSECUENCIA REAL: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta los tres valores sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y NO SE RECALCULA NUNCA. polyline es obligatoria en el alta Y en el PATCH; la resuelve el front con GET /api/places/directions (SPEC 16) y LA API NUNCA LLAMA A GOOGLE. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA y la API no avisa.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS con los espacios interiores colapsados; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan exists:, así que un id INVENTADO es 422; pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO, de modo que un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El cliente seleccionado fue eliminado», «La naviera seleccionada fue eliminada», «El destino seleccionado no es un puerto», «El puerto de destino está inactivo», «El punto de partida está inactivo», «El usuario seleccionado no es un piloto», «El piloto seleccionado no pertenece a ninguna empresa transportista», «El vehículo seleccionado no está activo» y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».\n\nCINCO CAMPOS SE DESCARTAN EN EL ALTA SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. El viaje nace pending, sin tripulación, y registeredBy sale del usuario autenticado. En el PATCH, además de pilotId y vehicleId, tampoco se reescriben assignedBy ni registeredBy.\n\n/start Y /finish NO TIENEN CUERPO. La fecha la pone el now() DEL SERVIDOR y mandarla en el body no se usa. start sobre un viaje ya iniciado es 400; finish sobre uno ya finalizado es 400, y sobre uno SIN startDate también es 400. Solo el piloto asignado las alcanza: otro piloto recibe 403.\n\nSOFT DELETES. El listado y el show EXCLUYEN los borrados y no hay parámetro que los devuelva —ni withTrashed, ni onlyTrashed—; un show de un borrado es 404, indistinguible de un id inexistente. En cambio PATCH, /assignment, /start, /finish y el segundo DELETE responden 400 «El viaje ya fue eliminado». NO EXISTE /restore.\n\nEL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.\n\nLA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 15 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 35 claves en camelCase —34 hasta SPEC 27, que añadió totalFuelGallons—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.\n\nATENCIÓN — IMPACTO DE SPEC 27 (COMBUSTIBLE) SOBRE ESTE DOMINIO, Y UNO DE LOS DOS CAMBIOS ES INCOMPATIBLE. Uno: PATCH /api/trips/{trip}/assignment PASA DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType, los cuatro obligatorios, SIN PERIODO DE GRACIA— y crea la primera carga de combustible dentro de su propia transacción; reasignar AÑADE otra carga en vez de pisarla. Dos: PATCH /api/trips/{trip}/start gana un CUARTO 400, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje», comprobado DESPUÉS de «El viaje ya fue iniciado», así que LOS VIAJES ASIGNADOS ANTES DE SPEC 27 NO PUEDEN ARRANCAR hasta que su empresa registre una carga y el piloto la confirme —no hubo backfill y el administrador no puede desbloquearlos—. /finish NO comprueba nada de combustible. El detalle gana la clave totalFuelGallons (solo las cargas CONFIRMADAS), el PATCH general NO acepta fuelGallons ni fuelType —se ignoran en silencio con 200—, GET /api/trips no gana ningún filtro de combustible y TripListItem sigue en 15 claves. Las cargas se gestionan en su propio dominio, Trip Fuels.\n\nIMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto."
+        },
+        {
+            "name": "Trip Fuels",
+            "description": "Cargas de combustible del viaje: la empresa transportista registra los galones que asigna al camión y el PILOTO ASIGNADO las confirma. TRES ENDPOINTS Y NINGUNO MÁS, los tres con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nLAS TRES RUTAS, con sus roles: POST /api/trips/{trip}/fuels (role:carrier) registra una carga SIN CONFIRMAR; GET /api/trips/{trip}/fuels (jwt.auth a secas) lista las del viaje con el ámbito de SPEC 24; y PATCH /api/trip-fuels/{tripFuel}/confirm (role:pilot) escribe la fecha de confirmación. Ninguna de las tres lleva carrier.required: el ámbito lo resuelve el service.\n\nATENCIÓN — LAS DOS PRIMERAS ESTÁN ANIDADAS BAJO {trip} y la tercera NO. La confirmación vive en /api/trip-fuels/{tripFuel}/confirm porque el id de la carga ya identifica el viaje, así que {trip} sería un parámetro de adorno. NO EXISTE UN LISTADO GLOBAL: no hay GET /api/trip-fuels, ni filtro tripId en query, ni endpoint de detalle GET /api/trip-fuels/{tripFuel}. El índice va siempre viaje → cargas.\n\nATENCIÓN — NI administrator NI manager ALCANZAN LAS DOS RUTAS DE ESCRITURA. Registrar es del carrier que tomó el viaje y confirmar es del pilot asignado; los otros roles reciben 403 «No tienes permisos para acceder a este recurso». Un administrador NO puede cargar, confirmar ni desbloquear nada: el PATCH general de un viaje no toca trip_fuels. En la LECTURA entran los cuatro roles, y AQUÍ EL PILOTO ASIGNADO SÍ LEE —a diferencia de GET /api/trips/{trip}/positions (SPEC 26), donde cualquier pilot recibe 403—: aquí el dato es sobre él.\n\nCUATRO GUARDAS DEL POST EN ORDEN FIJO, y ese orden es contrato: viaje inexistente → 404 «El viaje no existe»; viaje borrado → 400 «El viaje ya fue eliminado»; el viaje NO lo tomó la empresa de quien llama, INCLUIDO EL CASO DE UN VIAJE SIN ASIGNAR → 403 «No puedes registrar combustible en un viaje que no tomó tu empresa transportista»; el viaje está finished → 400 «El viaje ya fue finalizado». CONSECUENCIA: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403. Se carga en pending Y en in_route —una recarga en carretera es el caso real—, nunca después. Un carrier sin empresa registrada recibe 403 «No perteneces a ninguna empresa transportista» desde el service, no desde un middleware.\n\nATENCIÓN — LA BOLSA LIBRE SE LEE PERO NO SE CARGA. Un viaje pending sin asignar entra en el ámbito de lectura de SPEC 24, así que el GET responde 200 con data vacío y totalGallons \"0.00\", mientras el POST sobre ese mismo viaje responde 403: una carga sin piloto que la confirme nacería atascada.\n\nATENCIÓN — ESTE DOMINIO CAMBIÓ DOS ENDPOINTS DE SPEC 24. Uno: PATCH /api/trips/{trip}/assignment PASA DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType—, CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA, y crea la primera carga dentro de su propia transacción. Dos: PATCH /api/trips/{trip}/start gana un cuarto 400, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje». /finish NO comprueba nada de combustible. Y TripResource pasa de 34 a 35 claves con totalFuelGallons.\n\nATENCIÓN — LOS VIAJES ASIGNADOS ANTES DE ESTA SPEC NO PUEDEN ARRANCAR. Tienen cero cargas, totalFuelGallons en \"0.00\" y /start les responde 400. NO HUBO BACKFILL a propósito: la única salida es que su empresa haga el POST —que acepta pending y también in_route— y que el piloto confirme.\n\nNADA SE EDITA, NADA SE BORRA Y NADA SE DESCONFIRMA. La tabla es APPEND-ONLY, como trip_positions: no hay PATCH de galones, no hay DELETE de una carga, loaded_at no vuelve nunca a null y el DELETE (baja lógica) del viaje no toca ninguna fila. Una carga mal tecleada es permanente y no se puede compensar, porque los galones no admiten negativos.\n\nESTE DOMINIO NO ES CONTABILIDAD: no se guarda precio, ni costo, ni moneda, ni proveedor, ni factura. fuelType NO se comprueba contra fuel_prices (SPEC 06) —es una etiqueta, no una llave foránea— y tampoco se cruza con vehicles.kilometersPerGallon ni con la distancia del viaje. Tampoco hay galones realmente recibidos: el piloto confirma o no confirma, sin cantidad propia ni observación.\n\nNO SE EMITE NADA. Registrar o confirmar una carga NO manda correo y NO emite por Reverb: el canal privado trips.{tripId} sigue llevando solo posiciones. Y TripListResource sigue en 15 claves, GET /api/trips/current no cambia de forma y GET /api/trips no gana ningún filtro de combustible."
         },
         {
             "name": "Trip Positions",
