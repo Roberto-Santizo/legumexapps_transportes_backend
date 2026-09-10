@@ -16,6 +16,7 @@ use App\Models\DeparturePoint;
 use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripFuel;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -365,6 +366,23 @@ class TripService implements TripServiceInterface
                 'vehicle_id' => (int) $data['vehicleId'],
                 /** Quién asignó sale del usuario autenticado, nunca del body. */
                 'assigned_by' => $user->id,
+            ]);
+
+            /**
+             * La primera carga se inserta dentro de la misma transacción y detrás del mismo
+             * lock (SPEC 27): si el INSERT falla, la asignación entera se deshace y ningún
+             * viaje queda asignado con cero cargas. Reasignar AÑADE otra fila en vez de pisar
+             * la anterior, así que la reasignación deja el único rastro de esta spec —piloto
+             * y vehículo no lo dejan—.
+             */
+            TripFuel::create([
+                'trip_id' => $trip->id,
+                'gallons' => $data['fuelGallons'],
+                'fuel_type' => $data['fuelType'],
+                /** Nace sin confirmar: la confirma su piloto por /api/trip-fuels/{tripFuel}/confirm. */
+                'loaded_at' => null,
+                'confirmed_by' => null,
+                'registered_by' => $user->id,
             ]);
 
             return $trip;

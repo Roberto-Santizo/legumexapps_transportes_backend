@@ -107,7 +107,7 @@ interface TripServiceInterface
     public function destroy(int $id): Trip;
 
     /**
-     * Assign a pilot and a vehicle to the trip matching the given id.
+     * Assign a pilot, a vehicle and a first fuel load to the trip matching the given id.
      *
      * Only a carrier reaches this method, and it is the act by which a company **takes**
      * a trip: it writes pilot_id, vehicle_id and assigned_by together, with assigned_by
@@ -126,8 +126,18 @@ interface TripServiceInterface
      *
      * There is no way to undo it: neither field ever goes back to null.
      *
-     * @param  array{pilotId: int, vehicleId: int}  $data
-     *                                                     both are required: a trip is never assigned a pilot without a vehicle.
+     * Since SPEC 27 the very same transaction also inserts the trip's **first fuel
+     * load**, so no trip is ever left assigned with zero loads: if that insert fails,
+     * the whole assignment rolls back. Reassigning **appends** another row instead of
+     * overwriting the previous one, which makes the reassignment leave a trail that
+     * pilot and vehicle do not. The load is born unconfirmed, and until its pilot
+     * confirms it the trip cannot be started.
+     *
+     * @param  array{pilotId: int, vehicleId: int, fuelGallons: float|string, fuelType: string}  $data
+     *                                                                                                  all four are required since SPEC 27 —a breaking change with no grace period—: a
+     *                                                                                                  trip is never assigned a pilot without a vehicle, nor a crew without fuel.
+     *                                                                                                  fuelGallons is a positive amount crossed against nothing, and fuelType one of the
+     *                                                                                                  four FuelType cases, which is not required to have an active FuelPrice.
      */
     public function assign(User $user, int $id, array $data): Trip;
 

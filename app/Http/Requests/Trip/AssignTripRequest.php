@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests\Trip;
 
+use App\Enums\FuelType;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use OpenApi\Attributes as OA;
 
 #[OA\Schema(
@@ -52,20 +54,33 @@ class AssignTripRequest extends FormRequest
     public function rules(): array
     {
         /**
-         * Exactamente dos campos y los dos obligatorios: no se puede asignar solo piloto o
-         * solo vehículo, y `null` en cualquiera de los dos es 422 porque la desasignación no
-         * existe —una vez tomado, un viaje no vuelve nunca a la bolsa—.
+         * Cuatro campos y los cuatro obligatorios desde SPEC 27: asignar tripulación y
+         * asignar combustible son el mismo acto, así que ningún viaje queda asignado con
+         * cero cargas. Es cambio incompatible sin periodo de gracia —un cliente que siga
+         * mandando dos campos recibe 422—, como el POST de vehículos en SPEC 13 y el de
+         * destinos en SPEC 21.
+         *
+         * `null` en cualquiera de ellos es 422 porque la desasignación no existe —una vez
+         * tomado, un viaje no vuelve nunca a la bolsa—.
          *
          * `assignedBy` no se acepta: sale del usuario autenticado, que por el middleware
-         * role:carrier es siempre un transportista.
+         * role:carrier es siempre un transportista. Tampoco se acepta nada del ciclo de
+         * vida de la carga: nace sin confirmar y la confirma su piloto aparte.
          *
          * El `exists:` convierte un id inventado en 422; que el usuario tenga rol de piloto,
          * que tenga empresa, que el vehículo esté activo y que los dos sean de la misma
          * empresa son reglas de negocio y las levanta el service con su 400.
+         *
+         * `fuelGallons` no se cruza con nada: ni con `vehicles.kilometers_per_gallon`, ni
+         * con la distancia, ni con un techo de negocio. Y `fuelType` se valida solo contra
+         * los cuatro casos del enum: no se exige que ese tipo tenga un precio vigente,
+         * porque aquí no se guarda ningún precio.
          */
         return [
             'pilotId' => ['required', 'integer', 'exists:users,id'],
             'vehicleId' => ['required', 'integer', 'exists:vehicles,id'],
+            'fuelGallons' => ['required', 'numeric', 'min:0.01'],
+            'fuelType' => ['required', Rule::enum(FuelType::class)],
         ];
     }
 
@@ -81,6 +96,11 @@ class AssignTripRequest extends FormRequest
             'vehicleId.required' => 'El vehículo es obligatorio',
             'vehicleId.integer' => 'El vehículo debe ser un identificador válido',
             'vehicleId.exists' => 'El vehículo seleccionado no existe',
+            'fuelGallons.required' => 'Los galones de combustible son obligatorios',
+            'fuelGallons.numeric' => 'Los galones de combustible deben ser un número',
+            'fuelGallons.min' => 'Los galones de combustible deben ser mayores a 0',
+            'fuelType.required' => 'El tipo de combustible es obligatorio',
+            'fuelType.enum' => 'El tipo de combustible seleccionado no es válido',
         ];
     }
 }
