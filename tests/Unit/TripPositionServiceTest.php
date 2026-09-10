@@ -164,6 +164,13 @@ it('lanza 400 al reportar sobre un viaje que no está en ruta', function (string
 it('devuelve el punto anterior sin escribir ni emitir antes de los quince segundos', function () {
     Event::fake([TripPositionUpdated::class]);
 
+    /**
+     * El reloj se congela porque el margen del piso es de un solo segundo: sin congelar,
+     * el tiempo real que tarda la propia petición se suma a los 14 s viajados y el punto
+     * acaba escribiéndose bajo carga.
+     */
+    $this->freezeTime();
+
     ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
 
     $primero = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData());

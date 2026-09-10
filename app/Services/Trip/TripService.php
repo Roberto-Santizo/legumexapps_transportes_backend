@@ -17,6 +17,7 @@ use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
 use App\Models\TripFuel;
+use App\Models\TripTimeout;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -450,7 +451,34 @@ class TripService implements TripServiceInterface
             'status' => TripStatus::Finished,
         ]);
 
-        return $this->loadDetail($trip);
+        $this->closeOpenTimeout($trip);
+
+        return $trip->load(self::RELATIONS);
+    }
+
+    /**
+     * Close the stop the trip left open, if the truck was resting when the pilot finished.
+     *
+     * Written against the `TripTimeout` model directly and **not** through
+     * `TripTimeoutServiceInterface`: that service already injects this one to resolve the
+     * reading scope of SPEC 24, so the contract in the opposite direction would close a
+     * cycle in the container and Laravel would recurse forever resolving any trip route.
+     * Precedent for touching another domain's model: TripPositionService already reads
+     * `Trip::withTrashed()->find()`.
+     *
+     * `ended_at` is `now()` —the hour the pilot declared the trip over, coherent with the
+     * `end_date` written just above— and `end_position_id` stays `null`, which is the only
+     * thing telling «closed because the truck moved» from «closed because the trip ended».
+     *
+     * Finishing is the only write of this domain that touches a stop: neither the general
+     * PATCH, nor the assignment, nor the start, nor the logical delete go near the table.
+     */
+    private function closeOpenTimeout(Trip $trip): void
+    {
+        TripTimeout::query()
+            ->where('trip_id', $trip->id)
+            ->whereNull('ended_at')
+            ->update(['ended_at' => now()]);
     }
 
     /**

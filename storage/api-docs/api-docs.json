@@ -7770,6 +7770,105 @@
                 ]
             }
         },
+        "/api/trips/{trip}/timeouts": {
+            "get": {
+                "tags": [
+                    "Trip Timeouts"
+                ],
+                "summary": "Consultar las paradas de un viaje",
+                "description": "Devuelve las paradas detectadas durante el viaje —los tramos en que el camión estuvo quieto—, para marcarlas en el mapa junto al rastro o para explicar por qué un viaje tardó lo que tardó. NO LAS CREA NADIE: se derivan solas al escribir cada punto del rastro, así que este GET es el único endpoint del dominio.\n\nLA RUTA NO LLEVA role:, PERO NO LA ALCANZAN LOS CUATRO ROLES. El service rechaza con 403 A CUALQUIER pilot, INCLUIDO EL ASIGNADO AL VIAJE, con «No tienes permisos para consultar las paradas de un viaje»: el piloto emite y nada más, igual que con el rastro y con el canal de websocket de SPEC 26. Los otros tres entran acotados por el ámbito de SPEC 24: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa MÁS los pending sin tripulación (la bolsa libre). Un carrier fuera de ámbito recibe 403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista», NO 404: se le confirma que el viaje existe, igual que en el detalle del viaje y en el rastro.\n\nEL ORDEN ES started_at ASCENDENTE —de la primera parada del viaje a la última, AL REVÉS que la mayoría de listados del proyecto, que van del más nuevo al más viejo, e igual que el rastro de SPEC 26— con desempate por id ascendente, para que dos paradas que arrancasen en el mismo segundo salgan siempre en el mismo orden. No hay sortBy ni sortDir.\n\nNO HAY NI UN SOLO FILTRO: no existe open, ni dateFrom, ni dateTo, ni minDurationMinutes, ni pilotId. Cualquier query param que no sea limit o page SE IGNORA EN SILENCIO —?open=true&dateFrom=2026-01-01&sortDir=desc devuelve el listado completo con 200, nunca 422—. Tampoco se puede pedir solo la parada abierta: hay que buscar en el listado la que trae endedAt en null, y como mucho hay una por viaje.\n\nATENCIÓN — SIN limit SE DEVUELVEN TODAS LAS PARADAS. SPEC 27 no puso umbral mínimo de duración: se registra toda parada, semáforos incluidos, así que un recorrido urbano puede dejar decenas de filas de 15 a 30 segundos y nada se borra jamás. La paginación se mantiene opt-in por coherencia con el resto del proyecto; el filtrado por durationMinutes es del frontend.\n\nATENCIÓN — EL limit SE ACOTA A [10, 100], igual que en el rastro y a diferencia de GET /api/trips, que no tiene piso de 10 y respeta el tamaño pedido tal cual. Aquí limit=1 y limit=3 devuelven páginas de 10, y limit=500 devuelve páginas de 100.\n\nUn viaje inexistente o BORRADO es 404 «El viaje no existe», indistinguibles entre sí —el viaje borrado conserva sus paradas en la tabla, simplemente ya no hay forma de leerlas por API—. Un viaje SIN PARADAS —todavía pending, in_route sin reposos detectados, o anterior a SPEC 27, porque no hubo backfill— devuelve 200 con data vacío, NUNCA 404.\n\nCÓMO LEER CADA ELEMENTO, en nueve claves y sin tripId: latitude y longitude son las del ANCLA (el primer punto del reposo, no el que detectó la parada) y salen como STRING de ocho decimales; startedAt y endedAt van en d-m-Y h:i:s A y NO en ISO 8601; endedAt y durationMinutes son NULL mientras la parada siga abierta; y endPositionId nulo CON endedAt puesto significa que la cerró el PATCH /api/trips/{trip}/finish, que es la única forma de distinguir las dos causas de cierre.\n\nUSO PREVISTO: pedir el rastro con GET /api/trips/{trip}/positions para pintar la línea y este listado para marcar los pines de las paradas. NO HAY EVENTO DE WEBSOCKET para las paradas: quien mire el mapa en vivo verá que el punto no se mueve, y este GET es la única forma de saber desde cuándo.",
+                "operationId": "indexTripTimeouts",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Id numérico del viaje cuyas paradas se consultan (trips.id), EN LA URL: la ruta es anidada, como la del rastro, y no existe ningún listado global de paradas ni un query param tripId que lo sustituya. Un id inexistente o de un viaje borrado devuelve 404 «El viaje no existe»; uno fuera del ámbito del usuario, 403.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia es lo que ACTIVA la paginación: si se omite, o si no es numérico (limit=abc), se devuelven TODAS las paradas del viaje sin error y sin metadatos de paginación. Si es numérico se ACOTA a [10, 100]: limit=1 y limit=3 devuelven páginas de 10, y limit=500 devuelve páginas de 100. ATENCIÓN — aquí SÍ hay piso de 10, al contrario que en GET /api/trips.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto cuando se envía un limit numérico. Como el orden es started_at ascendente, page=1 trae las primeras paradas del viaje y la última página, las más recientes.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Paradas obtenidas correctamente. Sin limit se devuelve TripTimeoutListResponse con todas las paradas del viaje; con limit numérico, PaginatedTripTimeoutListResponse, con total, currentPage y lastPage APLANADOS EN LA RAÍZ del sobre, no bajo meta. Van ordenadas por started_at ASCENDENTE con desempate por id. Un viaje sin paradas devuelve 200 con data vacío, nunca 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/TripTimeoutListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedTripTimeoutListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Sin permiso para leer estas paradas. DOS CAUSAS DISTINTAS con mensajes distintos: cualquier pilot —INCLUIDO EL ASIGNADO AL VIAJE— recibe «No tienes permisos para consultar las paradas de un viaje», porque el piloto emite y nada más; un carrier que pide un viaje asignado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista». Fuera de ámbito es 403, NO 404.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El viaje no existe o fue borrado —los dos casos son indistinguibles a propósito—. El mensaje devuelto es: El viaje no existe. ATENCIÓN — que el viaje esté borrado no significa que sus paradas se hayan perdido: las filas siguen en la tabla, igual que su rastro, simplemente ya no hay forma de leerlas por API. Y un viaje que existe pero no tiene paradas NO da 404: da 200 con data vacío.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/vehicles": {
             "get": {
                 "tags": [
@@ -12688,6 +12787,95 @@
                     }
                 ]
             },
+            "TripTimeout": {
+                "title": "Parada detectada en el rastro de un viaje",
+                "description": "Una parada del camión: dónde se quedó quieto, desde cuándo y hasta cuándo. NUEVE CLAVES en camelCase y ninguna más, en este orden: id, latitude, longitude, startedAt, endedAt, durationMinutes, pilotId, startPositionId y endPositionId.\n\nATENCIÓN — NADIE CREA ESTE OBJETO. No hay POST, ni PATCH, ni DELETE de una parada: nace como efecto lateral del POST /api/trips/{trip}/positions —solo en la rama del 201, nunca en el 200 del piso de 15 segundos— cuando un punto llega a menos de 5 metros del anterior. Una parada mal detectada es historial y se queda.\n\nATENCIÓN — latitude Y longitude SON LAS DEL ANCLA, NO LAS DEL PUNTO QUE DETECTÓ LA PARADA. El ancla es el PUNTO ANTERIOR, el primero del reposo: «está parado desde las 08:14» es el dato útil, y anclar la parada en el punto que la detectó perdería el primer tramo. Salen como STRING de ocho decimales («14.62820000», «-90.52290000»), igual que en TripPosition y en Location: el frontend debe convertirlas antes de pintarlas (parseFloat) y no comparar puntos por igualdad de cadena. Van copiadas en la fila a propósito, para que el mapa pinte el pin sin un segundo viaje a la base.\n\nATENCIÓN — NO TRAE tripId. Quien pide las paradas con GET /api/trips/{trip}/timeouts ya lo lleva en la URL, exactamente como en TripPosition. Si el frontend mezcla paradas de varios viajes en la misma estructura, tiene que anotar el viaje por su cuenta.\n\nDOS ESTADOS Y NINGÚN ENUM: lo dice endedAt. Con endedAt en null la parada SIGUE ABIERTA —el camión seguía quieto la última vez que reportó— y durationMinutes también es null. Con endedAt puesto, la parada está cerrada.\n\nATENCIÓN — endPositionId NULO CON endedAt PUESTO SIGNIFICA QUE LA CERRÓ EL FIN DEL VIAJE, no que el camión se moviera. Es la ÚNICA forma de distinguir las dos causas de cierre: no hay closeReason, ni type, ni enum. Con endPositionId puesto, la cerró el punto cuyo id es ese, a 5 metros o más del ancla.\n\nNO HAY MOTIVO NI TELEMETRÍA: sin reason, sin notes, sin catálogo de causas, sin velocidad, rumbo ni precisión del GPS. La parada se deduce SOLO de la distancia entre dos puntos, y ni el piloto ni nadie explica por qué se detuvo. Tampoco hay umbral mínimo de duración: SE REGISTRA TODA PARADA, semáforos incluidos —un recorrido urbano puede dejar decenas de filas de 15 a 30 segundos—, y filtrar por durationMinutes es del consumidor.\n\nNO HAY WEBSOCKET PARA LAS PARADAS: no se emite nada al abrirlas ni al cerrarlas, y el payload de .trip.position.updated sigue con sus SEIS claves intactas. Quien mira el mapa se entera de la parada al ver que el punto no se mueve, o pidiendo este GET.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la parada (trip_timeouts.id). NO ES PARÁMETRO DE NINGUNA RUTA: no existe /timeouts/{timeout}, ni detalle, ni edición, ni borrado. Sirve para deduplicar en el frontend y como desempate del orden del listado entre dos paradas que arrancaron en el mismo segundo.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "latitude": {
+                        "description": "Latitud del ANCLA de la parada —el primer punto del reposo, no el punto que la detectó—, SIEMPRE COMO STRING de ocho decimales (decimal(10,8) en la base). Es una copia de la latitude del trip_position cuyo id es startPositionId, guardada en la fila para que el mapa pinte el pin sin un segundo viaje a la base; la copia no puede desincronizarse porque una posición es inmutable desde SPEC 26.",
+                        "type": "string",
+                        "example": "14.62820000"
+                    },
+                    "longitude": {
+                        "description": "Longitud del ANCLA de la parada, SIEMPRE COMO STRING de ocho decimales (decimal(11,8) en la base). Mismo criterio que latitude: copia del punto donde arrancó el reposo. La distancia contra estas dos coordenadas es la que decide el cierre —a 5 metros o más se considera que el camión se movió—, calculada con Haversine en PHP y sin PostGIS.",
+                        "type": "string",
+                        "example": "-90.52290000"
+                    },
+                    "startedAt": {
+                        "description": "Momento en que empezó el reposo: el recordedAt del ANCLA, no el de la petición que detectó la parada. En el formato propio del proyecto d-m-Y h:i:s A, NO en ISO 8601. Es la clave por la que se ordena el listado (ascendente, con desempate por id) y nunca es null.",
+                        "type": "string",
+                        "example": "10-09-2026 08:14:00 AM"
+                    },
+                    "endedAt": {
+                        "description": "Momento en que la parada se cerró, en el formato d-m-Y h:i:s A y NUNCA en ISO 8601. NULL MIENTRAS LA PARADA SIGA ABIERTA —el camión seguía quieto en su último punto reportado, o dejó de reportar sin que nadie finalizara el viaje: no hay job de cierre por inactividad—. Cuando la cerró un punto en movimiento es el recordedAt de ese punto; cuando la cerró el PATCH /api/trips/{trip}/finish es el now() del servidor en ese instante, coherente con el endDate que el viaje escribe a la vez.",
+                        "type": "string",
+                        "example": "10-09-2026 08:41:30 AM",
+                        "nullable": true
+                    },
+                    "durationMinutes": {
+                        "description": "Cuánto duró la parada, en minutos con dos decimales: 27 minutos y 30 segundos salen como 27.5, y 5 segundos como 0.08. ES CALCULADO EN LECTURA —round(segundos / 60, 2) sobre las dos horas—, sin columna, sin job y sin caché, con el precedente de currentValue en SPEC 17: NO SE PUEDE FILTRAR NI ORDENAR POR ÉL, porque la base no lo conoce. ATENCIÓN — NULL MIENTRAS LA PARADA ESTÉ ABIERTA, a propósito: medirlo contra now() daría un valor distinto en cada lectura, no comparable entre dos peticiones y engañoso en una captura de pantalla. Tampoco existe el total parado del viaje: sumar es del consumidor.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 27.5,
+                        "nullable": true
+                    },
+                    "pilotId": {
+                        "description": "Id del usuario que conducía cuando se abrió la parada (users.id), copiado del punto ancla y nunca de un cuerpo: aquí no hay registeredBy porque el autor es el piloto. Hoy coincide con el pilotId del viaje, pero se guarda aparte por el mismo motivo que en TripPosition: SPEC 24 permite reasignar la tripulación mientras el viaje sigue pending, y la parada debe seguir diciendo quién estaba al volante. No viene acompañado del nombre.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "startPositionId": {
+                        "description": "Id del punto del rastro que ancla la parada (trip_positions.id): el ÚLTIMO punto antes de que el camión dejara de moverse, no el que la detectó. Nunca es null. Sus coordenadas y su hora son justo las que salen aquí como latitude, longitude y startedAt, así que cruzarlo con GET /api/trips/{trip}/positions es opcional.",
+                        "type": "integer",
+                        "example": 340
+                    },
+                    "endPositionId": {
+                        "description": "Id del punto del rastro que cerró la parada (trip_positions.id): el primero que se midió a 5 metros o MÁS del ancla. ATENCIÓN — SU NULL NO SIGNIFICA SIEMPRE LO MISMO: con endedAt también en null, la parada sigue abierta; con endedAt PUESTO y este campo en null, la cerró el PATCH /api/trips/{trip}/finish, y ese null es la ÚNICA forma de distinguir «cerrada porque el camión se movió» de «cerrada porque el viaje terminó» —no hay columna closeReason ni enum—.",
+                        "type": "integer",
+                        "example": 451,
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "TripTimeoutListResponse": {
+                "title": "Paradas del viaje sin paginar",
+                "description": "Respuesta de GET /api/trips/{trip}/timeouts cuando NO se envía limit, o cuando el limit no es numérico (limit=abc): se devuelven TODAS las paradas del viaje y el sobre NO incluye total, currentPage ni lastPage.\n\nATENCIÓN — «TODAS» PUEDE SER MUCHAS. SPEC 27 decidió no poner umbral mínimo de duración: se registra toda parada, semáforos incluidos, así que un recorrido urbano puede dejar decenas de filas de 15 a 30 segundos y nada se borra nunca. La paginación sigue siendo opt-in por coherencia con el resto del proyecto; filtrar por durationMinutes es del frontend.\n\nEl orden es FIJO: started_at ASCENDENTE —de la primera parada del viaje a la última, AL REVÉS que la mayoría de listados del proyecto, que van del más nuevo al más viejo, e igual que el rastro de SPEC 26— con desempate por id ascendente. NO HAY FILTROS DE NINGÚN TIPO: no existe open, ni dateFrom, ni dateTo, ni minDurationMinutes, ni sortDir. Cualquier query param que no sea limit o page SE IGNORA sin error, nunca 422.\n\nUn viaje sin paradas —todavía pending, in_route sin reposos detectados, o anterior a SPEC 27, porque no hubo backfill del rastro histórico— devuelve 200 con data vacío, NUNCA 404.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Paradas obtenidas correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripTimeout"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedTripTimeoutListResponse": {
+                "title": "Paradas del viaje paginadas",
+                "description": "Respuesta de GET /api/trips/{trip}/timeouts cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS EN LA RAÍZ del sobre, junto a statusCode, message y data, NO anidados bajo meta.\n\nATENCIÓN — EL TAMAÑO DE PÁGINA SE ACOTA A [10, 100], igual que en el rastro de SPEC 26 y a diferencia de GET /api/trips, que no tiene piso de 10 y respeta el limit tal cual. Aquí limit=1 y limit=3 devuelven páginas de 10, y limit=500 devuelve páginas de 100. Conviene no asumir que la página tendrá el tamaño pedido.\n\ntotal cuenta TODAS las paradas del viaje, no las de la página. El orden sigue siendo started_at ascendente, así que page=1 trae las primeras paradas del viaje y la última página, las más recientes.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/TripTimeoutListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
             "TripListItem": {
                 "title": "Viaje en el listado",
                 "description": "El viaje tal como sale en GET /api/trips: 15 CLAVES en camelCase, no las 34 del detalle. Es una vista de tabla, no el recurso completo.\n\nATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; vehicleImage, pilotDpiImage ni pilotLicenseImage; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.\n\nATENCIÓN — points NO SE CALCULA EN EL LISTADO. La polilínea solo se decodifica en el detalle, así que el mapa se pinta desde ahí y nunca desde una fila de la tabla.\n\nLas cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés. Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.\n\nLas 15 claves salen siempre en este orden: id, order, status, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, observations, pilotName, vehiclePlate y registeredByName.",
@@ -13633,6 +13821,10 @@
         {
             "name": "Trip Positions",
             "description": "Seguimiento en vivo del viaje: el piloto asignado reporta dónde está mientras el viaje está in_route, cada punto se guarda en trip_positions y se emite por websocket a quien esté mirando el mapa. DOS ENDPOINTS Y NINGUNO MÁS, los dos con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nATENCIÓN — ES LA PRIMERA RUTA ANIDADA DEL PROYECTO. SPEC 14 (gastos de vehículo) y SPEC 18 (características de accesorio) evitaron anidar a propósito y hacen viajar el vínculo en un query param OBLIGATORIO; aquí el id del viaje va EN LA URL: /api/trips/{trip}/positions. No existe ningún listado global de posiciones, ni /api/trip-positions, ni un filtro tripId en query.\n\nPERMISOS ASIMÉTRICOS, Y ES LA TRAMPA PRINCIPAL DEL DOMINIO. POST: SOLO pilot (middleware role:pilot) y además SOLO EL PILOTO ASIGNADO al viaje —un administrator, un carrier o un manager reciben 403 «No tienes permisos para acceder a este recurso» aunque sean quienes miran el mapa—. GET: la ruta NO lleva role:, pero el service da 403 A CUALQUIER pilot, INCLUIDO EL ASIGNADO AL VIAJE, con «No tienes permisos para consultar el rastro de un viaje». EL PILOTO EMITE Y NADA MÁS: queda fuera del GET y fuera del canal de websocket. Ninguna de las dos rutas lleva carrier.required.\n\nEL ÁMBITO DE LECTURA ES EL DE SPEC 24 Y NO SE REESCRIBE AQUÍ: administrator y manager alcanzan el rastro de CUALQUIER viaje; un carrier, los que asignó su empresa MÁS la bolsa libre (los pending sin tripulación); fuera de ámbito es 403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista», NO 404. Un viaje inexistente o borrado es 404 «El viaje no existe» en el GET.\n\nATENCIÓN — EL POST RESPONDE 201 O 200, Y SON COSAS DISTINTAS. 201 = el punto se escribió y el evento se emitió. 200 = PISO DE 15 SEGUNDOS: la petición llegó a menos de 15 s del último punto del viaje, así que NO SE ESCRIBIÓ NADA, NO SE EMITIÓ NADA y se devuelve el punto anterior tal cual. Es silencio deliberado —la app del piloto reintenta cuando la red va mal y devolverle un error la empujaría a lógica defensiva—, con el precedente del archivo ignorado de SPEC 19. LA APP DEBE DISTINGUIRLOS POR EL STATUS, no comparando coordenadas: dos puntos iguales seguidos son legítimos (un camión parado sigue reportando). El piso de 15 s es el ÚNICO freno del dominio: no hay rate limiting por IP ni por token.\n\nCUATRO GUARDAS DEL POST EN ORDEN FIJO, y ese orden es contrato: viaje inexistente → 404 «El viaje no existe»; viaje borrado → 400 «El viaje ya fue eliminado»; quien llama no es el pilot_id del viaje → 403 «No puedes reportar la posición de un viaje que no tienes asignado»; el viaje no está in_route → 400 «El viaje no está en ruta». CONSECUENCIA: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403 del ajeno.\n\nrecordedAt Y pilotId NO SE ACEPTAN EN EL CUERPO: la hora la pone el servidor con now() y el autor sale del token. Mandarlos se descarta en silencio. NO HAY VALIDACIÓN GEOGRÁFICA: latitude entre -90 y 90, longitude entre -180 y 180 y nada más —ni contra la polyline del viaje, ni contra Guatemala, ni contra un salto físicamente posible—.\n\nLA MITAD DE LA FUNCIONALIDAD NO ES HTTP: EL WEBSOCKET. Cada punto escrito emite el evento .trip.position.updated (con el punto inicial, sin namespace PHP) sobre el canal PRIVADO trips.{tripId}, con SEIS CLAVES en el payload: tripId, latitude, longitude, recordedAt (d-m-Y h:i:s A), pilotId y pilotName —una más y una menos que el recurso HTTP: trae tripId y pilotName, que el recurso no tiene—. La suscripción se autoriza en POST /api/broadcasting/auth, con el MISMO Authorization: Bearer del resto de la API (no hay sesión ni cookie), y el callback aplica las mismas dos reglas: cualquier pilot recibe false, y el resto solo alcanza los viajes que ya vería por HTTP. Es PrivateChannel, no de presencia: nadie sabe quién más está mirando. No hay canal de flota (ni trips global ni carriers.{id}.trips): para seguir tres viajes hay que suscribirse a tres canales. No hay client events ni whisper: la única entrada es el POST. Y NO HAY REPLAY: quien se conecta a mitad de viaje pide el rastro con el GET y desde ahí escucha.\n\nATENCIÓN — SI php artisan reverb:start NO ESTÁ CORRIENDO, NO LLEGA NADA Y LA API NO AVISA. El event() va envuelto en try/catch que registra en el log y sigue: la API responde 201 a cada POST, los puntos se guardan enteros y EL MAPA SIMPLEMENTE NO SE MUEVE, sin ningún error visible. Perder el aviso en vivo nunca puede costar el dato. Si «no llega nada», el síntoma es de servidor, no de código.\n\nNADA SE EDITA NI SE BORRA. No hay PATCH ni DELETE de un punto, no hay purga por antigüedad, la tabla no tiene deleted_at y el DELETE (baja lógica) del viaje NO TOCA trip_positions. Una coordenada mala es historial.\n\nLO QUE ESTE DOMINIO NO CAMBIÓ: TripResource y TripListResource siguen exactamente igual —el viaje NO gana lastLatitude, lastLongitude ni lastPositionAt—, la tabla trips no gana ni una columna y los ocho endpoints de SPEC 24 responden como antes."
+        },
+        {
+            "name": "Trip Timeouts",
+            "description": "Paradas del camión durante el viaje: dónde se quedó quieto, desde cuándo y hasta cuándo, derivadas automáticamente del rastro de SPEC 26. UN SOLO ENDPOINT Y NINGUNO MÁS: GET /api/trips/{trip}/timeouts, con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nATENCIÓN — NADIE CREA UNA PARADA, Y ES LA TRAMPA PRINCIPAL DEL DOMINIO. NO HAY POST, NI PATCH, NI DELETE: no existe /api/trip-timeouts, ni un cuerpo que mandar, ni forma de corregir una parada mal detectada. Las paradas NACEN COMO EFECTO LATERAL del POST /api/trips/{trip}/positions —el endpoint del piloto de SPEC 26—, y SOLO EN LA RAMA DEL 201: una petición descartada por el piso de 15 segundos (el 200) no abre, no cierra y no toca ninguna fila. Una parada mal detectada es historial y se queda, igual que una coordenada mala en SPEC 26.\n\nCÓMO NACE Y CÓMO MUERE, QUE ES LO QUE HAY QUE ENTENDER PARA LEER LA RESPUESTA. Al escribir cada punto se evalúa una sola regla, en este orden: 1) si el viaje NO tiene parada abierta, se mide la distancia contra el PUNTO ANTERIOR del rastro, y a menos de 5 metros se ABRE una parada anclada EN ESE PUNTO ANTERIOR —su hora, su id y sus coordenadas—, no en el punto que la detectó; 2) si el viaje YA tiene parada abierta, se mide contra el ANCLA de esa parada, y a 5 metros o MÁS se CIERRA con el recordedAt y el id del punto nuevo. Por debajo del umbral no se toca ni una columna. El primer punto de un viaje no abre nada: no hay contra qué medir. Y un punto NUNCA cierra y abre en la misma petición, porque el punto que cierra una parada es, por definición, un punto en movimiento.\n\nLA SEGUNDA VÍA DE CIERRE ES EL PATCH /api/trips/{trip}/finish: al finalizar el viaje, la parada que siguiera abierta se cierra con ended_at = now() y endPositionId QUEDA EN NULL. ESE NULL ES LA ÚNICA FORMA DE DISTINGUIR «cerrada porque el camión se movió» de «cerrada porque el viaje terminó»: no hay closeReason, ni type, ni enum. Ninguna otra escritura del viaje toca las paradas: ni el PATCH general del administrador, ni /assignment, ni /start, ni el DELETE (baja lógica), que conserva las paradas igual que conserva el rastro.\n\nATENCIÓN — EL UMBRAL SON 5 METROS Y NO SE CONFIGURA. Se calcula con Haversine sobre las dos coordenadas, sin PostGIS, y vive en una constante del código: no hay query param, ni ajuste por viaje, ni por empresa. Consecuencia asumida con el ruido real del GPS: un receptor parado que derive puede cerrar y reabrir paradas cortas en cadena, y un camión en marcha muy lenta puede no abrir ninguna.\n\nNO HAY UMBRAL MÍNIMO DE DURACIÓN: SE REGISTRA TODA PARADA, semáforos incluidos —la resolución mínima es el propio piso de 15 segundos—, así que un recorrido urbano puede dejar DECENAS DE FILAS y el GET sin limit las devuelve todas. La API no decide qué parada importa: filtrar por durationMinutes es del frontend.\n\nPERMISOS: la ruta lleva jwt.auth A SECAS —sin role: y sin carrier.required—, pero NO la alcanzan los cuatro roles. El service da 403 A CUALQUIER pilot, INCLUIDO EL ASIGNADO AL VIAJE, con «No tienes permisos para consultar las paradas de un viaje»: EL PILOTO EMITE Y NADA MÁS, exactamente como en el rastro y en el canal de websocket de SPEC 26. Los otros tres roles entran acotados por el ÁMBITO DE SPEC 24, que no se reescribe aquí: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa MÁS la bolsa libre (los pending sin tripulación); fuera de ámbito es 403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista», NO 404. Un viaje inexistente o borrado es 404 «El viaje no existe».\n\nNO HAY WEBSOCKET PARA LAS PARADAS. No se emite nada al abrir ni al cerrar una: no hay evento ni canal nuevos, y el payload de .trip.position.updated SIGUE CON SUS SEIS CLAVES intactas (tripId, latitude, longitude, recordedAt, pilotId, pilotName). Quien mira el mapa se entera de la parada al ver que el punto no se mueve, o pidiendo este GET.\n\nLO QUE ESTE DOMINIO NO CAMBIÓ: TripResource sigue con 34 claves y TripListResource con 15 —el viaje NO gana openTimeoutId, isStopped ni totalStoppedMinutes—, la tabla trips no gana ni una columna, GET /api/trips/{trip}/positions responde exactamente igual que antes y el POST de posiciones conserva su cuerpo de dos campos, sus cuatro guardas en el mismo orden y su piso de 15 segundos.\n\nSIN BACKFILL: los viajes anteriores a SPEC 27 no ganan paradas —nadie recorre su rastro hacia atrás—, y un viaje que ya estaba in_route al desplegar empieza a detectarlas desde su siguiente punto. Un listado vacío puede significar «no paró», «no reportó» o «es anterior a la spec», y el frontend no puede distinguirlos."
         },
         {
             "name": "Vehicles",

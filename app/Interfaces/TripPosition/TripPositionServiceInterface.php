@@ -56,6 +56,11 @@ interface TripPositionServiceInterface
      * error for retrying would push it into defensive logic of its own — same silence
      * as the file ignored by an expense with `is_invoiced=false` in SPEC 19.
      *
+     * When the point is recorded —and only then— it is also handed to
+     * `TripTimeoutServiceInterface::trackPosition()`, which may open or close one of the
+     * trip's stops (SPEC 27). Nothing of that reaches this response: the body is the same
+     * five key resource it always was, and the stops are read from their own endpoint.
+     *
      * When the point is recorded, a `TripPositionUpdated` is broadcast on the trip's
      * private channel. The dispatch is wrapped in a try/catch that logs and carries on:
      * Reverb being down loses the live notice, never the row.

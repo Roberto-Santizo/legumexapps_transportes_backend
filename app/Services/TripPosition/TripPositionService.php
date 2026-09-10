@@ -10,6 +10,7 @@ use App\Errors\NotFoundError;
 use App\Events\Trip\TripPositionUpdated;
 use App\Interfaces\Trip\TripServiceInterface;
 use App\Interfaces\TripPosition\TripPositionServiceInterface;
+use App\Interfaces\TripTimeout\TripTimeoutServiceInterface;
 use App\Models\Trip;
 use App\Models\TripPosition;
 use App\Models\User;
@@ -42,13 +43,17 @@ class TripPositionService implements TripPositionServiceInterface
     private const MIN_SECONDS_BETWEEN_POSITIONS = 15;
 
     /**
-     * The trip domain resolves both the trip and the reading scope of SPEC 24.
+     * The trip domain resolves both the trip and the reading scope of SPEC 24, and the
+     * timeout domain turns each recorded point into the trip's stops (SPEC 27).
      *
-     * Injected by constructor —the by method parameter rule is the controller's alone—
-     * so this service never rewrites that matrix. Precedent: the FreightRateService
-     * that injected ZoneServiceInterface until SPEC 15.
+     * Both injected by constructor —the by method parameter rule is the controller's
+     * alone— so this service never rewrites the scope matrix nor the detection. First
+     * precedent: the FreightRateService that injected ZoneServiceInterface until SPEC 15.
      */
-    public function __construct(private TripServiceInterface $tripService) {}
+    public function __construct(
+        private TripServiceInterface $tripService,
+        private TripTimeoutServiceInterface $tripTimeoutService,
+    ) {}
 
     #[Override]
     public function getPositions(User $user, int $tripId, array $filters): LengthAwarePaginator|Collection
@@ -97,6 +102,16 @@ class TripPositionService implements TripPositionServiceInterface
             /** Ídem la hora: aceptarla del dispositivo la haría falsificable y desordenaría el rastro. */
             'recorded_at' => now(),
         ]);
+
+        /**
+         * Solo aquí, nunca en la rama del piso de 15 s: evaluar una petición descartada
+         * abriría paradas a partir de puntos que no llegaron al rastro.
+         *
+         * Va fuera del try/catch del broadcast a propósito: perder el aviso en vivo no
+         * puede costar el punto, pero una parada mal detectada sí es un dato equivocado,
+         * así que si la detección falla, falla la petición.
+         */
+        $this->tripTimeoutService->trackPosition($position);
 
         $this->broadcastPosition($position, $user);
 
