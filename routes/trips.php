@@ -2,6 +2,7 @@
 
 use App\Enums\UserRole;
 use App\Http\Controllers\TripController;
+use App\Http\Controllers\TripFuelController;
 use App\Http\Controllers\TripPositionController;
 use Illuminate\Support\Facades\Route;
 
@@ -64,6 +65,24 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
 
     Route::get('/{trip}/positions', [TripPositionController::class, 'index'])
         ->name('positions.index');
+
+    /**
+     * Las cargas de combustible se anidan igual que las posiciones, y por el mismo
+     * argumento: una carga sin su viaje no significa nada y {trip} ya es el parámetro
+     * del grupo. La confirmación, en cambio, NO se anida y vive en routes/trip-fuels.php:
+     * el id de la carga ya identifica el viaje.
+     *
+     * Registrar es del transportista que tomó el viaje —la empresa lo comprueba el
+     * service, no el middleware—; leer no lleva role: porque lo decide el ámbito de
+     * SPEC 24 dentro del service, y aquí, a diferencia del rastro, el piloto asignado SÍ
+     * entra: el dato es suyo. Ninguna de las dos lleva carrier.required.
+     */
+    Route::post('/{trip}/fuels', [TripFuelController::class, 'store'])
+        ->middleware(["role:{$carrier}"])
+        ->name('fuels.store');
+
+    Route::get('/{trip}/fuels', [TripFuelController::class, 'index'])
+        ->name('fuels.index');
 
     /**
      * La lectura no lleva role: los cuatro roles listan y consultan, y lo que cada uno
