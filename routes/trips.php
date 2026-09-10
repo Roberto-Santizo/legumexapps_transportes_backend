@@ -3,6 +3,7 @@
 use App\Enums\UserRole;
 use App\Http\Controllers\TripController;
 use App\Http\Controllers\TripPositionController;
+use App\Http\Controllers\TripTimeoutController;
 use Illuminate\Support\Facades\Route;
 
 $administrator = UserRole::Administrator->value;
@@ -64,6 +65,15 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
 
     Route::get('/{trip}/positions', [TripPositionController::class, 'index'])
         ->name('positions.index');
+
+    /**
+     * Las paradas se derivan del rastro y se leen igual que él: jwt.auth a secas, el
+     * ámbito de SPEC 24 dentro del service y ningún pilot admitido, ni siquiera el
+     * asignado. No hay POST, ni PATCH, ni DELETE: una parada nace como efecto lateral
+     * del POST de posiciones y la cierra el punto que se aleja, o el finish del viaje.
+     */
+    Route::get('/{trip}/timeouts', [TripTimeoutController::class, 'index'])
+        ->name('timeouts.index');
 
     /**
      * La lectura no lleva role: los cuatro roles listan y consultan, y lo que cada uno
