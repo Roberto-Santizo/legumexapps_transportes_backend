@@ -1,6 +1,6 @@
 # SPEC 27 — Paradas del viaje (trip timeouts)
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 24, SPEC 26
 > **Fecha:** 2026-09-10
 > **Objetivo:** Detectar automáticamente las paradas del camión al escribir cada posición del rastro —un punto a menos de 5 m del anterior abre un `trip_timeout` con la hora del primer punto del reposo, y el primer punto a 5 m o más del ancla lo cierra—, exponerlas en `GET /api/trips/{trip}/timeouts` y cerrar la parada abierta cuando el piloto finaliza el viaje.
