@@ -151,6 +151,12 @@ interface TripServiceInterface
      * Throws a ForbiddenError when the caller is not the trip's pilot_id, a
      * BadRequestError when the trip has already been started, a NotFoundError when it
      * does not exist and a BadRequestError when it has been deleted.
+     *
+     * Since SPEC 27 there is a fourth guard, checked **after** «El viaje ya fue
+     * iniciado» so a retry on a running trip does not start talking about fuel: the trip
+     * must hold at least one **confirmed** fuel load, or it throws a BadRequestError. A
+     * registered load nobody confirmed is not enough, which is what turns the pilot's
+     * confirmation into a real requirement instead of paperwork.
      */
     public function start(User $user, int $id): Trip;
 

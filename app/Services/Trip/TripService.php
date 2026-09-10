@@ -402,6 +402,21 @@ class TripService implements TripServiceInterface
             throw new BadRequestError('El viaje ya fue iniciado');
         }
 
+        /**
+         * Cuarta y última guarda (SPEC 27), deliberadamente DESPUÉS de «El viaje ya fue
+         * iniciado» para que un reintento sobre un viaje en curso no hable de combustible.
+         *
+         * Es lo que convierte la confirmación del piloto en un requisito real y no en un
+         * trámite: sin ella, `loaded_at` sería una fecha que nadie mira. Consecuencia
+         * buscada: el piloto se bloquea a sí mismo hasta confirmar. Consecuencia no
+         * buscada: si su empresa no registra ninguna carga, el viaje no arranca por
+         * ninguna vía —el administrador tampoco puede desbloquearlo, porque su PATCH no
+         * toca trip_fuels—.
+         */
+        if (! $trip->fuels()->whereNotNull('loaded_at')->exists()) {
+            throw new BadRequestError('Debes confirmar al menos una carga de combustible antes de iniciar el viaje');
+        }
+
         /** La hora la pone el servidor: aceptarla del cuerpo permitiría declarar un arranque que no fue. */
         $trip->update([
             'start_date' => now(),
