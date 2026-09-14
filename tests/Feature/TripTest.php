@@ -242,11 +242,11 @@ function tripPayload(array $overrides = []): array
 }
 
 /**
- * The 35 keys `TripResource` promises, in the order the resource declares them.
+ * The 37 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
- * its name —the vehicle adds a third key, `vehicleImage`—, and `points` is derived
- * from `polyline` on every read.
+ * its name —the vehicle adds a third key, `vehicleImage`—, `points` is derived from
+ * `polyline` on every read and, since SPEC 28, `traveledPoints` from `traveledPolyline`.
  *
  * @return array<int, string>
  */
@@ -260,7 +260,7 @@ function tripResourceKeys(): array
         'locationId', 'locationName',
         'destination', 'container', 'transport',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
-        'polyline', 'points', 'observations',
+        'polyline', 'points', 'traveledPolyline', 'traveledPoints', 'observations',
         'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
         'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
@@ -1910,7 +1910,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 15 claves en el listado y las 35 del detalle, y no las confunde', function () {
+it('devuelve 15 claves en el listado y las 37 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -1918,7 +1918,7 @@ it('devuelve 15 claves en el listado y las 35 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(35)
+    expect(tripResourceKeys())->toHaveCount(37)
         ->and(tripListResourceKeys())->toHaveCount(15)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripResourceKeys());
@@ -1966,8 +1966,8 @@ it('devuelve las seis relaciones como par id + nombre plano, nunca como objeto a
         ->and($data['assignedById'])->toBe($team['owner']->id)
         ->and($data['assignedByName'])->toBe($team['owner']->name)
         ->and($data['registeredByName'])->toBe($admin->name)
-        /** Ni un solo objeto anidado: las seis relaciones salen aplanadas. */
-        ->and(collect($data)->except('points')->filter(fn ($valor) => is_array($valor))->all())->toBe([]);
+        /** Ni un solo objeto anidado: las seis relaciones salen aplanadas; las dos listas son las polilíneas decodificadas. */
+        ->and(collect($data)->except(['points', 'traveledPoints'])->filter(fn ($valor) => is_array($valor))->all())->toBe([]);
 });
 
 it('devuelve vehicleImage como URL absoluta del vehículo asignado, no como la key cruda', function () {
@@ -2659,12 +2659,14 @@ it('guarda al cerrar el viaje la polilínea con los puntos del rastro en orden',
 
     tripSeedTrail($trip, tripTraveledPoints());
 
-    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+    $response = asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
 
     $polyline = $trip->fresh()->traveled_polyline;
 
     expect($polyline)->toBe(PolylineEncoder::encode(tripTraveledPoints()))
-        ->and(PolylineDecoder::decode($polyline))->toBe(tripTraveledPoints());
+        ->and(PolylineDecoder::decode($polyline))->toBe(tripTraveledPoints())
+        ->and($response->json('data.traveledPolyline'))->toBe($polyline)
+        ->and($response->json('data.traveledPoints'))->toBe(tripTraveledPoints());
 });
 
 it('ordena el rastro por recorded_at y desempata por id, como el GET de posiciones', function () {
@@ -2687,9 +2689,12 @@ it('deja la polilínea en null al cerrar un viaje sin ningún punto, con 200', f
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
 
-    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")
+    $response = asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")
         ->assertOk()
-        ->assertJsonPath('data.status', TripStatus::Finished->value);
+        ->assertJsonPath('data.status', TripStatus::Finished->value)
+        ->assertJsonPath('data.traveledPolyline', null);
+
+    expect($response->json('data.traveledPoints'))->toBe([]);
 
     $this->assertDatabaseHas('trips', ['id' => $trip->id, 'traveled_polyline' => null]);
 });
@@ -2772,4 +2777,91 @@ it('conserva la polilínea del primer cierre cuando el segundo /finish es 400', 
         ->assertJsonPath('message', 'El viaje ya fue finalizado');
 
     expect($trip->fresh()->traveled_polyline)->toBe($primera);
+});
+
+it('pinta traveledPolyline en null y traveledPoints como lista vacía, presentes y no ausentes, antes del cierre', function (TripStatus $status) {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => $status, 'start_date' => $status === TripStatus::Pending ? null : now()->subHour()]);
+
+    tripSeedTrail($trip, tripTraveledPoints());
+
+    $response = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk();
+
+    expect($response->json('data'))->toHaveKey('traveledPolyline')
+        ->and($response->json('data.traveledPolyline'))->toBeNull()
+        ->and($response->json('data.traveledPoints'))->toBe([]);
+})->with([
+    'pending' => TripStatus::Pending,
+    'in_route con rastro reportado' => TripStatus::InRoute,
+]);
+
+it('coloca las dos claves del recorrido justo después de points en el detalle', function () {
+    $trip = Trip::factory()->create();
+
+    $keys = array_keys(asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->json('data'));
+
+    $indexOfPoints = array_search('points', $keys, true);
+
+    expect(array_slice($keys, $indexOfPoints, 4))->toBe(['points', 'traveledPolyline', 'traveledPoints', 'observations'])
+        ->and($keys)->toHaveCount(37);
+});
+
+it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+    tripSeedTrail($trip, tripTraveledPoints());
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+
+    $admin = userWithRole(UserRole::Administrator);
+
+    /** Detalle, edición y baja sobre el viaje ya cerrado. */
+    foreach ([
+        fn () => asUser($admin)->getJson("/api/trips/{$trip->id}"),
+        fn () => asUser($admin)->patchJson("/api/trips/{$trip->id}", ['order' => 'ord-28']),
+        fn () => asUser($admin)->deleteJson("/api/trips/{$trip->id}"),
+    ] as $request) {
+        $response = $request()->assertOk();
+
+        expect($response->json('data.traveledPoints'))->toBe(tripTraveledPoints());
+    }
+
+    /** Alta, asignación y arranque pintan las claves en null y [] porque todavía no hay cierre. */
+    $nuevo = asUser($admin)->postJson('/api/trips', tripPayload())->assertCreated();
+
+    expect($nuevo->json('data.traveledPolyline'))->toBeNull()
+        ->and($nuevo->json('data.traveledPoints'))->toBe([]);
+
+    $asignado = asUser($team['owner'])->patchJson("/api/trips/{$nuevo->json('data.id')}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 50,
+        'fuelType' => 'diesel',
+    ])->assertOk();
+
+    expect($asignado->json('data.traveledPoints'))->toBe([]);
+
+    tripFuelConfirmed($nuevo->json('data.id'));
+
+    $arrancado = asUser($team['pilot'])->patchJson("/api/trips/{$nuevo->json('data.id')}/start")->assertOk();
+
+    expect($arrancado->json('data.traveledPolyline'))->toBeNull()
+        ->and($arrancado->json('data.traveledPoints'))->toBe([]);
+});
+
+it('deja el listado de viajes y el viaje en curso sin las dos claves del recorrido', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour(), 'traveled_polyline' => TripFactory::POLYLINE]);
+
+    $listado = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips')->assertOk();
+
+    expect(array_keys($listado->json('data.0')))->toBe(tripListResourceKeys());
+
+    $actual = asUser($team['pilot'])->getJson('/api/trips/current')->assertOk();
+
+    expect(array_keys($actual->json('data')))->toBe(tripListResourceKeys())
+        ->and($actual->json('data'))->not->toHaveKeys(['traveledPolyline', 'traveledPoints']);
+
+    /** Y el id sigue siendo el del viaje, para que el listado no haya cambiado de forma por otra vía. */
+    expect($actual->json('data.id'))->toBe($trip->id);
 });

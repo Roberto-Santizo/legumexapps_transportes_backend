@@ -41,7 +41,7 @@ use OpenApi\Attributes as OA;
 
     EL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.
 
-    LA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 15 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 35 claves en camelCase —34 hasta SPEC 27, que añadió totalFuelGallons—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.
+    LA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 15 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 37 claves en camelCase —34 hasta SPEC 27, que añadió totalFuelGallons; 35 hasta SPEC 28, que añadió traveledPolyline y traveledPoints—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.
 
     ATENCIÓN — IMPACTO DE SPEC 27 (COMBUSTIBLE) SOBRE ESTE DOMINIO, Y UNO DE LOS DOS CAMBIOS ES INCOMPATIBLE. Uno: PATCH /api/trips/{trip}/assignment PASA DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType, los cuatro obligatorios, SIN PERIODO DE GRACIA— y crea la primera carga de combustible dentro de su propia transacción; reasignar AÑADE otra carga en vez de pisarla. Dos: PATCH /api/trips/{trip}/start gana un CUARTO 400, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje», comprobado DESPUÉS de «El viaje ya fue iniciado», así que LOS VIAJES ASIGNADOS ANTES DE SPEC 27 NO PUEDEN ARRANCAR hasta que su empresa registre una carga y el piloto la confirme —no hubo backfill y el administrador no puede desbloquearlos—. /finish NO comprueba nada de combustible. El detalle gana la clave totalFuelGallons (solo las cargas CONFIRMADAS), el PATCH general NO acepta fuelGallons ni fuelType —se ignoran en silencio con 200—, GET /api/trips no gana ningún filtro de combustible y TripListItem sigue en 15 claves. Las cargas se gestionan en su propio dominio, Trip Fuels.
 
@@ -334,7 +334,7 @@ class TripController extends Controller
         operationId: 'showTrip',
         summary: 'Obtener un viaje por id',
         description: <<<'TEXT'
-        Devuelve un viaje concreto con sus 35 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.
+        Devuelve un viaje concreto con sus 37 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.
 
         ATENCIÓN — UN VIAJE FUERA DE ÁMBITO RESPONDE 403, NO 404, y es deliberado: el ámbito esconde filas de un listado, no pretende que nunca se publicaran. Es lo contrario del viaje borrado, que sí es 404. Los dos mensajes de 403 son distintos según el rol: un pilot que pide un viaje que no tiene asignado recibe «No puedes acceder a un viaje que no tienes asignado»; un carrier que pide uno tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista».
 
@@ -496,7 +496,7 @@ class TripController extends Controller
 
         ES UN BORRADO LÓGICO (soft delete): la fila SIGUE EN LA BASE con su deleted_at puesto, pero DESAPARECE de la API para siempre. No se lista, no se consulta por id —el GET responde 404— y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni un status— que la devuelva, ni endpoint /restore. UN VIAJE BORRADO POR ERROR SOLO SE RECUPERA DESDE LA BASE DE DATOS.
 
-        ATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 35 claves. En los otros siete endpoints es siempre null.
+        ATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 37 claves. En los otros siete endpoints es siempre null.
 
         NO HAY CONFIRMACIÓN Y NO SE COMPRUEBA EL ESTADO: se borra igual un viaje pending que uno in_route o uno ya finished, y también uno que una empresa ya tomó, sin avisar a nadie —no hay notificaciones—. De hecho, BORRAR Y VOLVER A CREAR ES LA ÚNICA SALIDA cuando un viaje se queda atascado: el administrador no puede asignar y no se puede desasignar.
 
@@ -751,6 +751,8 @@ class TripController extends Controller
         El orden de las guardas es: viaje borrado (400) → piloto asignado (403) → ya finalizado (400) → sin iniciar (400).
 
         No hay ruta inversa: no existe /unfinish ni forma de limpiar endDate, y el cierre no dispara ninguna notificación ni ningún cálculo de costos —este dominio no cotiza nada—.
+
+        DESDE SPEC 28 EL CIERRE ESCRIBE ADEMÁS LA RUTA REAL: codifica todo el rastro de trip_positions del viaje —en orden recorded_at asc e id asc, sin simplificar— en traveledPolyline, en el mismo UPDATE que endDate y status, y la respuesta ya trae traveledPolyline y traveledPoints con valor. Sin ningún punto reportado quedan en null y [] y el cierre NO se bloquea: /finish no gana guardas. Es la ÚNICA escritura de esa columna en toda la API.
         TEXT,
         security: [['bearerAuth' => []]],
         tags: ['Trips'],
@@ -766,7 +768,7 @@ class TripController extends Controller
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Viaje finalizado correctamente. Devuelve el viaje con endDate puesto con la HORA DEL SERVIDOR, en el formato d-m-Y h:i:s A, y status en finished. startDate y la asignación no cambian.',
+                description: 'Viaje finalizado correctamente. Devuelve el viaje con endDate puesto con la HORA DEL SERVIDOR, en el formato d-m-Y h:i:s A, status en finished y, desde SPEC 28, traveledPolyline y traveledPoints con el rastro codificado (null y [] si el viaje no reportó ningún punto). startDate y la asignación no cambian.',
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
