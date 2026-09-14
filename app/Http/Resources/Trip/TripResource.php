@@ -9,7 +9,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 35 keys in camelCase, the largest resource of the
+ * The trip as the API paints it: 37 keys in camelCase, the largest resource of the
  * project.
  *
  * The six relations go out **flat**, as an id plus its name side by side, never as a
@@ -27,6 +27,10 @@ use OpenApi\Attributes as OA;
  * `withSum` of the service and not by loading any row, so a freshly assigned trip
  * reads "0.00" even though `/assignment` already created its first load.
  *
+ * `traveledPolyline` and `traveledPoints` (SPEC 28) are the real route, the mirror of
+ * `polyline` and `points`: the `trip_positions` trail encoded by `/finish` and decoded
+ * here the same way. Both stay `null` / `[]` until the pilot closes the trip.
+ *
  * `deletedAt` is null on six of the seven endpoints that paint it, because none of them
  * can reach a deleted trip. The exception is the response of the DELETE itself, which
  * paints the row that was just soft deleted.
@@ -35,7 +39,7 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 35 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 37 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
@@ -49,7 +53,9 @@ use OpenApi\Attributes as OA;
 
     points es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.
 
-    Las 35 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, createdAt, updatedAt y deletedAt.
+    ATENCIÓN — HAY DOS POLILÍNEAS Y NO SON LA MISMA (SPEC 28): polyline/points es la ruta PREVISTA que mandó el frontend, y traveledPolyline/traveledPoints es la ruta REAL, el rastro de trip_positions que la API codifica UNA SOLA VEZ, al cerrar el viaje con /finish. Van justo después de points, como claves 21 y 22. Mientras el viaje no esté finalizado valen null y [] —también en un viaje in_route con miles de puntos reportados: para el rastro en vivo están el websocket y GET /api/trips/{trip}/positions—, y siguen en null/[] en un viaje finalizado sin ningún punto o cerrado antes de SPEC 28. La API no distingue esos tres nulls. Las coordenadas van a CINCO decimales (formato de Google), no a los ocho de trip_positions.
+
+    Las 37 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, traveledPolyline, traveledPoints, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -185,6 +191,20 @@ use OpenApi\Attributes as OA;
             example: [[28.64893, -68.17554], [28.64869, -68.17588], [28.64762, -68.17514]],
         ),
         new OA\Property(
+            property: 'traveledPolyline',
+            description: 'Polilínea codificada de Google con la ruta REAL del viaje (SPEC 28): todo el rastro de trip_positions, en orden recorded_at asc e id asc, tal cual se reportó —sin simplificar ni colapsar puntos repetidos—. NO LA MANDA NADIE: la escribe el servidor UNA SOLA VEZ, en PATCH /api/trips/{trip}/finish, y mandarla en el POST o en el PATCH se ignora en silencio. ATENCIÓN — ES null EN TRES CASOS QUE LA API NO DISTINGUE: el viaje no ha terminado (aunque esté in_route y tenga miles de puntos: para eso están el websocket y GET /api/trips/{trip}/positions), terminó sin reportar ni un punto, o terminó antes de SPEC 28 (no hubo backfill). No es la ruta prevista: esa es polyline.',
+            type: 'string',
+            nullable: true,
+            example: '_lgxA~vmgPrIoAzmE~}A~j`Crzp@',
+        ),
+        new OA\Property(
+            property: 'traveledPoints',
+            description: 'Los pares [lat, lng] decodificados de traveledPolyline, el espejo de points para la ruta REAL. Campo calculado en lectura, como points: se decodifica en cada respuesta y es [] —lista vacía, nunca null— siempre que traveledPolyline sea null. ATENCIÓN — LAS COORDENADAS VAN A CINCO DECIMALES, no a los ocho de GET /api/trips/{trip}/positions: es el formato de Google y pierde alrededor de un metro; el rastro exacto sigue en las posiciones. Un camión parado deja puntos repetidos: la API no los colapsa.',
+            type: 'array',
+            items: new OA\Items(type: 'array', items: new OA\Items(type: 'number', format: 'float')),
+            example: [[14.6248, -90.5152], [14.6231, -90.5148], [14.59, -90.53], [13.9276, -90.7853]],
+        ),
+        new OA\Property(
             property: 'observations',
             description: 'Instrucciones del viaje. ES OBLIGATORIO a propósito, aunque sea un campo de notas: si el alta la hace el administrador y el viaje lo ejecuta otra empresa, las observaciones son el ÚNICO CANAL DE INSTRUCCIONES que existe en el dominio. Se guarda tal como se teclea, con solo trim: conserva mayúsculas, minúsculas y saltos de línea.',
             type: 'string',
@@ -298,7 +318,9 @@ class TripResource extends JsonResource
      * `points` is the second computed read-only field of the project, after the
      * `currentValue` of an accessory: it is decoded from `polyline` on every read, with
      * no column, no job and no cache. Storing the decoded pairs would be the same data
-     * twice, free to fall out of sync with the string it came from.
+     * twice, free to fall out of sync with the string it came from. `traveledPoints`
+     * (SPEC 28) is decoded the same way from `traveled_polyline`, and comes out as an
+     * empty list —never null— while that column is still null.
      *
      * @return array<string, mixed>
      */
@@ -327,6 +349,9 @@ class TripResource extends JsonResource
             'polyline' => $this->polyline,
             /** Los mismos pares que devuelve GET /api/places/directions para esta cadena. */
             'points' => PolylineDecoder::decode($this->polyline),
+            'traveledPolyline' => $this->traveled_polyline,
+            /** La ruta real, decodificada igual que la prevista; [] mientras /finish no la escriba. */
+            'traveledPoints' => PolylineDecoder::decode($this->traveled_polyline ?? ''),
             'observations' => $this->observations,
             'pilotId' => $this->pilot_id,
             'pilotName' => $this->pilot?->name,

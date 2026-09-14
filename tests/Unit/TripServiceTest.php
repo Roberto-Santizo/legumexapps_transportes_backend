@@ -16,8 +16,11 @@ use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
 use App\Models\TripFuel;
+use App\Models\TripPosition;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Place\PolylineDecoder;
+use App\Services\Place\PolylineEncoder;
 use App\Services\Trip\TripService;
 use Database\Factories\TripFactory;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -93,13 +96,13 @@ it('declara los nueve métodos del contrato', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla trips con sus columnas, incluida deleted_at', function () {
+it('crea la tabla trips con sus columnas, incluida deleted_at y la traveled_polyline de SPEC 28', function () {
     expect(Schema::hasTable('trips'))->toBeTrue()
         ->and(Schema::getColumnListing('trips'))->toEqualCanonicalizing([
             'id', 'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
             'destination', 'container', 'transport',
             'recolection_date', 'ship_date', 'start_date', 'end_date',
-            'polyline', 'observations', 'status',
+            'polyline', 'traveled_polyline', 'observations', 'status',
             'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by',
             'created_at', 'updated_at', 'deleted_at',
         ]);
@@ -989,4 +992,81 @@ it('devuelve la suma de las cargas confirmadas en el detalle del viaje', functio
     $detalle = tripService()->getTripById(tripServiceUser(UserRole::Administrator), $trip->id);
 
     expect((float) $detalle->total_fuel_gallons)->toBe(43.0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 28 — Polilínea del recorrido real
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * Plant the given `[lat, lng]` points as the trip's trail, fifteen seconds apart.
+ *
+ * @param  list<array{0: float, 1: float}>  $points
+ */
+function tripServiceSeedTrail(Trip $trip, array $points): void
+{
+    $from = now()->subMinutes(10);
+
+    foreach ($points as $index => [$latitude, $longitude]) {
+        TripPosition::factory()->create([
+            'trip_id' => $trip->id,
+            'pilot_id' => $trip->pilot_id,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'recorded_at' => $from->copy()->addSeconds(15 * $index),
+        ]);
+    }
+}
+
+it('codifica el rastro completo en traveled_polyline al cerrar el viaje', function () {
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team);
+    $points = [[14.6248, -90.5152], [14.6231, -90.5148], [13.9276, -90.7853]];
+
+    tripServiceSeedTrail($trip, $points);
+
+    $finalizado = tripService()->finish($team['pilot'], $trip->id);
+
+    expect($finalizado->traveled_polyline)->toBe(PolylineEncoder::encode($points))
+        ->and(PolylineDecoder::decode($finalizado->traveled_polyline))->toBe($points)
+        ->and($finalizado->end_date)->not->toBeNull()
+        ->and($finalizado->status)->toBe(TripStatus::Finished);
+});
+
+it('deja traveled_polyline en null al cerrar un viaje sin puntos', function () {
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team);
+
+    $finalizado = tripService()->finish($team['pilot'], $trip->id);
+
+    expect($finalizado->traveled_polyline)->toBeNull()
+        ->and($finalizado->status)->toBe(TripStatus::Finished);
+});
+
+it('codifica solo los puntos del viaje que se cierra', function () {
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team);
+    $otro = tripServiceDriving($team);
+
+    tripServiceSeedTrail($trip, [[14.6248, -90.5152]]);
+    tripServiceSeedTrail($otro, [[15.5, -91.5], [15.6, -91.6]]);
+
+    $finalizado = tripService()->finish($team['pilot'], $trip->id);
+
+    expect(PolylineDecoder::decode($finalizado->traveled_polyline))->toBe([[14.6248, -90.5152]])
+        ->and($otro->fresh()->traveled_polyline)->toBeNull();
+});
+
+it('no escribe traveled_polyline desde update', function () {
+    $trip = Trip::factory()->create();
+
+    $editado = tripService()->update($trip->id, [
+        'traveledPolyline' => TripFactory::POLYLINE,
+        'traveled_polyline' => TripFactory::POLYLINE,
+    ]);
+
+    expect($editado->traveled_polyline)->toBeNull()
+        ->and($trip->fresh()->traveled_polyline)->toBeNull();
 });

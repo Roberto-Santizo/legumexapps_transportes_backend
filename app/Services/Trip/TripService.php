@@ -17,9 +17,11 @@ use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
 use App\Models\TripFuel;
+use App\Models\TripPosition;
 use App\Models\TripTimeout;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Place\PolylineEncoder;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -449,11 +451,52 @@ class TripService implements TripServiceInterface
         $trip->update([
             'end_date' => now(),
             'status' => TripStatus::Finished,
+            'traveled_polyline' => $this->encodeTraveledRoute($trip),
         ]);
 
         $this->closeOpenTimeout($trip);
 
         return $trip->load(self::RELATIONS);
+    }
+
+    /**
+     * Encode the whole trail of `trip_positions` into the provider's polyline format.
+     *
+     * Read through `TripPosition::query()` directly and **not** through a `positions()`
+     * relation on `Trip`: SPEC 26 refused to create it —the same way `Vehicle` never got
+     * `expenses()`— and this is the only reader outside the position domain, with the
+     * precedent of closeOpenTimeout() touching `TripTimeout` from here. Only the two
+     * coordinates are selected: a twelve-hour trip at a point every fifteen seconds is
+     * about three thousand rows, and hydrating full models for that would be waste.
+     *
+     * The points go in `recorded_at asc, id asc`, the same order `GET /{trip}/positions`
+     * lists them, untouched: no collapsing of repeated points and no simplification. Every
+     * call re-encodes the trail from scratch, so a second finish —after an administrator
+     * moved the trip back to `in_route`— overwrites the column with the complete trail.
+     *
+     * Runs outside any transaction on purpose: the result goes into the same single
+     * `update()` as `end_date` and `status`, which is already atomic on its own.
+     *
+     * Returns `null` when the trip has no positions: the encoder is a pure function of
+     * the format and answers `''` for zero points; «no trail» meaning `null` is this
+     * domain's call.
+     */
+    private function encodeTraveledRoute(Trip $trip): ?string
+    {
+        $points = TripPosition::query()
+            ->where('trip_id', $trip->id)
+            ->orderBy('recorded_at')
+            ->orderBy('id')
+            ->get(['latitude', 'longitude'])
+            ->map(fn (TripPosition $position): array => [
+                (float) $position->latitude,
+                (float) $position->longitude,
+            ])
+            ->all();
+
+        $encoded = PolylineEncoder::encode($points);
+
+        return $encoded !== '' ? $encoded : null;
     }
 
     /**
