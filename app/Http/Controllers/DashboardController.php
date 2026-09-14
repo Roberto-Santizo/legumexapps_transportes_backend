@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Helpers\ResponseHandler;
+use App\Http\Resources\Dashboard\TripsSummaryResource;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use Illuminate\Http\Request;
 
@@ -17,7 +18,7 @@ class DashboardController extends Controller
                 'dateTo' => $this->queryString($request, 'dateTo'),
             ]);
 
-            return ResponseHandler::success($summary, 'Resumen de viajes obtenido correctamente', 200);
+            return ResponseHandler::success(new TripsSummaryResource($summary), 'Resumen de viajes obtenido correctamente', 200);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }
