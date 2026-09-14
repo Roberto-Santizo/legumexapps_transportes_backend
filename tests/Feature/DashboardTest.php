@@ -2,6 +2,7 @@
 
 use App\Enums\TripStatus;
 use App\Enums\UserRole;
+use App\Enums\VehicleCondition;
 use App\Enums\VehicleExpenseCategory;
 use App\Enums\VehicleExpenseNature;
 use App\Enums\VehicleStatus;
@@ -89,7 +90,7 @@ function tripTakenBy(Carrier $carrier, array $attributes = []): Trip
 
     return Trip::factory()->create(array_merge([
         'pilot_id' => $pilot->id,
-        'vehicle_id' => Vehicle::factory()->create(['carrier_id' => $carrier->id])->id,
+        'vehicle_id' => $attributes['vehicle_id'] ?? Vehicle::factory()->create(['carrier_id' => $carrier->id])->id,
         'assigned_by' => $carrier->user_id,
     ], $attributes));
 }
@@ -380,6 +381,133 @@ it('acota el resumen de gastos por vehicles.carrier_id y por expense_date por d�
         ->assertOk()
         ->assertJsonPath('data.count', 4)
         ->assertJsonPath('data.totalAmount', '1500.00');
+});
+
+/*
+|--------------------------------------------------------------------------
+| GET /api/dashboard/vehicles
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * A trip in route on the given vehicle, driven by a pilot of its company.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function tripInRouteOn(Vehicle $vehicle, array $attributes = []): Trip
+{
+    $carrier = Carrier::query()->findOrFail($vehicle->carrier_id);
+
+    return tripTakenBy($carrier, array_merge([
+        'vehicle_id' => $vehicle->id,
+        'status' => TripStatus::InRoute,
+        'start_date' => now()->subHour(),
+    ], $attributes));
+}
+
+it('lista toda la flota incluidos los inactivos en orden id ascendente y sin datos financieros', function () {
+    $carrier = dashboardCarrier();
+    $active = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'plate' => 'P111AAA']);
+    $inactive = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'plate' => 'P222BBB', 'status' => VehicleStatus::Inactive]);
+
+    $response = asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicles')
+        ->assertOk()
+        ->assertJsonPath('message', 'Flota obtenida correctamente')
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.id', $active->id)
+        ->assertJsonPath('data.1.id', $inactive->id)
+        ->assertJsonPath('data.1.status', 'inactive')
+        ->assertJsonPath('data.0.carrierName', 'TRANSPORTES X')
+        ->assertJsonPath('data.0.inRoute', false)
+        ->assertJsonPath('data.0.currentTrip', null)
+        ->assertJsonMissingPath('total');
+
+    expect(array_keys($response->json('data.0')))->toBe([
+        'id', 'plate', 'type', 'status', 'condition', 'mileage', 'kilometersPerGallon',
+        'carrierId', 'carrierName', 'inRoute', 'currentTrip',
+    ]);
+});
+
+it('resuelve currentTrip con el viaje en curso de start_date más reciente', function () {
+    $vehicle = Vehicle::factory()->create(['carrier_id' => dashboardCarrier()->id]);
+    tripInRouteOn($vehicle, ['start_date' => '2026-09-14 06:00:00', 'order' => 'ORD-OLD']);
+    $latest = tripInRouteOn($vehicle, ['start_date' => '2026-09-14 08:15:00', 'order' => 'ORD-NEW', 'container' => 'MSKU1234567']);
+
+    asUser(userWithRole(UserRole::Manager))->getJson('/api/dashboard/vehicles')
+        ->assertOk()
+        ->assertJsonPath('data.0.inRoute', true)
+        ->assertJsonPath('data.0.currentTrip', [
+            'tripId' => $latest->id,
+            'order' => 'ORD-NEW',
+            'container' => 'MSKU1234567',
+            'pilotName' => User::query()->findOrFail($latest->pilot_id)->name,
+            'startDate' => '14-09-2026 08:15:00 AM',
+        ]);
+});
+
+it('deja currentTrip en null cuando el único viaje del vehículo ya terminó', function () {
+    $vehicle = Vehicle::factory()->create(['carrier_id' => dashboardCarrier()->id]);
+    tripInRouteOn($vehicle, ['status' => TripStatus::Finished, 'end_date' => now()]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicles')
+        ->assertOk()
+        ->assertJsonPath('data.0.inRoute', false)
+        ->assertJsonPath('data.0.currentTrip', null);
+});
+
+it('filtra la flota por inRoute antes de paginar y ignora un valor inválido', function () {
+    $carrier = dashboardCarrier();
+    $busy = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+    $idle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+    tripInRouteOn($busy);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicles?inRoute=true&limit=10')
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $busy->id);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicles?inRoute=false')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $idle->id);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicles?inRoute=basura')
+        ->assertOk()
+        ->assertJsonCount(2, 'data');
+});
+
+it('filtra la flota por status, condition y carrierId, ignorando los valores inválidos', function () {
+    $mine = dashboardCarrier('MIA');
+    $other = dashboardCarrier('OTRA');
+    $target = Vehicle::factory()->create(['carrier_id' => $mine->id, 'status' => VehicleStatus::UnderRepair, 'condition' => VehicleCondition::New]);
+    Vehicle::factory()->create(['carrier_id' => $mine->id, 'status' => VehicleStatus::Active, 'condition' => VehicleCondition::Used]);
+    Vehicle::factory()->create(['carrier_id' => $other->id, 'status' => VehicleStatus::UnderRepair, 'condition' => VehicleCondition::New]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/dashboard/vehicles?status=under_repair&condition=new&carrierId={$mine->id}")
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $target->id);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicles?status=basura&condition=basura&carrierId=999999')
+        ->assertOk()
+        ->assertJsonCount(3, 'data');
+});
+
+it('pagina la flota solo con limit numérico, acotado a [10, 100]', function () {
+    Vehicle::factory()->count(12)->create(['carrier_id' => dashboardCarrier()->id]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicles?limit=5')
+        ->assertOk()
+        ->assertJsonCount(10, 'data')
+        ->assertJsonPath('total', 12)
+        ->assertJsonPath('currentPage', 1)
+        ->assertJsonPath('lastPage', 2);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicles?limit=abc')
+        ->assertOk()
+        ->assertJsonCount(12, 'data')
+        ->assertJsonMissingPath('total');
 });
 
 it('devuelve el mismo resumen de viajes al administrador y al manager', function () {

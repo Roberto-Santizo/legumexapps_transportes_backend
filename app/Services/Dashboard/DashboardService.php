@@ -3,10 +3,13 @@
 namespace App\Services\Dashboard;
 
 use App\Enums\TripStatus;
+use App\Enums\VehicleCondition;
 use App\Enums\VehicleExpenseNature;
+use App\Enums\VehicleStatus;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use App\Models\Carrier;
 use App\Models\Trip;
+use App\Models\Vehicle;
 use App\Models\VehicleExpense;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -20,6 +23,16 @@ class DashboardService implements DashboardServiceInterface
      * The only date format the range filters accept, as in `GET /api/trips`.
      */
     private const DATE_FORMAT = 'Y-m-d';
+
+    /**
+     * Smallest page size accepted by the fleet listing, as in the rest of the project.
+     */
+    private const MIN_PER_PAGE = 10;
+
+    /**
+     * Largest page size accepted, so nobody asks for the whole fleet as one page.
+     */
+    private const MAX_PER_PAGE = 100;
 
     #[Override]
     public function getTripsSummary(array $filters): array
@@ -190,7 +203,53 @@ class DashboardService implements DashboardServiceInterface
     #[Override]
     public function getVehicles(array $filters): Collection|LengthAwarePaginator
     {
-        throw new LogicException('Not implemented');
+        /** Toda la flota, incluidos los dados de baja: el tablero muestra cada vehículo tal como está. */
+        $query = Vehicle::query()->with('carrier')->orderBy('id');
+
+        $carrierId = $this->resolveCarrierId($filters['carrierId'] ?? null);
+
+        if ($carrierId !== null) {
+            $query->where('carrier_id', $carrierId);
+        }
+
+        $status = is_string($filters['status'] ?? null) ? VehicleStatus::tryFrom($filters['status']) : null;
+
+        if ($status !== null) {
+            $query->where('status', $status);
+        }
+
+        $condition = is_string($filters['condition'] ?? null) ? VehicleCondition::tryFrom($filters['condition']) : null;
+
+        if ($condition !== null) {
+            $query->where('condition', $condition);
+        }
+
+        /**
+         * Antes de paginar, para que total refleje el recorte. El subconjunto es el de
+         * vehículos con algún viaje en curso; `false` es su complemento exacto.
+         */
+        $inRoute = is_string($filters['inRoute'] ?? null)
+            ? filter_var($filters['inRoute'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+            : null;
+
+        if ($inRoute !== null) {
+            $vehiclesInRoute = Trip::query()
+                ->where('status', TripStatus::InRoute)
+                ->whereNotNull('vehicle_id')
+                ->select('vehicle_id');
+
+            $inRoute
+                ? $query->whereIn('id', $vehiclesInRoute)
+                : $query->whereNotIn('id', $vehiclesInRoute);
+        }
+
+        $perPage = $this->resolvePerPage($filters['limit'] ?? null);
+
+        $vehicles = $perPage === null ? $query->get() : $query->paginate($perPage);
+
+        $this->attachCurrentTrips($perPage === null ? $vehicles : $vehicles->getCollection());
+
+        return $vehicles;
     }
 
     /**
@@ -262,6 +321,48 @@ class DashboardService implements DashboardServiceInterface
         }
 
         return $query;
+    }
+
+    /**
+     * Attach to every vehicle of the page its current `in_route` trip, or null.
+     *
+     * One query for the whole set, indexed by `vehicle_id` in PHP keeping the first
+     * trip in `start_date desc, id desc` order, so the Resource never queries anything.
+     * It is a transient attribute, not a relation: `Vehicle` does not gain `trips()`.
+     *
+     * @param  Collection<int, Vehicle>  $vehicles
+     */
+    private function attachCurrentTrips(Collection $vehicles): void
+    {
+        if ($vehicles->isEmpty()) {
+            return;
+        }
+
+        $currentTrips = Trip::query()
+            ->where('status', TripStatus::InRoute)
+            ->whereIn('vehicle_id', $vehicles->modelKeys())
+            ->with('pilot')
+            ->orderByDesc('start_date')
+            ->orderByDesc('id')
+            ->get()
+            ->unique('vehicle_id')
+            ->keyBy('vehicle_id');
+
+        foreach ($vehicles as $vehicle) {
+            $vehicle->setAttribute('currentTrip', $currentTrips->get($vehicle->id));
+        }
+    }
+
+    /**
+     * Clamp the requested page size, or return null when the client did not ask to paginate.
+     */
+    private function resolvePerPage(mixed $limit): ?int
+    {
+        if (! is_string($limit) || ! is_numeric($limit)) {
+            return null;
+        }
+
+        return max(self::MIN_PER_PAGE, min(self::MAX_PER_PAGE, (int) $limit));
     }
 
     /**

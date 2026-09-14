@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Helpers\ResponseHandler;
+use App\Http\Resources\Dashboard\DashboardVehicleResource;
 use App\Http\Resources\Dashboard\TripsSummaryResource;
 use App\Http\Resources\Dashboard\VehicleExpensesSummaryResource;
+use App\Http\Resources\PaginatedResource;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
@@ -64,7 +67,11 @@ class DashboardController extends Controller
                 'limit' => $this->queryString($request, 'limit'),
             ]);
 
-            return ResponseHandler::success($vehicles, 'Flota obtenida correctamente', 200);
+            $data = $vehicles instanceof LengthAwarePaginator
+                ? new PaginatedResource($vehicles, DashboardVehicleResource::class)
+                : DashboardVehicleResource::collection($vehicles);
+
+            return ResponseHandler::success($data, 'Flota obtenida correctamente', 200);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }
