@@ -2537,6 +2537,355 @@
                 ]
             }
         },
+        "/api/dashboard/trips": {
+            "get": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Resumen de viajes",
+                "description": "Devuelve los agregados de viajes en un solo objeto de OCHO bloques: total, unassigned, byStatus, byCarrier, byClient, byShippingLine, byLocation y byMonth. Los viajes borrados quedan SIEMPRE fuera.\n\nATENCIÓN — byCarrier NO SUMA total: agrupa por la empresa de assigned_by y los viajes sin asignar (la bolsa de SPEC 24) no tienen empresa. Suman en total y en unassigned, pero no aparecen en ese desglose. Con ?carrierId= todos los bloques se acotan a esa empresa y unassigned es siempre 0.\n\nbyStatus lleva SIEMPRE sus tres claves (pending, inRoute, finished) a 0 si no hay filas; los otros cinco desgloses solo traen filas con datos —[] con la base vacía— y van ordenados por total descendente e id ascendente, salvo byMonth, que va por month ascendente y NO rellena los meses sin viajes.\n\nEl rango corta sobre recolection_date por día completo: dateTo=2026-09-30 incluye un viaje de ese día a las 23:59. Sin fechas, todo el histórico. Nunca 404: con la base vacía responde 200 con los bloques a cero.",
+                "operationId": "dashboardTripsSummary",
+                "parameters": [
+                    {
+                        "name": "carrierId",
+                        "in": "query",
+                        "description": "Id de la empresa transportista (carriers.id) a la que acotar los ocho bloques, por el assigned_by de sus viajes. TOLERANTE: un valor no numérico o un id inexistente se ignora y se devuelve el histórico completo, nunca 422 ni un resumen vacío.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    },
+                    {
+                        "name": "dateFrom",
+                        "in": "query",
+                        "description": "Primer día del rango sobre recolection_date, inclusive, en Y-m-d ESTRICTO. Cualquier otro formato (01/09/2026, 2026-9-1) se ignora en silencio.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-09-01"
+                        }
+                    },
+                    {
+                        "name": "dateTo",
+                        "in": "query",
+                        "description": "Último día del rango sobre recolection_date, inclusive y por día completo, en Y-m-d ESTRICTO. Un formato inválido se ignora en silencio.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-09-30"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Resumen de viajes obtenido correctamente. data trae siempre los ocho bloques, aunque la base esté vacía.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TripsSummaryResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/dashboard/trips/in-route": {
+            "get": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Viajes en curso",
+                "description": "Devuelve TODOS los viajes con status in_route —SIN PAGINAR, en orden start_date descendente— con lo necesario para pintarlos en un mapa en vivo: identificación, empresa, piloto, vehículo, cliente, puerto, startDate, la ÚLTIMA POSICIÓN registrada, las dos sumas de combustible y la PARADA ABIERTA, si la hay.\n\nManda el status, no start_date: un viaje pending con start_date puesto NO sale. lastPosition es null si el viaje aún no tiene puntos; openTimeout es null si no hay parada con ended_at IS NULL.\n\nATENCIÓN — stoppedMinutes SE MIDE CONTRA now() DEL SERVIDOR y cambia en cada lectura: es una foto del momento, al revés que durationMinutes de GET /api/trips/{trip}/timeouts. Este endpoint se refresca por POLLING del frontend; no hay websocket del tablero (el canal trips.{tripId} de SPEC 26 sigue siendo por viaje).\n\nSolo acepta carrierId (empresa de assigned_by). dateFrom y dateTo SE IGNORAN EN SILENCIO: un viaje en curso no tiene fecha de negocio que cortar. Sin viajes en curso responde 200 con data []. Las consultas ejecutadas no dependen del número de viajes.",
+                "operationId": "dashboardTripsInRoute",
+                "parameters": [
+                    {
+                        "name": "carrierId",
+                        "in": "query",
+                        "description": "Id de la empresa transportista (carriers.id) a la que acotar los viajes en curso, por el assigned_by de cada viaje. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelven todos.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Viajes en curso obtenidos correctamente. data es la lista completa, sin paginar; [] si no hay ninguno.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TripInRouteListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/dashboard/vehicle-expenses": {
+            "get": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Resumen de gastos de vehículos",
+                "description": "Devuelve los agregados de vehicle_expenses en un solo objeto de OCHO bloques: totalAmount, count, byCategory, byNature, invoiced, notInvoiced, byCarrier y byMonth. Todo el dinero sale como CADENA de dos decimales en GTQ.\n\nbyNature, invoiced y notInvoiced llevan SIEMPRE sus claves, a 0 y \"0.00\" si no hay filas; byCategory, byCarrier y byMonth solo traen filas con datos —[] con la base vacía—, ordenadas por totalAmount descendente salvo byMonth, que va por month ascendente y no rellena meses vacíos. Se cumple siempre invoiced.count + notInvoiced.count === count.\n\nLa empresa de un gasto es la de SU VEHÍCULO (vehicles.carrier_id), y el status del vehículo NO importa: los gastos de un vehículo inactive cuentan igual. El rango corta sobre expense_date por día completo; sin fechas, todo el histórico. Nunca 404.",
+                "operationId": "dashboardVehicleExpensesSummary",
+                "parameters": [
+                    {
+                        "name": "carrierId",
+                        "in": "query",
+                        "description": "Id de la empresa transportista (carriers.id) a la que acotar los ocho bloques, por vehicles.carrier_id. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelve el histórico completo.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    },
+                    {
+                        "name": "dateFrom",
+                        "in": "query",
+                        "description": "Primer día del rango sobre expense_date, inclusive, en Y-m-d ESTRICTO. Un formato inválido se ignora en silencio.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-09-01"
+                        }
+                    },
+                    {
+                        "name": "dateTo",
+                        "in": "query",
+                        "description": "Último día del rango sobre expense_date, inclusive, en Y-m-d ESTRICTO. Un formato inválido se ignora en silencio.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-09-30"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Resumen de gastos de vehículos obtenido correctamente. data trae siempre los ocho bloques, aunque la base esté vacía.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/VehicleExpensesSummaryResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/dashboard/vehicles": {
+            "get": {
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "Flota con su viaje en curso",
+                "description": "Lista TODA la flota —de todas las empresas e INCLUIDOS los vehículos inactive y under_repair— en orden id ascendente, con su ficha operativa y, por cada uno, si está en ruta y cuál es su viaje en curso (currentTrip, null si no tiene ninguno; con dos in_route, el de start_date más reciente).\n\nATENCIÓN — NO TRAE purchasePrice NI monthlyInsuranceCost: quedaron fuera a propósito. Para la ficha completa está GET /api/vehicles/{vehicle}.\n\nFiltros tolerantes: carrierId (vehicles.carrier_id), status (active|inactive|under_repair), condition (new|used) e inRoute (true|false). Un valor inválido se ignora, nunca 422. inRoute se aplica ANTES de paginar, así que total refleja el recorte. dateFrom y dateTo SE IGNORAN: la flota no tiene fecha de negocio.\n\nPaginación opt-in con limit, acotado a [10, 100]; sin limit se devuelve toda la flota. Sin vehículos, 200 con data [].",
+                "operationId": "dashboardVehicles",
+                "parameters": [
+                    {
+                        "name": "carrierId",
+                        "in": "query",
+                        "description": "Id de la empresa transportista (carriers.id) dueña de los vehículos. TOLERANTE: un valor no numérico o inexistente se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Estado operativo del vehículo, con el valor crudo de VehicleStatus. Un valor fuera del enum (STATUS=ACTIVE incluido) se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "active",
+                            "enum": [
+                                "active",
+                                "inactive",
+                                "under_repair"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "condition",
+                        "in": "query",
+                        "description": "Condición de adquisición, con el valor crudo de VehicleCondition. Un valor fuera del enum se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "used",
+                            "enum": [
+                                "new",
+                                "used"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "inRoute",
+                        "in": "query",
+                        "description": "true devuelve solo los vehículos con algún viaje in_route; false, los demás. Se interpreta con FILTER_VALIDATE_BOOLEAN (acepta 1/0, yes/no, on/off) y cualquier otro valor (inRoute=basura) se ignora. Se aplica ANTES de paginar.",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "example": true
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia ACTIVA la paginación: sin él, o si no es numérico, se devuelve toda la flota sin metadatos. Si es numérico se ACOTA a [10, 100]: limit=5 devuelve páginas de 10 y limit=500, de 100.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto con un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Flota obtenida correctamente. Sin limit, DashboardVehicleListResponse con toda la flota; con limit numérico, PaginatedDashboardVehicleListResponse con total, currentPage y lastPage aplanados en la raíz.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/DashboardVehicleListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedDashboardVehicleListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/departure-points": {
             "get": {
                 "tags": [
@@ -11743,6 +12092,621 @@
                     }
                 ]
             },
+            "DashboardVehicleCurrentTrip": {
+                "title": "Viaje en curso de un vehículo de la flota",
+                "description": "El viaje in_route del vehículo, reducido a CINCO claves para el tablero. Con más de un viaje in_route sobre el mismo vehículo —el dominio no valida solape— se devuelve el de start_date más reciente (desempate por id descendente). Para el detalle completo está GET /api/trips/{tripId}.",
+                "properties": {
+                    "tripId": {
+                        "type": "integer",
+                        "example": 18
+                    },
+                    "order": {
+                        "type": "string",
+                        "example": "ORD-001"
+                    },
+                    "container": {
+                        "type": "string",
+                        "example": "MSKU1234567"
+                    },
+                    "pilotName": {
+                        "type": "string",
+                        "example": "Juan Pérez",
+                        "nullable": true
+                    },
+                    "startDate": {
+                        "description": "Fecha de inicio del viaje en formato d-m-Y h:i:s A, nunca ISO 8601.",
+                        "type": "string",
+                        "example": "14-09-2026 08:15:00 AM",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "DashboardVehicle": {
+                "title": "Vehículo de la flota en el tablero",
+                "description": "Un vehículo tal como lo ve el tablero: su ficha operativa y si está en ruta ahora mismo. ONCE CLAVES en camelCase y ninguna más, en este orden: id, plate, type, status, condition, mileage, kilometersPerGallon, carrierId, carrierName, inRoute, currentTrip.\n\nATENCIÓN — NO ES EL Vehicle DE GET /api/vehicles: no trae brand, model, year, capacity, engineNumber ni image, y A PROPÓSITO no trae purchasePrice ni monthlyInsuranceCost. Los ids coinciden, así que el detalle completo se pide a su propio dominio.\n\ninRoute y currentTrip son redundantes por diseño: inRoute es true exactamente cuando currentTrip no es null. Un vehículo cuyo único viaje ya terminó sale con inRoute false y currentTrip null; uno inactive o under_repair puede salir con inRoute true si su viaje sigue in_route, porque el tablero no valida coherencia.\n\ntype, status y condition salen con el valor crudo del enum en inglés (truck, active, used). kilometersPerGallon sale como cadena de dos decimales; mileage como entero en kilómetros.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 4
+                    },
+                    "plate": {
+                        "type": "string",
+                        "example": "P123ABC"
+                    },
+                    "type": {
+                        "type": "string",
+                        "example": "truck",
+                        "enum": [
+                            "truck",
+                            "van",
+                            "trailer",
+                            "pickup"
+                        ]
+                    },
+                    "status": {
+                        "type": "string",
+                        "example": "active",
+                        "enum": [
+                            "active",
+                            "inactive",
+                            "under_repair"
+                        ]
+                    },
+                    "condition": {
+                        "type": "string",
+                        "example": "used",
+                        "enum": [
+                            "new",
+                            "used"
+                        ]
+                    },
+                    "mileage": {
+                        "type": "integer",
+                        "example": 90000
+                    },
+                    "kilometersPerGallon": {
+                        "type": "string",
+                        "example": "12.50"
+                    },
+                    "carrierId": {
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "carrierName": {
+                        "type": "string",
+                        "example": "TRANSPORTES X",
+                        "nullable": true
+                    },
+                    "inRoute": {
+                        "description": "true exactamente cuando currentTrip no es null.",
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "currentTrip": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/DashboardVehicleCurrentTrip"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "DashboardVehicleListResponse": {
+                "title": "Flota sin paginar",
+                "description": "Respuesta de GET /api/dashboard/vehicles cuando NO se envía limit, o cuando no es numérico: TODA la flota —inactive incluidos— en orden id ascendente y sin total, currentPage ni lastPage. Sin vehículos, data es [] con 200.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Flota obtenida correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DashboardVehicle"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedDashboardVehicleListResponse": {
+                "title": "Flota paginada",
+                "description": "Respuesta de GET /api/dashboard/vehicles con un limit numérico: los metadatos de paginación salen APLANADOS EN LA RAÍZ del sobre, no bajo meta. El limit se acota a [10, 100]. total cuenta los vehículos que pasan los filtros —inRoute incluido, que se aplica ANTES de paginar—, no los de la página.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/DashboardVehicleListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
+            "TripInRouteLastPosition": {
+                "title": "Última posición de un viaje en curso",
+                "description": "El punto de trip_positions con mayor recorded_at (desempate por id) del viaje, resuelto en una sola consulta para todos los viajes. TRES CLAVES: las coordenadas como cadena de ocho decimales, como en TripPosition, y recordedAt en d-m-Y h:i:s A. No trae id ni pilotId: para el rastro completo está GET /api/trips/{trip}/positions.",
+                "properties": {
+                    "latitude": {
+                        "type": "string",
+                        "example": "14.60000000"
+                    },
+                    "longitude": {
+                        "type": "string",
+                        "example": "-90.50000000"
+                    },
+                    "recordedAt": {
+                        "type": "string",
+                        "example": "14-09-2026 09:00:15 AM"
+                    }
+                },
+                "type": "object"
+            },
+            "TripInRouteOpenTimeout": {
+                "title": "Parada abierta de un viaje en curso",
+                "description": "La parada de trip_timeouts con ended_at IS NULL del viaje, si la hay. CUATRO CLAVES: startedAt y las coordenadas del ancla, como en TripTimeout, más stoppedMinutes. ATENCIÓN — stoppedMinutes SE MIDE CONTRA now() DEL SERVIDOR, al revés que durationMinutes de GET /api/trips/{trip}/timeouts, que es null mientras la parada siga abierta: este endpoint es una foto del momento y el valor CAMBIA EN CADA LECTURA. round((now() − startedAt) / 60, 2), como número con dos decimales.",
+                "properties": {
+                    "startedAt": {
+                        "type": "string",
+                        "example": "14-09-2026 08:50:00 AM"
+                    },
+                    "latitude": {
+                        "type": "string",
+                        "example": "14.60000000"
+                    },
+                    "longitude": {
+                        "type": "string",
+                        "example": "-90.50000000"
+                    },
+                    "stoppedMinutes": {
+                        "type": "number",
+                        "format": "float",
+                        "example": 10.25
+                    }
+                },
+                "type": "object"
+            },
+            "TripInRoute": {
+                "title": "Viaje en curso en el tablero",
+                "description": "Un viaje in_route con lo que hace falta para pintarlo en un mapa en vivo: identificación, quién lo lleva, dónde está, cuánto combustible tiene y si está parado. DIECISÉIS CLAVES en camelCase y ninguna más, en este orden: tripId, order, container, carrierId, carrierName, pilotId, pilotName, vehicleId, vehiclePlate, clientName, locationName, startDate, lastPosition, totalFuelGallons, unconfirmedFuelGallons, openTimeout.\n\nATENCIÓN — NO ES EL Trip DE GET /api/trips/{trip} NI EL TripListItem del listado: no trae status (siempre es in_route), ni polyline, ni points, ni fechas de recolección o embarque. tripId coincide con trips.id, así que el detalle y el rastro se piden a su dominio.\n\ncarrierId y carrierName son los de la empresa de assignedBy (su HasOne carrier): un viaje in_route siempre fue asignado por el dueño de una empresa, así que en la práctica nunca son null.\n\nlastPosition es null si el viaje aún no tiene ningún punto; openTimeout es null si no hay parada con ended_at IS NULL. Las dos sumas de combustible salen como cadena de dos decimales: totalFuelGallons es el MISMO número que en TripResource (cargas confirmadas); unconfirmedFuelGallons suma las que el piloto todavía no confirmó. Para verlas una a una está GET /api/trips/{trip}/fuels.",
+                "properties": {
+                    "tripId": {
+                        "type": "integer",
+                        "example": 18
+                    },
+                    "order": {
+                        "type": "string",
+                        "example": "ORD-001"
+                    },
+                    "container": {
+                        "type": "string",
+                        "example": "MSKU1234567"
+                    },
+                    "carrierId": {
+                        "type": "integer",
+                        "example": 3,
+                        "nullable": true
+                    },
+                    "carrierName": {
+                        "type": "string",
+                        "example": "TRANSPORTES X",
+                        "nullable": true
+                    },
+                    "pilotId": {
+                        "type": "integer",
+                        "example": 9
+                    },
+                    "pilotName": {
+                        "type": "string",
+                        "example": "Juan Pérez",
+                        "nullable": true
+                    },
+                    "vehicleId": {
+                        "type": "integer",
+                        "example": 4
+                    },
+                    "vehiclePlate": {
+                        "type": "string",
+                        "example": "P123ABC",
+                        "nullable": true
+                    },
+                    "clientName": {
+                        "type": "string",
+                        "example": "CLIENTE A",
+                        "nullable": true
+                    },
+                    "locationName": {
+                        "type": "string",
+                        "example": "PUERTO QUETZAL",
+                        "nullable": true
+                    },
+                    "startDate": {
+                        "description": "Fecha de inicio en d-m-Y h:i:s A, nunca ISO 8601.",
+                        "type": "string",
+                        "example": "14-09-2026 08:15:00 AM",
+                        "nullable": true
+                    },
+                    "lastPosition": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TripInRouteLastPosition"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "totalFuelGallons": {
+                        "type": "string",
+                        "example": "45.00"
+                    },
+                    "unconfirmedFuelGallons": {
+                        "type": "string",
+                        "example": "10.00"
+                    },
+                    "openTimeout": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TripInRouteOpenTimeout"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "TripInRouteListResponse": {
+                "title": "Viajes en curso",
+                "description": "Respuesta de GET /api/dashboard/trips/in-route: TODOS los viajes in_route, SIN PAGINAR y en orden start_date descendente (desempate por id descendente). Sin viajes en curso, data es [] con 200, nunca 404.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Viajes en curso obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripInRoute"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "TripsSummaryByStatus": {
+                "title": "Viajes por estado",
+                "description": "Conteo de viajes por cada uno de los TRES estados de TripStatus. LAS TRES CLAVES SALEN SIEMPRE, con 0 cuando no hay filas: el frontend las conoce de antemano y no tiene que comprobar si existen. Las claves van en camelCase (inRoute), no con el valor crudo del enum (in_route). Su suma es igual a total.",
+                "properties": {
+                    "pending": {
+                        "type": "integer",
+                        "example": 30
+                    },
+                    "inRoute": {
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "finished": {
+                        "type": "integer",
+                        "example": 78
+                    }
+                },
+                "type": "object"
+            },
+            "TripsSummaryByCarrier": {
+                "title": "Viajes por empresa transportista",
+                "description": "Una fila por empresa con al menos un viaje. La empresa se resuelve en SQL con carriers.user_id = trips.assigned_by: /assignment exige role:carrier, así que assigned_by es siempre el dueño de una empresa. ATENCIÓN — LOS VIAJES SIN ASIGNAR NO APARECEN AQUÍ: no tienen empresa, así que la suma de total de este desglose puede ser MENOR que el total de la raíz. La diferencia es exactamente unassigned más los viajes asignados por un usuario que ya no es dueño de ninguna empresa.",
+                "properties": {
+                    "carrierId": {
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "carrierName": {
+                        "type": "string",
+                        "example": "TRANSPORTES X"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "example": 40
+                    }
+                },
+                "type": "object"
+            },
+            "TripsSummaryByClient": {
+                "title": "Viajes por cliente",
+                "description": "Una fila por cliente con al menos un viaje, ordenadas por total descendente y, a igual total, por clientId ascendente. Los clientes borrados (SoftDeletes) siguen apareciendo si tienen viajes: el desglose lee la tabla en crudo con un JOIN.",
+                "properties": {
+                    "clientId": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "clientName": {
+                        "type": "string",
+                        "example": "CLIENTE A"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "example": 55
+                    }
+                },
+                "type": "object"
+            },
+            "TripsSummaryByShippingLine": {
+                "title": "Viajes por naviera",
+                "description": "Una fila por naviera con al menos un viaje, ordenadas por total descendente y, a igual total, por shippingLineId ascendente.",
+                "properties": {
+                    "shippingLineId": {
+                        "type": "integer",
+                        "example": 2
+                    },
+                    "shippingLineName": {
+                        "type": "string",
+                        "example": "MAERSK"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "example": 60
+                    }
+                },
+                "type": "object"
+            },
+            "TripsSummaryByLocation": {
+                "title": "Viajes por puerto de destino",
+                "description": "Una fila por destino (location) con al menos un viaje, ordenadas por total descendente y, a igual total, por locationId ascendente. En la práctica son siempre puertos: el alta de un viaje exige un destino de tipo port.",
+                "properties": {
+                    "locationId": {
+                        "type": "integer",
+                        "example": 5
+                    },
+                    "locationName": {
+                        "type": "string",
+                        "example": "PUERTO QUETZAL"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "example": 90
+                    }
+                },
+                "type": "object"
+            },
+            "TripsSummaryByMonth": {
+                "title": "Viajes por mes de recolección",
+                "description": "Una fila por mes con al menos un viaje, agrupando recolection_date como YYYY-MM y ordenadas por month ASCENDENTE. ATENCIÓN — LOS MESES SIN VIAJES NO APARECEN: la API no rellena huecos con ceros, porque sin filtro de fechas no sabría desde cuándo hasta cuándo. El frontend conoce el rango que pidió y rellena.",
+                "properties": {
+                    "month": {
+                        "type": "string",
+                        "example": "2026-08"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "example": 41
+                    }
+                },
+                "type": "object"
+            },
+            "TripsSummary": {
+                "title": "Resumen de viajes del tablero",
+                "description": "Respuesta de GET /api/dashboard/trips: agregados de viajes calculados en vivo sobre la tabla trips, sin tabla ni caché propias. OCHO CLAVES en camelCase y ninguna más, en este orden: total, unassigned, byStatus, byCarrier, byClient, byShippingLine, byLocation, byMonth.\n\nLOS VIAJES BORRADOS QUEDAN SIEMPRE FUERA de los ocho bloques (SoftDeletes). unassigned es la bolsa libre de SPEC 24: los pending con pilotId y vehicleId en null.\n\nATENCIÓN — byStatus LLEVA SIEMPRE SUS TRES CLAVES, a 0 si no hay filas; los otros cinco desgloses SOLO traen filas con al menos un viaje y salen como [] con la base vacía. byCarrier, byClient, byShippingLine y byLocation van ordenados por total descendente e id ascendente; byMonth por month ascendente.\n\nATENCIÓN — byCarrier NO SUMA total. Los viajes sin asignar no tienen empresa y no aparecen en ese desglose. Con ?carrierId= todos los bloques se acotan a esa empresa y unassigned es siempre 0.",
+                "properties": {
+                    "total": {
+                        "description": "Viajes no borrados dentro del filtro. Es la suma de las tres claves de byStatus.",
+                        "type": "integer",
+                        "example": 120
+                    },
+                    "unassigned": {
+                        "description": "Viajes pending con pilotId y vehicleId en null: la bolsa que ninguna empresa ha tomado. Con ?carrierId= es siempre 0.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "byStatus": {
+                        "$ref": "#/components/schemas/TripsSummaryByStatus"
+                    },
+                    "byCarrier": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripsSummaryByCarrier"
+                        }
+                    },
+                    "byClient": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripsSummaryByClient"
+                        }
+                    },
+                    "byShippingLine": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripsSummaryByShippingLine"
+                        }
+                    },
+                    "byLocation": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripsSummaryByLocation"
+                        }
+                    },
+                    "byMonth": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripsSummaryByMonth"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "TripsSummaryResponse": {
+                "title": "Sobre del resumen de viajes",
+                "description": "Sobre habitual del proyecto con el resumen en data. Nunca pagina y nunca devuelve 404: con la base vacía data trae los ocho bloques a cero o vacíos.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Resumen de viajes obtenido correctamente"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/TripsSummary"
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleExpensesCountAndAmount": {
+                "title": "Conteo y monto de un grupo de gastos",
+                "description": "Par conteo + monto de un subconjunto de gastos. totalAmount sale SIEMPRE como cadena de dos decimales en GTQ, \"0.00\" si el grupo está vacío, como amount en el dominio de gastos.",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 25
+                    },
+                    "totalAmount": {
+                        "type": "string",
+                        "example": "12000.00"
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleExpensesByNature": {
+                "title": "Gastos por naturaleza",
+                "description": "Las DOS claves de VehicleExpenseNature salen SIEMPRE, con count 0 y totalAmount \"0.00\" cuando no hay filas. No hay más naturalezas.",
+                "properties": {
+                    "preventive": {
+                        "$ref": "#/components/schemas/VehicleExpensesCountAndAmount"
+                    },
+                    "corrective": {
+                        "$ref": "#/components/schemas/VehicleExpensesCountAndAmount"
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleExpensesByCategory": {
+                "title": "Gastos por categoría",
+                "description": "Una fila por categoría de VehicleExpenseCategory con al menos un gasto, con el valor crudo del enum en inglés (tires, brakes, oil_change, …, other), ordenadas por totalAmount descendente. Las categorías sin gastos NO aparecen: el catálogo completo de 22 valores lo conoce el frontend.",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "example": "tires"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "example": 10
+                    },
+                    "totalAmount": {
+                        "type": "string",
+                        "example": "8000.00"
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleExpensesByCarrier": {
+                "title": "Gastos por empresa transportista",
+                "description": "Una fila por empresa con al menos un gasto, resuelta con JOIN vehicles → carriers sobre vehicles.carrier_id, ordenadas por totalAmount descendente y, a igual monto, por carrierId ascendente. El status del vehículo NO importa: los gastos de un vehículo inactive cuentan igual, porque el mantenimiento pudo ocurrir antes de la baja. A diferencia del resumen de viajes, aquí TODO gasto tiene empresa, así que la suma de count coincide con count de la raíz.",
+                "properties": {
+                    "carrierId": {
+                        "type": "integer",
+                        "example": 3
+                    },
+                    "carrierName": {
+                        "type": "string",
+                        "example": "TRANSPORTES X"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "example": 20
+                    },
+                    "totalAmount": {
+                        "type": "string",
+                        "example": "7000.00"
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleExpensesByMonth": {
+                "title": "Gastos por mes",
+                "description": "Una fila por mes con al menos un gasto, agrupando expense_date como YYYY-MM y ordenadas por month ASCENDENTE. Los meses sin gastos NO aparecen: el frontend rellena los huecos del rango que pidió.",
+                "properties": {
+                    "month": {
+                        "type": "string",
+                        "example": "2026-08"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "example": 15
+                    },
+                    "totalAmount": {
+                        "type": "string",
+                        "example": "5000.00"
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleExpensesSummary": {
+                "title": "Resumen de gastos de vehículos del tablero",
+                "description": "Respuesta de GET /api/dashboard/vehicle-expenses: agregados de vehicle_expenses calculados en vivo, sin tabla ni caché propias. OCHO CLAVES en camelCase y ninguna más, en este orden: totalAmount, count, byCategory, byNature, invoiced, notInvoiced, byCarrier, byMonth.\n\nTODO EL DINERO SALE COMO CADENA DE DOS DECIMALES en GTQ (\"15300.50\"), nunca como número: es la convención del proyecto para no perder centavos en el JSON. count es el conteo de filas, un entero.\n\nATENCIÓN — byNature, invoiced y notInvoiced LLEVAN SIEMPRE SUS CLAVES, a 0 y \"0.00\" si no hay filas; byCategory, byCarrier y byMonth SOLO traen filas con datos y salen como [] con la base vacía. Se cumple siempre invoiced.count + notInvoiced.count === count y la suma de sus montos es totalAmount.\n\nLa empresa de un gasto es la de SU VEHÍCULO (vehicles.carrier_id), esté activo, inactivo o en reparación. No hay ningún desglose por vehículo: para eso está GET /api/vehicle-expenses?vehicleId=.",
+                "properties": {
+                    "totalAmount": {
+                        "description": "Suma de amount de todos los gastos dentro del filtro, como cadena de dos decimales. Es el mismo número que el totalAmount de GET /api/vehicle-expenses sin vehicleId… si ese endpoint lo permitiera; aquí no hace falta vehicleId.",
+                        "type": "string",
+                        "example": "15300.50"
+                    },
+                    "count": {
+                        "description": "Número de gastos dentro del filtro.",
+                        "type": "integer",
+                        "example": 42
+                    },
+                    "byCategory": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/VehicleExpensesByCategory"
+                        }
+                    },
+                    "byNature": {
+                        "$ref": "#/components/schemas/VehicleExpensesByNature"
+                    },
+                    "invoiced": {
+                        "$ref": "#/components/schemas/VehicleExpensesCountAndAmount"
+                    },
+                    "notInvoiced": {
+                        "$ref": "#/components/schemas/VehicleExpensesCountAndAmount"
+                    },
+                    "byCarrier": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/VehicleExpensesByCarrier"
+                        }
+                    },
+                    "byMonth": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/VehicleExpensesByMonth"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "VehicleExpensesSummaryResponse": {
+                "title": "Sobre del resumen de gastos de vehículos",
+                "description": "Sobre habitual del proyecto con el resumen en data. Nunca pagina y nunca devuelve 404: con la base vacía data trae los ocho bloques a cero o vacíos.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Resumen de gastos de vehículos obtenido correctamente"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/VehicleExpensesSummary"
+                    }
+                },
+                "type": "object"
+            },
             "DeparturePoint": {
                 "title": "Punto de partida",
                 "description": "Punto de partida: el lugar concreto del mapa desde el que ARRANCA un viaje —una bodega, una finca, un centro de acopio—, anclado a un lugar real de Google por su googlePlaceId. NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso el recurso no expone carrierId ni carrierName y NINGUNA ruta del dominio lleva el middleware carrier.required. Su lectura está abierta a los cuatro roles: administrator, carrier, pilot y manager, incluido un carrier que todavía no ha registrado su empresa.\n\nATENCIÓN — ESTE RECURSO Y Location SON INDISTINGUIBLES POR SU FORMA, y esa es la trampa número uno del dominio. Los dos devuelven EXACTAMENTE LAS MISMAS DIEZ CLAVES, con los mismos tipos y los mismos formatos, así que llamar al catálogo equivocado NO FALLA: devuelve datos plausibles del otro dominio y el error solo se descubre cuando el usuario ve un nombre que no esperaba. Un punto de partida es DE DÓNDE SALE el viaje y vive en la tabla departure_points; un destino es A DÓNDE LLEGA y vive en locations. Los id de las dos tablas NO SON INTERCAMBIABLES: son secuencias distintas, y el id 3 de este recurso no tiene nada que ver con el id 3 de Location. Nunca se debe pasar un id de aquí a GET /api/locations/{location} ni al locationId de una cotización.\n\nNO PARTICIPA EN NINGUNA COTIZACIÓN: a diferencia de Location, no hay FreightRate colgando de un punto de partida, ninguna tabla apunta a él y GET /api/freight-rates/quote no lo recibe. Sus coordenadas sirven para pintar el pin y nada más: de ellas no se deriva distancia, kilometraje, ruta ni precio.\n\nATENCIÓN — latitude y longitude viajan como CADENAS con OCHO DECIMALES (\"14.63490000\"), no como números JSON: son el cast decimal:8 entregado tal cual, para que ningún float pierda dígitos por el camino. Hay que parsearlas en el cliente antes de operar con ellas.\n\nATENCIÓN — createdAt y updatedAt NO viajan en ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Locations, Products y Zones. Por eso se documentan como string SIN format date-time: parsearlos como ISO falla.\n\nEl name se devuelve SIEMPRE normalizado y EN MAYÚSCULAS. El status es un BOOLEANO cuya baja es LÓGICA: DELETE pone status en false, la fila nunca desaparece y sigue apareciendo en el listado sin filtros.",
@@ -13812,6 +14776,10 @@
         {
             "name": "Clients",
             "description": "Clientes: el catálogo nacional de las empresas a las que Legumex presta servicio, con SOLO DOS CAMPOS DE NEGOCIO —un código tecleado por el administrador y una razón social—. No hay dirección, NIT, teléfono, contacto ni estado de publicación. El cliente NO pertenece a ninguna empresa transportista, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los cinco endpoints exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con \"El token de sesión no es válido o ha expirado\". El reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización y borrado) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403 con \"No tienes permisos para acceder a este recurso\". ATENCIÓN — ESTE CATÁLOGO BORRA DE VERDAD Y ES EL AVISO CENTRAL DEL DOMINIO: en Products, Locations, Zones y Departure Points el DELETE es una baja lógica sobre un status booleano, la fila se queda, se sigue listando y se puede reactivar; aquí el DELETE es un soft delete real, la fila DESAPARECE del listado y del detalle, NO hay filtro que la devuelva, NO existe /restore y NO HAY FORMA DE RECUPERARLA POR LA API —solo desde la base de datos—. ATENCIÓN — EL BORRADO NO LIBERA NI EL code NI EL name: los dos índices únicos siguen ocupados para siempre por la fila borrada, así que un alta puede chocar con 400 contra un cliente que no aparece en ningún endpoint; de ahí el \"que puede haber sido eliminado\" de los dos mensajes de duplicado. Es el ÚNICO catálogo del proyecto SIN NINGUNA RUTA FIJA antes del apiResource: no hay /toggle-status —un cliente no se pausa, se borra— ni /restore, así que el comodín {client} no captura nada. Reglas que atraviesan el dominio: los DOS duplicados posibles se responden con 400 DESDE EL SERVICE y NUNCA con 422 —los FormRequests no llevan regla unique, porque la de Laravel no ve las filas borradas—, ganando el mensaje del código si ambos chocan; el code se guarda recortado y en MAYÚSCULAS y NO ADMITE NINGÚN ESPACIO (422, no colapso), mientras que el name sí colapsa sus espacios internos antes de pasar a mayúsculas; el registeredBy sale siempre del usuario autenticado y el PATCH no lo reescribe; el listado ordena por id ASC sin alternativa, filtra con un search tolerante sobre código Y nombre y pagina opt-in por limit acotado a [10, 100]; y createdAt, updatedAt y deletedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601. NADA CUELGA TODAVÍA DE UN CLIENTE: ninguna tabla del proyecto tiene client_id, así que borrar uno no rompe ninguna otra entidad y el cliente no participa en tarifas, cotizaciones ni viajes."
+        },
+        {
+            "name": "Dashboard",
+            "description": "Tablero de administración: CUATRO endpoints de SOLO LECTURA bajo /api/dashboard que resumen viajes, gastos de vehículos, flota y viajes en curso a partir de lo que los demás dominios ya guardan. No crea tabla, columna ni migración: cada llamada consulta la base en vivo, sin caché.\n\nPERMISOS — LOS CUATRO ENDPOINTS SON EXCLUSIVOS DE administrator Y manager (middleware role:administrator,manager), sin carrier.required. carrier y pilot reciben 403 «No tienes permisos para acceder a este recurso» en los cuatro: NO HAY TABLERO POR EMPRESA. Y los dos roles admitidos ven EXACTAMENTE LO MISMO, todas las empresas: carrierId es un filtro voluntario, nunca un ámbito.\n\nFILTROS — TODOS TOLERANTES Y SIN FormRequest: nunca hay 422. carrierId debe ser numérico Y existir, si no se ignora; dateFrom/dateTo aceptan solo Y-m-d estricto (01/09/2026 o 2026-9-1 se ignoran) y cortan por día completo; sin fechas es TODO EL HISTÓRICO, no el mes en curso. ATENCIÓN — /trips/in-route y /vehicles NO TIENEN FECHA DE NEGOCIO e ignoran dateFrom/dateTo en silencio.\n\nRANGO DE FECHAS: /trips corta sobre recolection_date; /vehicle-expenses sobre expense_date. En viajes, «empresa» es la de assigned_by (el dueño que tomó el viaje); en gastos y flota, vehicles.carrier_id.\n\nLAS TRES TRAMPAS: 1) en /trips, byCarrier NO SUMA total, porque los viajes sin asignar no tienen empresa; 2) en /trips/in-route, stoppedMinutes se mide contra now() y CAMBIA EN CADA LECTURA; 3) byMonth solo trae los meses con datos: el frontend rellena los huecos.\n\nSin websocket propio (/trips/in-route se refresca por polling), sin export, sin comparativas entre periodos y sin top N: los desgloses salen completos."
         },
         {
             "name": "Departure Points",
