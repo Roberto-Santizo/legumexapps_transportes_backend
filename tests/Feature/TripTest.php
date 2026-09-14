@@ -12,9 +12,12 @@ use App\Models\PilotDocument;
 use App\Models\ShippingLine;
 use App\Models\Trip;
 use App\Models\TripFuel;
+use App\Models\TripPosition;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Place\PolylineDecoder;
+use App\Services\Place\PolylineEncoder;
+use Carbon\CarbonInterface;
 use Database\Factories\TripFactory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -2603,4 +2606,170 @@ it('suma en totalFuelGallons solo las cargas confirmadas del detalle', function 
     asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
         ->assertOk()
         ->assertJsonPath('data.totalFuelGallons', '43.00');
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 28 — Polilínea del recorrido real
+|--------------------------------------------------------------------------
+|
+| /finish codifica todo el rastro de trip_positions en trips.traveled_polyline, en el
+| mismo update() que end_date y status. Sin puntos, null. Nadie más escribe la columna:
+| ni el POST, ni el PATCH general, ni el POST de posiciones.
+|
+*/
+
+/**
+ * Tres puntos guatemaltecos del rastro, con sus coordenadas ya a cinco decimales.
+ *
+ * @return list<array{0: float, 1: float}>
+ */
+function tripTraveledPoints(): array
+{
+    return [
+        [14.6248, -90.5152],
+        [14.6231, -90.5148],
+        [13.9276, -90.7853],
+    ];
+}
+
+/**
+ * Plant the given points as the trip's trail, one every fifteen seconds and in order.
+ *
+ * @param  list<array{0: float, 1: float}>  $points
+ */
+function tripSeedTrail(Trip $trip, array $points, ?CarbonInterface $from = null): void
+{
+    $from ??= now()->subMinutes(10);
+
+    foreach ($points as $index => [$latitude, $longitude]) {
+        TripPosition::factory()->create([
+            'trip_id' => $trip->id,
+            'pilot_id' => $trip->pilot_id,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'recorded_at' => $from->copy()->addSeconds(15 * $index),
+        ]);
+    }
+}
+
+it('guarda al cerrar el viaje la polilínea con los puntos del rastro en orden', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    tripSeedTrail($trip, tripTraveledPoints());
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+
+    $polyline = $trip->fresh()->traveled_polyline;
+
+    expect($polyline)->toBe(PolylineEncoder::encode(tripTraveledPoints()))
+        ->and(PolylineDecoder::decode($polyline))->toBe(tripTraveledPoints());
+});
+
+it('ordena el rastro por recorded_at y desempata por id, como el GET de posiciones', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    $sameInstant = now()->subMinutes(5);
+
+    /** Insertado en desorden: el más reciente primero, y dos con la misma hora. */
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'latitude' => 13.9276, 'longitude' => -90.7853, 'recorded_at' => now()->subMinutes(1)]);
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'latitude' => 14.6248, 'longitude' => -90.5152, 'recorded_at' => $sameInstant]);
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'latitude' => 14.6231, 'longitude' => -90.5148, 'recorded_at' => $sameInstant]);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+
+    expect(PolylineDecoder::decode($trip->fresh()->traveled_polyline))->toBe(tripTraveledPoints());
+});
+
+it('deja la polilínea en null al cerrar un viaje sin ningún punto, con 200', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")
+        ->assertOk()
+        ->assertJsonPath('data.status', TripStatus::Finished->value);
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'traveled_polyline' => null]);
+});
+
+it('no mezcla en la polilínea los puntos de otro viaje', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+    $otro = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    tripSeedTrail($trip, tripTraveledPoints());
+    tripSeedTrail($otro, [[15.5, -91.5], [15.6, -91.6]]);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+
+    expect(PolylineDecoder::decode($trip->fresh()->traveled_polyline))->toBe(tripTraveledPoints())
+        ->and($otro->fresh()->traveled_polyline)->toBeNull();
+});
+
+it('redondea a cinco decimales las coordenadas de ocho del rastro', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    tripSeedTrail($trip, [[14.62481234, -90.51525678]]);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+
+    expect(PolylineDecoder::decode($trip->fresh()->traveled_polyline))->toBe([[14.62481, -90.51526]]);
+});
+
+it('no toca la polilínea del recorrido al registrar una posición con el viaje en ruta', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", [
+        'latitude' => 14.628074,
+        'longitude' => -90.522554,
+    ])->assertCreated();
+
+    $this->assertDatabaseCount('trip_positions', 1);
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'traveled_polyline' => null]);
+});
+
+it('ignora con la respuesta habitual la polilínea del recorrido mandada al alta', function () {
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
+        'traveledPolyline' => TripFactory::POLYLINE,
+        'traveled_polyline' => TripFactory::POLYLINE,
+    ]))->assertCreated();
+
+    expect(Trip::query()->sole()->traveled_polyline)->toBeNull();
+});
+
+it('ignora con 200 la polilínea del recorrido mandada al PATCH general', function () {
+    $trip = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'order' => 'ord-2026-0028',
+        'traveledPolyline' => TripFactory::POLYLINE,
+        'traveled_polyline' => TripFactory::POLYLINE,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.order', 'ORD-2026-0028');
+
+    expect($trip->fresh()->traveled_polyline)->toBeNull();
+});
+
+it('conserva la polilínea del primer cierre cuando el segundo /finish es 400', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    tripSeedTrail($trip, tripTraveledPoints());
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+    $primera = $trip->fresh()->traveled_polyline;
+
+    /** Rastro nuevo tras el cierre: la guarda de end_date lo rechaza y no recodifica nada. */
+    tripSeedTrail($trip, [[15.5, -91.5]], now()->subMinute());
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'El viaje ya fue finalizado');
+
+    expect($trip->fresh()->traveled_polyline)->toBe($primera);
 });
