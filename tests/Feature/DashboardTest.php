@@ -2,6 +2,9 @@
 
 use App\Enums\TripStatus;
 use App\Enums\UserRole;
+use App\Enums\VehicleExpenseCategory;
+use App\Enums\VehicleExpenseNature;
+use App\Enums\VehicleStatus;
 use App\Models\Carrier;
 use App\Models\Client;
 use App\Models\Location;
@@ -9,6 +12,7 @@ use App\Models\ShippingLine;
 use App\Models\Trip;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Models\VehicleExpense;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use Tests\TestCase;
 
@@ -254,6 +258,128 @@ it('ignora una fecha con formato inválido y devuelve el histórico completo', f
     asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips?dateFrom=01/09/2026&dateTo=2026-13-45')
         ->assertOk()
         ->assertJsonPath('data.total', 2);
+});
+
+/*
+|--------------------------------------------------------------------------
+| GET /api/dashboard/vehicle-expenses
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * An expense on a vehicle of the given company.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function expenseOf(Carrier $carrier, array $attributes = [], VehicleStatus $vehicleStatus = VehicleStatus::Active): VehicleExpense
+{
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'status' => $vehicleStatus]);
+
+    return VehicleExpense::factory()->create(array_merge(['vehicle_id' => $vehicle->id], $attributes));
+}
+
+it('devuelve el resumen de gastos vacío con todos los bloques fijos a cero', function () {
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicle-expenses')
+        ->assertOk()
+        ->assertExactJson([
+            'statusCode' => 200,
+            'message' => 'Resumen de gastos de vehículos obtenido correctamente',
+            'data' => [
+                'totalAmount' => '0.00',
+                'count' => 0,
+                'byCategory' => [],
+                'byNature' => [
+                    'preventive' => ['count' => 0, 'totalAmount' => '0.00'],
+                    'corrective' => ['count' => 0, 'totalAmount' => '0.00'],
+                ],
+                'invoiced' => ['count' => 0, 'totalAmount' => '0.00'],
+                'notInvoiced' => ['count' => 0, 'totalAmount' => '0.00'],
+                'byCarrier' => [],
+                'byMonth' => [],
+            ],
+        ]);
+});
+
+it('suma los gastos como string de dos decimales y reparte facturados y sin facturar', function () {
+    $carrier = dashboardCarrier();
+    expenseOf($carrier, ['amount' => 1000.5, 'is_invoiced' => true, 'nature' => VehicleExpenseNature::Preventive, 'category' => VehicleExpenseCategory::Tires, 'expense_date' => '2026-08-10']);
+    expenseOf($carrier, ['amount' => 300, 'is_invoiced' => false, 'nature' => VehicleExpenseNature::Corrective, 'category' => VehicleExpenseCategory::Tires, 'expense_date' => '2026-08-20']);
+    expenseOf($carrier, ['amount' => 200, 'is_invoiced' => false, 'nature' => VehicleExpenseNature::Corrective, 'category' => VehicleExpenseCategory::Other, 'expense_date' => '2026-09-01']);
+
+    $response = asUser(userWithRole(UserRole::Manager))->getJson('/api/dashboard/vehicle-expenses')
+        ->assertOk()
+        ->assertJsonPath('data.totalAmount', '1500.50')
+        ->assertJsonPath('data.count', 3)
+        ->assertJsonPath('data.byCategory', [
+            ['category' => 'tires', 'count' => 2, 'totalAmount' => '1300.50'],
+            ['category' => 'other', 'count' => 1, 'totalAmount' => '200.00'],
+        ])
+        ->assertJsonPath('data.byNature', [
+            'preventive' => ['count' => 1, 'totalAmount' => '1000.50'],
+            'corrective' => ['count' => 2, 'totalAmount' => '500.00'],
+        ])
+        ->assertJsonPath('data.invoiced', ['count' => 1, 'totalAmount' => '1000.50'])
+        ->assertJsonPath('data.notInvoiced', ['count' => 2, 'totalAmount' => '500.00'])
+        ->assertJsonPath('data.byCarrier', [
+            ['carrierId' => $carrier->id, 'carrierName' => 'TRANSPORTES X', 'count' => 3, 'totalAmount' => '1500.50'],
+        ])
+        ->assertJsonPath('data.byMonth', [
+            ['month' => '2026-08', 'count' => 2, 'totalAmount' => '1300.50'],
+            ['month' => '2026-09', 'count' => 1, 'totalAmount' => '200.00'],
+        ]);
+
+    $data = $response->json('data');
+    expect($data['invoiced']['count'] + $data['notInvoiced']['count'])->toBe($data['count'])
+        ->and(number_format((float) $data['invoiced']['totalAmount'] + (float) $data['notInvoiced']['totalAmount'], 2, '.', ''))->toBe($data['totalAmount']);
+});
+
+it('cuenta igual los gastos de un vehículo inactivo', function () {
+    $carrier = dashboardCarrier();
+    expenseOf($carrier, ['amount' => 50], VehicleStatus::Inactive);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicle-expenses')
+        ->assertOk()
+        ->assertJsonPath('data.count', 1)
+        ->assertJsonPath('data.totalAmount', '50.00')
+        ->assertJsonPath('data.byCarrier.0.carrierId', $carrier->id);
+});
+
+it('ordena byCarrier de gastos por monto descendente', function () {
+    $small = dashboardCarrier('CHICA');
+    $big = dashboardCarrier('GRANDE');
+    expenseOf($small, ['amount' => 10]);
+    expenseOf($big, ['amount' => 900]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicle-expenses')
+        ->assertOk()
+        ->assertJsonPath('data.byCarrier.0.carrierId', $big->id)
+        ->assertJsonPath('data.byCarrier.1.carrierId', $small->id);
+});
+
+it('acota el resumen de gastos por vehicles.carrier_id y por expense_date por día completo', function () {
+    $mine = dashboardCarrier('MIA');
+    $other = dashboardCarrier('OTRA');
+    expenseOf($mine, ['amount' => 100, 'expense_date' => '2026-09-01']);
+    expenseOf($mine, ['amount' => 200, 'expense_date' => '2026-09-30']);
+    expenseOf($mine, ['amount' => 400, 'expense_date' => '2026-10-01']);
+    expenseOf($other, ['amount' => 800, 'expense_date' => '2026-09-15']);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/dashboard/vehicle-expenses?carrierId={$mine->id}")
+        ->assertOk()
+        ->assertJsonPath('data.count', 3)
+        ->assertJsonPath('data.totalAmount', '700.00')
+        ->assertJsonCount(1, 'data.byCarrier');
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/dashboard/vehicle-expenses?carrierId={$mine->id}&dateFrom=2026-09-01&dateTo=2026-09-30")
+        ->assertOk()
+        ->assertJsonPath('data.count', 2)
+        ->assertJsonPath('data.totalAmount', '300.00')
+        ->assertJsonPath('data.byMonth', [['month' => '2026-09', 'count' => 2, 'totalAmount' => '300.00']]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/vehicle-expenses?carrierId=abc&dateFrom=30/09/2026')
+        ->assertOk()
+        ->assertJsonPath('data.count', 4)
+        ->assertJsonPath('data.totalAmount', '1500.00');
 });
 
 it('devuelve el mismo resumen de viajes al administrador y al manager', function () {

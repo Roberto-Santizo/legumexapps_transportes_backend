@@ -3,9 +3,11 @@
 namespace App\Services\Dashboard;
 
 use App\Enums\TripStatus;
+use App\Enums\VehicleExpenseNature;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use App\Models\Carrier;
 use App\Models\Trip;
+use App\Models\VehicleExpense;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -102,7 +104,87 @@ class DashboardService implements DashboardServiceInterface
     #[Override]
     public function getVehicleExpensesSummary(array $filters): array
     {
-        throw new LogicException('Not implemented');
+        $query = $this->applyVehicleExpenseFilters(VehicleExpense::query(), $filters);
+
+        $totals = (clone $query)
+            ->selectRaw('count(*) as count, coalesce(sum(vehicle_expenses.amount), 0) as total_amount')
+            ->toBase()
+            ->first();
+
+        $byCategory = (clone $query)
+            ->selectRaw('vehicle_expenses.category, count(*) as count, sum(vehicle_expenses.amount) as total_amount')
+            ->groupBy('vehicle_expenses.category')
+            ->orderByDesc('total_amount')
+            ->orderBy('vehicle_expenses.category')
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => [
+                'category' => (string) $row->category,
+                'count' => (int) $row->count,
+                'totalAmount' => $this->money($row->total_amount),
+            ])
+            ->all();
+
+        $byNature = (clone $query)
+            ->selectRaw('vehicle_expenses.nature, count(*) as count, sum(vehicle_expenses.amount) as total_amount')
+            ->groupBy('vehicle_expenses.nature')
+            ->toBase()
+            ->get()
+            ->keyBy('nature');
+
+        $byInvoiced = (clone $query)
+            ->selectRaw('vehicle_expenses.is_invoiced, count(*) as count, sum(vehicle_expenses.amount) as total_amount')
+            ->groupBy('vehicle_expenses.is_invoiced')
+            ->toBase()
+            ->get()
+            ->keyBy(fn (object $row): string => $row->is_invoiced ? 'invoiced' : 'notInvoiced');
+
+        /**
+         * La empresa del gasto es la del vehículo, esté como esté: un gasto de un vehículo
+         * dado de baja sigue contando, porque el mantenimiento pudo ocurrir antes.
+         */
+        $byCarrier = (clone $query)
+            ->join('carriers', 'carriers.id', '=', 'vehicles.carrier_id')
+            ->selectRaw('carriers.id as carrier_id, carriers.name as carrier_name, count(*) as count, sum(vehicle_expenses.amount) as total_amount')
+            ->groupBy('carriers.id', 'carriers.name')
+            ->orderByDesc('total_amount')
+            ->orderBy('carriers.id')
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => [
+                'carrierId' => (int) $row->carrier_id,
+                'carrierName' => (string) $row->carrier_name,
+                'count' => (int) $row->count,
+                'totalAmount' => $this->money($row->total_amount),
+            ])
+            ->all();
+
+        $byMonth = (clone $query)
+            ->selectRaw("to_char(vehicle_expenses.expense_date, 'YYYY-MM') as month, count(*) as count, sum(vehicle_expenses.amount) as total_amount")
+            ->groupBy('month')
+            ->orderBy('month')
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => [
+                'month' => (string) $row->month,
+                'count' => (int) $row->count,
+                'totalAmount' => $this->money($row->total_amount),
+            ])
+            ->all();
+
+        return [
+            'totalAmount' => $this->money($totals->total_amount ?? 0),
+            'count' => (int) ($totals->count ?? 0),
+            'byCategory' => $byCategory,
+            'byNature' => [
+                'preventive' => $this->countAndAmount($byNature->get(VehicleExpenseNature::Preventive->value)),
+                'corrective' => $this->countAndAmount($byNature->get(VehicleExpenseNature::Corrective->value)),
+            ],
+            'invoiced' => $this->countAndAmount($byInvoiced->get('invoiced')),
+            'notInvoiced' => $this->countAndAmount($byInvoiced->get('notInvoiced')),
+            'byCarrier' => $byCarrier,
+            'byMonth' => $byMonth,
+        ];
     }
 
     #[Override]
@@ -144,6 +226,63 @@ class DashboardService implements DashboardServiceInterface
         }
 
         return $query;
+    }
+
+    /**
+     * Narrow a vehicle expenses query with the tolerant filters of the summary.
+     *
+     * The join with `vehicles` is always there, because the company of an expense is
+     * the company of its vehicle; the `select` stays on the caller. The range cuts on
+     * `expense_date`, a plain date, so a straight comparison is already by whole day.
+     *
+     * @param  Builder<VehicleExpense>  $query
+     * @param  array{carrierId?: mixed, dateFrom?: mixed, dateTo?: mixed}  $filters
+     * @return Builder<VehicleExpense>
+     */
+    private function applyVehicleExpenseFilters(Builder $query, array $filters): Builder
+    {
+        $query->join('vehicles', 'vehicles.id', '=', 'vehicle_expenses.vehicle_id');
+
+        $carrierId = $this->resolveCarrierId($filters['carrierId'] ?? null);
+
+        if ($carrierId !== null) {
+            $query->where('vehicles.carrier_id', $carrierId);
+        }
+
+        $dateFrom = $this->resolveDate($filters['dateFrom'] ?? null);
+
+        if ($dateFrom !== null) {
+            $query->where('vehicle_expenses.expense_date', '>=', $dateFrom);
+        }
+
+        $dateTo = $this->resolveDate($filters['dateTo'] ?? null);
+
+        if ($dateTo !== null) {
+            $query->where('vehicle_expenses.expense_date', '<=', $dateTo);
+        }
+
+        return $query;
+    }
+
+    /**
+     * Shape one aggregated row as `{count, totalAmount}`, zeroed when there is no row.
+     *
+     * @return array{count: int, totalAmount: string}
+     */
+    private function countAndAmount(?object $row): array
+    {
+        return [
+            'count' => (int) ($row->count ?? 0),
+            'totalAmount' => $this->money($row->total_amount ?? 0),
+        ];
+    }
+
+    /**
+     * Format an amount as the two decimal string every money field of the project uses.
+     */
+    private function money(int|float|string|null $amount): string
+    {
+        return number_format((float) ($amount ?? 0), 2, '.', '');
     }
 
     /**
