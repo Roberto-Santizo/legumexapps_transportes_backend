@@ -27,12 +27,19 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * `polyline` holds the encoded route the frontend already resolved through
  * `GET /api/places/directions`: the API never calls Google, and it never recomputes
  * the route when the trip is edited.
+ *
+ * `traveled_polyline` is the real route in the same encoded format: on `/finish`
+ * the whole `trip_positions` trail is encoded in `recorded_at asc, id asc` order and
+ * written here, overwriting whatever a previous finish left. It is derived data —
+ * never accepted from a body — and `null` means the trip has not finished, finished
+ * without a single position, or finished before the column existed; the API does not
+ * tell those three apart.
  */
 #[Fillable([
     'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
     'destination', 'container', 'transport',
     'recolection_date', 'ship_date', 'start_date', 'end_date',
-    'polyline', 'observations', 'status',
+    'polyline', 'traveled_polyline', 'observations', 'status',
     'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by',
 ])]
 class Trip extends Model
