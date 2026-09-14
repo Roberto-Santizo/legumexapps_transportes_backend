@@ -9,12 +9,13 @@ use App\Enums\VehicleStatus;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use App\Models\Carrier;
 use App\Models\Trip;
+use App\Models\TripPosition;
+use App\Models\TripTimeout;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
-use LogicException;
 use Override;
 
 class DashboardService implements DashboardServiceInterface
@@ -111,7 +112,47 @@ class DashboardService implements DashboardServiceInterface
     #[Override]
     public function getTripsInRoute(array $filters): Collection
     {
-        throw new LogicException('Not implemented');
+        $query = Trip::query()
+            ->where('trips.status', TripStatus::InRoute)
+            /** La empresa del viaje es la de assigned_by, siempre un dueño: su HasOne carrier, sin consulta por viaje. */
+            ->with(['assignedBy.carrier', 'pilot', 'vehicle', 'client', 'location'])
+            ->withSum(['fuels as total_fuel_gallons' => fn (Builder $fuels) => $fuels->whereNotNull('loaded_at')], 'gallons')
+            ->withSum(['fuels as unconfirmed_fuel_gallons' => fn (Builder $fuels) => $fuels->whereNull('loaded_at')], 'gallons')
+            ->orderByDesc('trips.start_date')
+            ->orderByDesc('trips.id');
+
+        $carrierId = $this->resolveCarrierId($filters['carrierId'] ?? null);
+
+        if ($carrierId !== null) {
+            $query->whereIn('trips.assigned_by', function ($subQuery) use ($carrierId): void {
+                $subQuery->select('user_id')->from('carriers')->where('id', $carrierId);
+            });
+        }
+
+        $trips = $query->get();
+
+        if ($trips->isEmpty()) {
+            return $trips;
+        }
+
+        /**
+         * Dos consultas por el conjunto entero, indexadas por viaje en PHP: el número de
+         * consultas no depende de cuántos viajes haya en curso.
+         */
+        $lastPositions = $this->latestPositionsByTrip($trips->modelKeys());
+
+        $openTimeouts = TripTimeout::query()
+            ->whereIn('trip_id', $trips->modelKeys())
+            ->whereNull('ended_at')
+            ->get()
+            ->keyBy('trip_id');
+
+        foreach ($trips as $trip) {
+            $trip->setAttribute('lastPosition', $lastPositions->get($trip->id));
+            $trip->setAttribute('openTimeout', $openTimeouts->get($trip->id));
+        }
+
+        return $trips;
     }
 
     #[Override]
@@ -321,6 +362,29 @@ class DashboardService implements DashboardServiceInterface
         }
 
         return $query;
+    }
+
+    /**
+     * The last recorded position of each of the given trips, keyed by trip id.
+     *
+     * One query for the whole set with Postgres' `DISTINCT ON (trip_id)`: the first row
+     * per trip in `recorded_at desc, id desc` order is the newest point. Postgres only,
+     * which the project already requires since PostGIS (SPEC 08); this is the single
+     * method to rewrite if that ever changes. `Trip` does not gain `positions()`.
+     *
+     * @param  list<int>  $tripIds
+     * @return Collection<int, TripPosition>
+     */
+    private function latestPositionsByTrip(array $tripIds): Collection
+    {
+        return TripPosition::query()
+            ->selectRaw('distinct on (trip_id) trip_positions.*')
+            ->whereIn('trip_id', $tripIds)
+            ->orderBy('trip_id')
+            ->orderByDesc('recorded_at')
+            ->orderByDesc('id')
+            ->get()
+            ->keyBy('trip_id');
     }
 
     /**

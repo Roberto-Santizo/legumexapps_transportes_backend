@@ -11,9 +11,13 @@ use App\Models\Client;
 use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripFuel;
+use App\Models\TripPosition;
+use App\Models\TripTimeout;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
+use Illuminate\Support\Facades\DB;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use Tests\TestCase;
 
@@ -508,6 +512,182 @@ it('pagina la flota solo con limit numérico, acotado a [10, 100]', function () 
         ->assertOk()
         ->assertJsonCount(12, 'data')
         ->assertJsonMissingPath('total');
+});
+
+/*
+|--------------------------------------------------------------------------
+| GET /api/dashboard/trips/in-route
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * Count the queries a request to the given URI runs, as an administrator.
+ */
+function dashboardQueryCount(string $uri): int
+{
+    $user = userWithRole(UserRole::Administrator);
+    resetAuthState();
+    $token = JWTAuth::fromUser($user);
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    test()->withToken($token)->withHeader('Accept', 'application/json')->getJson($uri)->assertOk();
+
+    $count = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    return $count;
+}
+
+it('devuelve data vacío cuando no hay ningún viaje en curso', function () {
+    Trip::factory()->create();
+    tripTakenBy(dashboardCarrier(), ['status' => TripStatus::Finished, 'start_date' => now(), 'end_date' => now()]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route')
+        ->assertOk()
+        ->assertExactJson([
+            'statusCode' => 200,
+            'message' => 'Viajes en curso obtenidos correctamente',
+            'data' => [],
+        ]);
+});
+
+it('lista solo los viajes in_route con sus 16 claves y null donde no hay punto ni parada', function () {
+    $carrier = dashboardCarrier();
+    $client = Client::factory()->create(['name' => 'CLIENTE A']);
+    $port = Location::factory()->port()->active()->create(['name' => 'PUERTO QUETZAL']);
+    $trip = tripTakenBy($carrier, [
+        'status' => TripStatus::InRoute,
+        'start_date' => '2026-09-14 08:15:00',
+        'order' => 'ORD-001',
+        'container' => 'MSKU1234567',
+        'client_id' => $client->id,
+        'location_id' => $port->id,
+    ]);
+    /** Un pending con start_date puesto no es un viaje en curso: manda el status. */
+    tripTakenBy($carrier, ['status' => TripStatus::Pending, 'start_date' => now()]);
+
+    $response = asUser(userWithRole(UserRole::Manager))->getJson('/api/dashboard/trips/in-route')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0', [
+            'tripId' => $trip->id,
+            'order' => 'ORD-001',
+            'container' => 'MSKU1234567',
+            'carrierId' => $carrier->id,
+            'carrierName' => 'TRANSPORTES X',
+            'pilotId' => $trip->pilot_id,
+            'pilotName' => User::query()->findOrFail($trip->pilot_id)->name,
+            'vehicleId' => $trip->vehicle_id,
+            'vehiclePlate' => Vehicle::query()->findOrFail($trip->vehicle_id)->plate,
+            'clientName' => 'CLIENTE A',
+            'locationName' => 'PUERTO QUETZAL',
+            'startDate' => '14-09-2026 08:15:00 AM',
+            'lastPosition' => null,
+            'totalFuelGallons' => '0.00',
+            'unconfirmedFuelGallons' => '0.00',
+            'openTimeout' => null,
+        ]);
+
+    expect($response->json('data.0'))->toHaveCount(16);
+});
+
+it('resuelve lastPosition con el punto de mayor recorded_at e id de cada viaje', function () {
+    $trip = tripTakenBy(dashboardCarrier(), ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(2)]);
+    $other = tripTakenBy(dashboardCarrier('OTRA'), ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'recorded_at' => '2026-09-14 08:30:00', 'latitude' => 14.1, 'longitude' => -90.1]);
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'recorded_at' => '2026-09-14 09:00:15', 'latitude' => 14.6, 'longitude' => -90.5]);
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'recorded_at' => '2026-09-14 08:45:00', 'latitude' => 14.3, 'longitude' => -90.3]);
+    TripPosition::factory()->create(['trip_id' => $other->id, 'pilot_id' => $other->pilot_id, 'recorded_at' => '2026-09-14 09:30:00', 'latitude' => 15.0, 'longitude' => -91.0]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route')
+        ->assertOk()
+        ->assertJsonPath('data.0.tripId', $other->id)
+        ->assertJsonPath('data.0.lastPosition', ['latitude' => '15.00000000', 'longitude' => '-91.00000000', 'recordedAt' => '14-09-2026 09:30:00 AM'])
+        ->assertJsonPath('data.1.tripId', $trip->id)
+        ->assertJsonPath('data.1.lastPosition', ['latitude' => '14.60000000', 'longitude' => '-90.50000000', 'recordedAt' => '14-09-2026 09:00:15 AM']);
+});
+
+it('mide stoppedMinutes de la parada abierta contra now()', function () {
+    $this->travelTo('2026-09-14 08:50:00');
+    $trip = tripTakenBy(dashboardCarrier(), ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+    $anchor = TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'recorded_at' => now(), 'latitude' => 14.6, 'longitude' => -90.5]);
+    TripTimeout::factory()->open()->create([
+        'trip_id' => $trip->id,
+        'pilot_id' => $trip->pilot_id,
+        'start_position_id' => $anchor->id,
+        'latitude' => $anchor->latitude,
+        'longitude' => $anchor->longitude,
+        'started_at' => now(),
+    ]);
+
+    $this->travelTo('2026-09-14 09:00:15');
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route')
+        ->assertOk()
+        ->assertJsonPath('data.0.openTimeout', [
+            'startedAt' => '14-09-2026 08:50:00 AM',
+            'latitude' => '14.60000000',
+            'longitude' => '-90.50000000',
+            'stoppedMinutes' => 10.25,
+        ]);
+});
+
+it('ignora una parada ya cerrada al resolver openTimeout', function () {
+    $trip = tripTakenBy(dashboardCarrier(), ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+    TripTimeout::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route')
+        ->assertOk()
+        ->assertJsonPath('data.0.openTimeout', null);
+});
+
+it('suma por separado los galones confirmados y sin confirmar', function () {
+    $trip = tripTakenBy(dashboardCarrier(), ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 30]);
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 15]);
+    TripFuel::factory()->create(['trip_id' => $trip->id, 'gallons' => 10]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route')
+        ->assertOk()
+        ->assertJsonPath('data.0.totalFuelGallons', '45.00')
+        ->assertJsonPath('data.0.unconfirmedFuelGallons', '10.00');
+});
+
+it('acota los viajes en curso por carrierId e ignora el rango de fechas', function () {
+    $mine = dashboardCarrier('MIA');
+    $other = dashboardCarrier('OTRA');
+    $trip = tripTakenBy($mine, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour(), 'recolection_date' => '2026-09-10 10:00:00']);
+    tripTakenBy($other, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/dashboard/trips/in-route?carrierId={$mine->id}")
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.tripId', $trip->id);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route?dateFrom=2030-01-01&dateTo=2030-01-31')
+        ->assertOk()
+        ->assertJsonCount(2, 'data');
+});
+
+it('ejecuta un número de consultas independiente del número de viajes en curso', function () {
+    $carrier = dashboardCarrier();
+    $first = tripTakenBy($carrier, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+    TripPosition::factory()->create(['trip_id' => $first->id, 'pilot_id' => $first->pilot_id]);
+    TripFuel::factory()->confirmed()->create(['trip_id' => $first->id]);
+
+    $withOne = dashboardQueryCount('/api/dashboard/trips/in-route');
+
+    foreach (range(1, 4) as $i) {
+        $trip = tripTakenBy($carrier, ['status' => TripStatus::InRoute, 'start_date' => now()->subMinutes($i)]);
+        TripPosition::factory()->count(2)->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id]);
+        TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id]);
+        TripTimeout::factory()->open()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id]);
+    }
+
+    expect(dashboardQueryCount('/api/dashboard/trips/in-route'))->toBe($withOne);
 });
 
 it('devuelve el mismo resumen de viajes al administrador y al manager', function () {

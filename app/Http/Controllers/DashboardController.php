@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Helpers\ResponseHandler;
 use App\Http\Resources\Dashboard\DashboardVehicleResource;
+use App\Http\Resources\Dashboard\TripInRouteResource;
 use App\Http\Resources\Dashboard\TripsSummaryResource;
 use App\Http\Resources\Dashboard\VehicleExpensesSummaryResource;
 use App\Http\Resources\PaginatedResource;
@@ -35,7 +36,7 @@ class DashboardController extends Controller
                 'carrierId' => $this->queryString($request, 'carrierId'),
             ]);
 
-            return ResponseHandler::success($trips, 'Viajes en curso obtenidos correctamente', 200);
+            return ResponseHandler::success(TripInRouteResource::collection($trips), 'Viajes en curso obtenidos correctamente', 200);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }
