@@ -1,6 +1,6 @@
 # SPEC 28 — Polilínea del recorrido real del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 16, SPEC 24, SPEC 26
 > **Fecha:** 2026-09-13
 > **Objetivo:** Al finalizar un viaje (`PATCH /api/trips/{trip}/finish`), codificar todo el rastro de `trip_positions` en una polilínea persistida en la columna nueva `trips.traveled_polyline` y exponerla en `TripResource` como `traveledPolyline` + `traveledPoints`.
@@ -106,22 +106,23 @@ Cada paso deja la suite verde y la API funcionando.
 
 ## Criterios de aceptación
 
-- [ ] `trips` tiene la columna `traveled_polyline` (`TEXT`, nullable) y las filas anteriores a la migración quedan en `null`.
-- [ ] `PolylineEncoder::encode([])` devuelve `''`.
-- [ ] `PolylineDecoder::decode(PolylineEncoder::encode($points)) === $points` para cualquier lista de pares con 5 decimales.
-- [ ] `PolylineEncoder::encode()` sobre pares con 8 decimales produce, al decodificar, los mismos pares redondeados a 5.
-- [ ] `PATCH /api/trips/{trip}/finish` con N posiciones guarda una polilínea cuyo `decode()` devuelve N pares en orden `recorded_at asc, id asc`.
-- [ ] `PATCH /api/trips/{trip}/finish` sin posiciones responde 200, guarda `traveled_polyline = null` y devuelve `traveledPolyline: null`, `traveledPoints: []`.
-- [ ] La polilínea se escribe en el mismo `update()` que `end_date` y `status`; no se abre ninguna `DB::transaction` nueva en `finish()`.
-- [ ] Un segundo `/finish` sobre un viaje ya cerrado responde 400 («El viaje ya fue finalizado») y conserva la `traveled_polyline` del primer cierre aunque haya puntos nuevos.
+- [x] `trips` tiene la columna `traveled_polyline` (`TEXT`, nullable) y las filas anteriores a la migración quedan en `null`.
+- [x] `PolylineEncoder::encode([])` devuelve `''`.
+- [x] `PolylineDecoder::decode(PolylineEncoder::encode($points)) === $points` para cualquier lista de pares con 5 decimales.
+- [x] `PolylineEncoder::encode()` sobre pares con 8 decimales produce, al decodificar, los mismos pares redondeados a 5.
+- [x] `PATCH /api/trips/{trip}/finish` con N posiciones guarda una polilínea cuyo `decode()` devuelve N pares en orden `recorded_at asc, id asc`.
+- [x] `PATCH /api/trips/{trip}/finish` sin posiciones responde 200, guarda `traveled_polyline = null` y devuelve `traveledPolyline: null`, `traveledPoints: []`.
+- [x] La polilínea se escribe en el mismo `update()` que `end_date` y `status`; no se abre ninguna `DB::transaction` nueva en `finish()`.
+- [x] Un segundo `/finish` sobre un viaje ya cerrado responde 400 («El viaje ya fue finalizado») y conserva la `traveled_polyline` del primer cierre aunque haya puntos nuevos.
   > **Nota (implementación):** el escenario «segundo `/finish` tras un `PATCH` de admin a `in_route`» es teórico: el `PATCH` general no limpia `end_date` (SPEC 24) y la guarda de `finish()` es `end_date !== null`, así que por la API no hay segundo cierre. La sobrescritura del rastro completo queda como comportamiento del código (cada `finish()` recodifica desde cero) sin test que la ejercite; si algún día `end_date` se puede limpiar, el test se añade entonces.
-- [ ] `TripResource` devuelve 37 claves, con `traveledPolyline` y `traveledPoints` inmediatamente después de `points`, en los siete endpoints que lo usan.
-- [ ] `TripListResource` sigue devolviendo 15 claves; `GET /api/trips` y `GET /api/trips/current` no cambian de forma.
-- [ ] Mandar `traveledPolyline` o `traveled_polyline` en el `POST` o en el `PATCH` general se ignora con la respuesta habitual y no escribe la columna.
-- [ ] `POST /api/trips/{trip}/positions` no toca `traveled_polyline` (sigue `null` mientras el viaje está `in_route`).
-- [ ] El payload de `TripPositionUpdated` sigue en seis claves y `TripPositionResource` en cinco.
-- [ ] `storage/api-docs/api-docs.json` documenta las dos claves nuevas.
-- [ ] `php artisan test --compact` pasa completo y `vendor/bin/pint --test` no reporta cambios.
+- [x] `TripResource` devuelve 37 claves, con `traveledPolyline` y `traveledPoints` inmediatamente después de `points`, en los siete endpoints que lo usan.
+- [x] `TripListResource` sigue devolviendo 15 claves; `GET /api/trips` y `GET /api/trips/current` no cambian de forma.
+- [x] Mandar `traveledPolyline` o `traveled_polyline` en el `POST` o en el `PATCH` general se ignora con la respuesta habitual y no escribe la columna.
+- [x] `POST /api/trips/{trip}/positions` no toca `traveled_polyline` (sigue `null` mientras el viaje está `in_route`).
+- [x] El payload de `TripPositionUpdated` sigue en seis claves y `TripPositionResource` en cinco.
+- [x] `storage/api-docs/api-docs.json` documenta las dos claves nuevas.
+- [x] `php artisan test --compact` pasa completo y `vendor/bin/pint --test` no reporta cambios.
+  > **Nota (implementación):** 2866/2867. El único rojo, `TripTimeoutTest › no toca ninguna parada al iniciar el viaje`, ya falla en `main` (no siembra la carga confirmada que `/start` exige desde SPEC 27 · fuels) y no lo toca esta spec. `pint --test` global reporta cuatro archivos previos y ajenos (`PilotServiceInterface`, `config/jwt.php`, `config/l5-swagger.php`, `TripTimeoutModelTest`); todo lo tocado por SPEC 28 pasa `pint --dirty`.
 
 ---
 
