@@ -62,11 +62,12 @@ interface TripServiceInterface
      * or the shipping line have been deleted, when the location is not a port or is
      * inactive, or when the departure point is inactive.
      *
-     * @param  array{order: string, clientId: int, shippingLineId: int, departurePointId: int, locationId: int, destination: string, container: string, transport: string, recolectionDate: string, shipDate: string, polyline: string, observations: string}  $data
-     *                                                                                                                                                                                                                                                                recolectionDate and shipDate arrive already validated as future dates, with
-     *                                                                                                                                                                                                                                                                shipDate at or after recolectionDate; polyline is the encoded route the
-     *                                                                                                                                                                                                                                                                frontend resolved through GET /api/places/directions — this service never calls
-     *                                                                                                                                                                                                                                                                Google, and never recomputes it.
+     * @param  array{order: string, clientId: int, shippingLineId: int, departurePointId: int, locationId: int, destination: string, container: string, transport: string, recolectionDate: string, shipDate: string, polyline: string, estimatedKilometers: float|string, estimatedHours: float|string, observations: string}  $data
+     *                                                                                                                                                                                                                                                                                                                                 recolectionDate and shipDate arrive already validated as future dates, with
+     *                                                                                                                                                                                                                                                                                                                                 shipDate at or after recolectionDate; polyline is the encoded route the
+     *                                                                                                                                                                                                                                                                                                                                 frontend resolved through GET /api/places/directions — this service never calls
+     *                                                                                                                                                                                                                                                                                                                                 Google, and never recomputes it. estimatedKilometers and estimatedHours come
+     *                                                                                                                                                                                                                                                                                                                                 from that same response and are stored as sent, never checked against the line.
      */
     public function create(User $user, array $data): Trip;
 
@@ -88,7 +89,7 @@ interface TripServiceInterface
      * Throws a NotFoundError when the trip does not exist, a BadRequestError when it
      * has already been deleted, and the same catalog BadRequestErrors as create().
      *
-     * @param  array{order?: string, clientId?: int, shippingLineId?: int, departurePointId?: int, locationId?: int, destination?: string, container?: string, transport?: string, recolectionDate?: string, shipDate?: string, polyline?: string, observations?: string, status?: string}  $data
+     * @param  array{order?: string, clientId?: int, shippingLineId?: int, departurePointId?: int, locationId?: int, destination?: string, container?: string, transport?: string, recolectionDate?: string, shipDate?: string, polyline?: string, estimatedKilometers?: float|string, estimatedHours?: float|string, observations?: string, status?: string}  $data
      */
     public function update(int $id, array $data): Trip;
 

@@ -76,6 +76,8 @@ function tripServiceData(array $overrides = []): array
         'recolectionDate' => now()->addDays(3)->startOfSecond()->format('Y-m-d H:i:s'),
         'shipDate' => now()->addDays(5)->startOfSecond()->format('Y-m-d H:i:s'),
         'polyline' => TripFactory::POLYLINE,
+        'estimatedKilometers' => 104.32,
+        'estimatedHours' => 1.75,
         'observations' => 'Cargar a primera hora',
     ], $overrides);
 }
@@ -140,6 +142,27 @@ it('persiste el viaje normalizando la orden y el contenedor', function () {
         ->and($trip->observations)->toBe('Cargar a primera hora')
         ->and($trip->polyline)->toBe(TripFactory::POLYLINE)
         ->and(Trip::query()->whereKey($trip->id)->exists())->toBeTrue();
+});
+
+it('persiste la distancia y la duración estimadas tal cual llegan, sin cast', function () {
+    $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData([
+        'estimatedKilometers' => '104.32',
+        'estimatedHours' => '1.75',
+    ]));
+
+    /** Postgres devuelve el decimal como string: el formato de salida es del Resource. */
+    expect($trip->fresh()->estimated_kilometers)->toBe('104.32')
+        ->and($trip->fresh()->estimated_hours)->toBe('1.75');
+});
+
+it('admite cero en las dos estimaciones: una ruta muy corta redondeada es legítima', function () {
+    $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData([
+        'estimatedKilometers' => 0,
+        'estimatedHours' => 0,
+    ]));
+
+    expect($trip->fresh()->estimated_kilometers)->toBe('0.00')
+        ->and($trip->fresh()->estimated_hours)->toBe('0.00');
 });
 
 it('fuerza el estado pendiente y descarta la tripulación que llegue en los datos', function () {
@@ -460,6 +483,37 @@ it('nunca escribe la tripulación ni las dos autorías desde el update', functio
         ->and($actualizado->registered_by)->toBe($admin->id);
 });
 
+it('reescribe los tres campos de la ruta cuando llegan juntos', function () {
+    $trip = Trip::factory()->create([
+        'polyline' => TripFactory::POLYLINE,
+        'estimated_kilometers' => 10.00,
+        'estimated_hours' => 0.50,
+    ]);
+
+    $actualizado = tripService()->update($trip->id, [
+        'polyline' => '_p~iF~ps|U',
+        'estimatedKilometers' => 250.5,
+        'estimatedHours' => 4,
+    ]);
+
+    expect($actualizado->polyline)->toBe('_p~iF~ps|U')
+        ->and($actualizado->fresh()->estimated_kilometers)->toBe('250.50')
+        ->and($actualizado->fresh()->estimated_hours)->toBe('4.00');
+});
+
+it('no toca las estimaciones cuando el payload no trae la ruta', function () {
+    $trip = Trip::factory()->create([
+        'estimated_kilometers' => 104.32,
+        'estimated_hours' => 1.75,
+    ]);
+
+    $actualizado = tripService()->update($trip->id, ['destination' => 'Algeciras, España']);
+
+    expect($actualizado->destination)->toBe('Algeciras, España')
+        ->and($actualizado->fresh()->estimated_kilometers)->toBe('104.32')
+        ->and($actualizado->fresh()->estimated_hours)->toBe('1.75');
+});
+
 it('mueve el estado hacia atrás sin tocar las fechas de ejecución', function () {
     $trip = Trip::factory()->finished()->create();
 
@@ -667,6 +721,24 @@ it('lanza NotFoundError al asignar un id inexistente y BadRequestError sobre uno
 | start() y finish()
 |--------------------------------------------------------------------------
 */
+
+it('no toca las estimaciones al asignar, arrancar ni cerrar el viaje', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create(['estimated_kilometers' => 104.32, 'estimated_hours' => 1.75]);
+
+    tripService()->assign($team['owner'], $trip->id, [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+    ]);
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id]);
+    tripService()->start($team['pilot'], $trip->id);
+    tripService()->finish($team['pilot'], $trip->id);
+
+    expect($trip->fresh()->estimated_kilometers)->toBe('104.32')
+        ->and($trip->fresh()->estimated_hours)->toBe('1.75');
+});
 
 it('arranca el viaje con la hora del servidor y lo pone en ruta', function () {
     $team = tripServiceTeam();

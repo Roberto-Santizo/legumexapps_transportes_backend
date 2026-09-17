@@ -129,6 +129,8 @@ class TripService implements TripServiceInterface
         'recolectionDate' => 'recolection_date',
         'shipDate' => 'ship_date',
         'polyline' => 'polyline',
+        'estimatedKilometers' => 'estimated_kilometers',
+        'estimatedHours' => 'estimated_hours',
         'observations' => 'observations',
         'status' => 'status',
     ];
@@ -269,6 +271,9 @@ class TripService implements TripServiceInterface
             'ship_date' => $data['shipDate'],
             /** La ruta ya resuelta por el frontend: este service nunca llama a Google. */
             'polyline' => $data['polyline'],
+            /** Sus estimaciones vienen de la misma respuesta y entran tal cual: ni se recalculan ni se cotejan con la línea. */
+            'estimated_kilometers' => $data['estimatedKilometers'],
+            'estimated_hours' => $data['estimatedHours'],
             /** Nace pendiente y sin dueño operativo: solo /assignment llena la tripulación. */
             'status' => TripStatus::Pending,
             'pilot_id' => null,
