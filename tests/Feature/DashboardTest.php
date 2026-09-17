@@ -62,16 +62,11 @@ function dashboardEndpoints(): array
 }
 
 /**
- * The two roles `role:administrator,manager` keeps out of the whole domain.
- *
- * @return array<string, UserRole>
+ * The owner of the given company, the user a `carrier` dashboard is scoped through.
  */
-function dashboardForbiddenRoles(): array
+function ownerOf(Carrier $carrier): User
 {
-    return [
-        'carrier' => UserRole::Carrier,
-        'pilot' => UserRole::Pilot,
-    ];
+    return User::query()->findOrFail($carrier->user_id);
 }
 
 /**
@@ -111,15 +106,29 @@ it('rechaza las rutas del tablero sin token', function (string $uri) {
         ->assertJsonPath('message', 'El token de sesión no es válido o ha expirado');
 })->with(dashboardEndpoints());
 
-it('rechaza con 403 a transportistas y pilotos en todas las rutas del tablero', function (string $uri, UserRole $role) {
-    asUser(userWithRole($role))->getJson($uri)
+it('rechaza con 403 a los pilotos en todas las rutas del tablero', function (string $uri) {
+    asUser(userWithRole(UserRole::Pilot))->getJson($uri)
         ->assertForbidden()
         ->assertExactJson([
             'statusCode' => 403,
             'message' => 'No tienes permisos para acceder a este recurso',
             'data' => null,
         ]);
-})->with(dashboardEndpoints())->with(dashboardForbiddenRoles());
+})->with(dashboardEndpoints());
+
+it('rechaza con 403 a un transportista sin empresa en todas las rutas del tablero', function (string $uri) {
+    asUser(userWithRole(UserRole::Carrier))->getJson($uri)
+        ->assertForbidden()
+        ->assertExactJson([
+            'statusCode' => 403,
+            'message' => 'Debes estar vinculado a un transportista para acceder a este recurso',
+            'data' => null,
+        ]);
+})->with(dashboardEndpoints());
+
+it('admite a un transportista con empresa en todas las rutas del tablero', function (string $uri) {
+    asUser(ownerOf(dashboardCarrier()))->getJson($uri)->assertOk();
+})->with(dashboardEndpoints());
 
 /*
 |--------------------------------------------------------------------------
@@ -698,4 +707,73 @@ it('devuelve el mismo resumen de viajes al administrador y al manager', function
     $manager = asUser(userWithRole(UserRole::Manager))->getJson('/api/dashboard/trips')->assertOk()->json('data');
 
     expect($manager)->toBe($admin);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Ámbito del carrier
+|--------------------------------------------------------------------------
+*/
+
+it('acota el resumen de viajes de un transportista a su empresa e ignora su carrierId', function () {
+    $mine = dashboardCarrier('MIA');
+    $other = dashboardCarrier('OTRA');
+    tripTakenBy($mine);
+    tripTakenBy($other);
+    tripTakenBy($other);
+    Trip::factory()->create();
+
+    asUser(ownerOf($mine))->getJson("/api/dashboard/trips?carrierId={$other->id}")
+        ->assertOk()
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.unassigned', 0)
+        ->assertJsonPath('data.byCarrier', [
+            ['carrierId' => $mine->id, 'carrierName' => 'MIA', 'total' => 1],
+        ]);
+});
+
+it('acota los viajes en curso de un transportista a su empresa', function () {
+    $mine = dashboardCarrier('MIA');
+    $other = dashboardCarrier('OTRA');
+    $trip = tripTakenBy($mine, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+    tripTakenBy($other, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+
+    asUser(ownerOf($mine))->getJson("/api/dashboard/trips/in-route?carrierId={$other->id}")
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.tripId', $trip->id)
+        ->assertJsonPath('data.0.carrierId', $mine->id);
+});
+
+it('acota el resumen de gastos de un transportista a los vehículos de su empresa', function () {
+    $mine = dashboardCarrier('MIA');
+    $other = dashboardCarrier('OTRA');
+    expenseOf($mine, ['amount' => 100]);
+    expenseOf($other, ['amount' => 900]);
+
+    asUser(ownerOf($mine))->getJson("/api/dashboard/vehicle-expenses?carrierId={$other->id}")
+        ->assertOk()
+        ->assertJsonPath('data.count', 1)
+        ->assertJsonPath('data.totalAmount', '100.00')
+        ->assertJsonCount(1, 'data.byCarrier')
+        ->assertJsonPath('data.byCarrier.0.carrierId', $mine->id);
+});
+
+it('acota la flota de un transportista a su empresa y respeta el resto de filtros', function () {
+    $mine = dashboardCarrier('MIA');
+    $other = dashboardCarrier('OTRA');
+    $active = Vehicle::factory()->create(['carrier_id' => $mine->id, 'plate' => 'P111AAA']);
+    Vehicle::factory()->create(['carrier_id' => $mine->id, 'plate' => 'P222BBB', 'status' => VehicleStatus::Inactive]);
+    Vehicle::factory()->create(['carrier_id' => $other->id, 'plate' => 'P333CCC']);
+
+    asUser(ownerOf($mine))->getJson("/api/dashboard/vehicles?carrierId={$other->id}")
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.carrierId', $mine->id)
+        ->assertJsonPath('data.1.carrierId', $mine->id);
+
+    asUser(ownerOf($mine))->getJson('/api/dashboard/vehicles?status=active&limit=10')
+        ->assertOk()
+        ->assertJsonPath('total', 1)
+        ->assertJsonPath('data.0.id', $active->id);
 });

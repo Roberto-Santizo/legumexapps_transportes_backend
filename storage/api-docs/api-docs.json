@@ -2543,13 +2543,13 @@
                     "Dashboard"
                 ],
                 "summary": "Resumen de viajes",
-                "description": "Devuelve los agregados de viajes en un solo objeto de OCHO bloques: total, unassigned, byStatus, byCarrier, byClient, byShippingLine, byLocation y byMonth. Los viajes borrados quedan SIEMPRE fuera.\n\nATENCIÓN — byCarrier NO SUMA total: agrupa por la empresa de assigned_by y los viajes sin asignar (la bolsa de SPEC 24) no tienen empresa. Suman en total y en unassigned, pero no aparecen en ese desglose. Con ?carrierId= todos los bloques se acotan a esa empresa y unassigned es siempre 0.\n\nbyStatus lleva SIEMPRE sus tres claves (pending, inRoute, finished) a 0 si no hay filas; los otros cinco desgloses solo traen filas con datos —[] con la base vacía— y van ordenados por total descendente e id ascendente, salvo byMonth, que va por month ascendente y NO rellena los meses sin viajes.\n\nEl rango corta sobre recolection_date por día completo: dateTo=2026-09-30 incluye un viaje de ese día a las 23:59. Sin fechas, todo el histórico. Nunca 404: con la base vacía responde 200 con los bloques a cero.",
+                "description": "Devuelve los agregados de viajes en un solo objeto de OCHO bloques: total, unassigned, byStatus, byCarrier, byClient, byShippingLine, byLocation y byMonth. Los viajes borrados quedan SIEMPRE fuera.\n\nATENCIÓN — byCarrier NO SUMA total: agrupa por la empresa de assigned_by y los viajes sin asignar (la bolsa de SPEC 24) no tienen empresa. Suman en total y en unassigned, pero no aparecen en ese desglose. Con ?carrierId= (administrator/manager) o para un carrier (siempre su empresa) todos los bloques se acotan a esa empresa y unassigned es siempre 0.\n\nbyStatus lleva SIEMPRE sus tres claves (pending, inRoute, finished) a 0 si no hay filas; los otros cinco desgloses solo traen filas con datos —[] con la base vacía— y van ordenados por total descendente e id ascendente, salvo byMonth, que va por month ascendente y NO rellena los meses sin viajes.\n\nEl rango corta sobre recolection_date por día completo: dateTo=2026-09-30 incluye un viaje de ese día a las 23:59. Sin fechas, todo el histórico. Nunca 404: con la base vacía responde 200 con los bloques a cero.",
                 "operationId": "dashboardTripsSummary",
                 "parameters": [
                     {
                         "name": "carrierId",
                         "in": "query",
-                        "description": "Id de la empresa transportista (carriers.id) a la que acotar los ocho bloques, por el assigned_by de sus viajes. TOLERANTE: un valor no numérico o un id inexistente se ignora y se devuelve el histórico completo, nunca 422 ni un resumen vacío.",
+                        "description": "Id de la empresa transportista (carriers.id) — SOLO administrator y manager; un carrier lo ve ignorado, siempre acotado a su empresa — a la que acotar los ocho bloques, por el assigned_by de sus viajes. TOLERANTE: un valor no numérico o un id inexistente se ignora y se devuelve el histórico completo, nunca 422 ni un resumen vacío.",
                         "required": false,
                         "schema": {
                             "type": "integer",
@@ -2601,7 +2601,7 @@
                         }
                     },
                     "403": {
-                        "description": "El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso",
+                        "description": "El usuario es pilot (mensaje: No tienes permisos para acceder a este recurso) o es un carrier sin empresa vinculada (mensaje: Debes estar vinculado a un transportista para acceder a este recurso).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2630,7 +2630,7 @@
                     {
                         "name": "carrierId",
                         "in": "query",
-                        "description": "Id de la empresa transportista (carriers.id) a la que acotar los viajes en curso, por el assigned_by de cada viaje. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelven todos.",
+                        "description": "Id de la empresa transportista (carriers.id) — SOLO administrator y manager; un carrier lo ve ignorado, siempre acotado a su empresa — a la que acotar los viajes en curso, por el assigned_by de cada viaje. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelven todos.",
                         "required": false,
                         "schema": {
                             "type": "integer",
@@ -2660,7 +2660,7 @@
                         }
                     },
                     "403": {
-                        "description": "El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso",
+                        "description": "El usuario es pilot (mensaje: No tienes permisos para acceder a este recurso) o es un carrier sin empresa vinculada (mensaje: Debes estar vinculado a un transportista para acceder a este recurso).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2689,7 +2689,7 @@
                     {
                         "name": "carrierId",
                         "in": "query",
-                        "description": "Id de la empresa transportista (carriers.id) a la que acotar los ocho bloques, por vehicles.carrier_id. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelve el histórico completo.",
+                        "description": "Id de la empresa transportista (carriers.id) — SOLO administrator y manager; un carrier lo ve ignorado, siempre acotado a su empresa — a la que acotar los ocho bloques, por vehicles.carrier_id. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelve el histórico completo.",
                         "required": false,
                         "schema": {
                             "type": "integer",
@@ -2741,7 +2741,7 @@
                         }
                     },
                     "403": {
-                        "description": "El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso",
+                        "description": "El usuario es pilot (mensaje: No tienes permisos para acceder a este recurso) o es un carrier sin empresa vinculada (mensaje: Debes estar vinculado a un transportista para acceder a este recurso).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2764,13 +2764,13 @@
                     "Dashboard"
                 ],
                 "summary": "Flota con su viaje en curso",
-                "description": "Lista TODA la flota —de todas las empresas e INCLUIDOS los vehículos inactive y under_repair— en orden id ascendente, con su ficha operativa y, por cada uno, si está en ruta y cuál es su viaje en curso (currentTrip, null si no tiene ninguno; con dos in_route, el de start_date más reciente).\n\nATENCIÓN — NO TRAE purchasePrice NI monthlyInsuranceCost: quedaron fuera a propósito. Para la ficha completa está GET /api/vehicles/{vehicle}.\n\nFiltros tolerantes: carrierId (vehicles.carrier_id), status (active|inactive|under_repair), condition (new|used) e inRoute (true|false). Un valor inválido se ignora, nunca 422. inRoute se aplica ANTES de paginar, así que total refleja el recorte. dateFrom y dateTo SE IGNORAN: la flota no tiene fecha de negocio.\n\nPaginación opt-in con limit, acotado a [10, 100]; sin limit se devuelve toda la flota. Sin vehículos, 200 con data [].",
+                "description": "Lista TODA la flota —de todas las empresas para administrator/manager, solo la propia para carrier, e INCLUIDOS los vehículos inactive y under_repair— en orden id ascendente, con su ficha operativa y, por cada uno, si está en ruta y cuál es su viaje en curso (currentTrip, null si no tiene ninguno; con dos in_route, el de start_date más reciente).\n\nATENCIÓN — NO TRAE purchasePrice NI monthlyInsuranceCost: quedaron fuera a propósito. Para la ficha completa está GET /api/vehicles/{vehicle}.\n\nFiltros tolerantes: carrierId (vehicles.carrier_id), status (active|inactive|under_repair), condition (new|used) e inRoute (true|false). Un valor inválido se ignora, nunca 422. inRoute se aplica ANTES de paginar, así que total refleja el recorte. dateFrom y dateTo SE IGNORAN: la flota no tiene fecha de negocio.\n\nPaginación opt-in con limit, acotado a [10, 100]; sin limit se devuelve toda la flota. Sin vehículos, 200 con data [].",
                 "operationId": "dashboardVehicles",
                 "parameters": [
                     {
                         "name": "carrierId",
                         "in": "query",
-                        "description": "Id de la empresa transportista (carriers.id) dueña de los vehículos. TOLERANTE: un valor no numérico o inexistente se ignora.",
+                        "description": "Id de la empresa transportista (carriers.id) — SOLO administrator y manager; un carrier lo ve ignorado, siempre acotado a su empresa — dueña de los vehículos. TOLERANTE: un valor no numérico o inexistente se ignora.",
                         "required": false,
                         "schema": {
                             "type": "integer",
@@ -2869,7 +2869,7 @@
                         }
                     },
                     "403": {
-                        "description": "El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso",
+                        "description": "El usuario es pilot (mensaje: No tienes permisos para acceder a este recurso) o es un carrier sin empresa vinculada (mensaje: Debes estar vinculado a un transportista para acceder a este recurso).",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -14779,7 +14779,7 @@
         },
         {
             "name": "Dashboard",
-            "description": "Tablero de administración: CUATRO endpoints de SOLO LECTURA bajo /api/dashboard que resumen viajes, gastos de vehículos, flota y viajes en curso a partir de lo que los demás dominios ya guardan. No crea tabla, columna ni migración: cada llamada consulta la base en vivo, sin caché.\n\nPERMISOS — LOS CUATRO ENDPOINTS SON EXCLUSIVOS DE administrator Y manager (middleware role:administrator,manager), sin carrier.required. carrier y pilot reciben 403 «No tienes permisos para acceder a este recurso» en los cuatro: NO HAY TABLERO POR EMPRESA. Y los dos roles admitidos ven EXACTAMENTE LO MISMO, todas las empresas: carrierId es un filtro voluntario, nunca un ámbito.\n\nFILTROS — TODOS TOLERANTES Y SIN FormRequest: nunca hay 422. carrierId debe ser numérico Y existir, si no se ignora; dateFrom/dateTo aceptan solo Y-m-d estricto (01/09/2026 o 2026-9-1 se ignoran) y cortan por día completo; sin fechas es TODO EL HISTÓRICO, no el mes en curso. ATENCIÓN — /trips/in-route y /vehicles NO TIENEN FECHA DE NEGOCIO e ignoran dateFrom/dateTo en silencio.\n\nRANGO DE FECHAS: /trips corta sobre recolection_date; /vehicle-expenses sobre expense_date. En viajes, «empresa» es la de assigned_by (el dueño que tomó el viaje); en gastos y flota, vehicles.carrier_id.\n\nLAS TRES TRAMPAS: 1) en /trips, byCarrier NO SUMA total, porque los viajes sin asignar no tienen empresa; 2) en /trips/in-route, stoppedMinutes se mide contra now() y CAMBIA EN CADA LECTURA; 3) byMonth solo trae los meses con datos: el frontend rellena los huecos.\n\nSin websocket propio (/trips/in-route se refresca por polling), sin export, sin comparativas entre periodos y sin top N: los desgloses salen completos."
+            "description": "Tablero de administración: CUATRO endpoints de SOLO LECTURA bajo /api/dashboard que resumen viajes, gastos de vehículos, flota y viajes en curso a partir de lo que los demás dominios ya guardan. No crea tabla, columna ni migración: cada llamada consulta la base en vivo, sin caché.\n\nPERMISOS — LOS CUATRO ENDPOINTS ADMITEN administrator, manager Y carrier (middleware role:administrator,manager,carrier + carrier.required). pilot recibe 403 «No tienes permisos para acceder a este recurso» en los cuatro; un carrier SIN EMPRESA vinculada recibe 403 «Debes estar vinculado a un transportista para acceder a este recurso». administrator y manager ven EXACTAMENTE LO MISMO, todas las empresas, y para ellos carrierId es un filtro voluntario. EL carrier VE SOLO SU EMPRESA: el ámbito lo fija el servidor desde su vínculo en la base (no desde el token) y CUALQUIER carrierId QUE MANDE SE IGNORA EN SILENCIO — nunca puede leer los números de otra empresa.\n\nFILTROS — TODOS TOLERANTES Y SIN FormRequest: nunca hay 422. carrierId (solo administrator/manager) debe ser numérico Y existir, si no se ignora; dateFrom/dateTo aceptan solo Y-m-d estricto (01/09/2026 o 2026-9-1 se ignoran) y cortan por día completo; sin fechas es TODO EL HISTÓRICO, no el mes en curso. ATENCIÓN — /trips/in-route y /vehicles NO TIENEN FECHA DE NEGOCIO e ignoran dateFrom/dateTo en silencio.\n\nRANGO DE FECHAS: /trips corta sobre recolection_date; /vehicle-expenses sobre expense_date. En viajes, «empresa» es la de assigned_by (el dueño que tomó el viaje); en gastos y flota, vehicles.carrier_id.\n\nLAS TRES TRAMPAS: 1) en /trips, byCarrier NO SUMA total, porque los viajes sin asignar no tienen empresa; 2) en /trips/in-route, stoppedMinutes se mide contra now() y CAMBIA EN CADA LECTURA; 3) byMonth solo trae los meses con datos: el frontend rellena los huecos.\n\nSin websocket propio (/trips/in-route se refresca por polling), sin export, sin comparativas entre periodos y sin top N: los desgloses salen completos."
         },
         {
             "name": "Departure Points",

@@ -3,14 +3,17 @@
 namespace App\Services\Dashboard;
 
 use App\Enums\TripStatus;
+use App\Enums\UserRole;
 use App\Enums\VehicleCondition;
 use App\Enums\VehicleExpenseNature;
 use App\Enums\VehicleStatus;
+use App\Errors\ForbiddenError;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use App\Models\Carrier;
 use App\Models\Trip;
 use App\Models\TripPosition;
 use App\Models\TripTimeout;
+use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -36,9 +39,9 @@ class DashboardService implements DashboardServiceInterface
     private const MAX_PER_PAGE = 100;
 
     #[Override]
-    public function getTripsSummary(array $filters): array
+    public function getTripsSummary(User $user, array $filters): array
     {
-        $query = $this->applyTripFilters(Trip::query(), $filters);
+        $query = $this->applyTripFilters(Trip::query(), $this->resolveEffectiveCarrierId($user, $filters), $filters);
 
         /**
          * Cada bloque sale de la misma consulta base clonada: el ámbito de los filtros se
@@ -110,7 +113,7 @@ class DashboardService implements DashboardServiceInterface
     }
 
     #[Override]
-    public function getTripsInRoute(array $filters): Collection
+    public function getTripsInRoute(User $user, array $filters): Collection
     {
         $query = Trip::query()
             ->where('trips.status', TripStatus::InRoute)
@@ -121,12 +124,10 @@ class DashboardService implements DashboardServiceInterface
             ->orderByDesc('trips.start_date')
             ->orderByDesc('trips.id');
 
-        $carrierId = $this->resolveCarrierId($filters['carrierId'] ?? null);
+        $carrierId = $this->resolveEffectiveCarrierId($user, $filters);
 
         if ($carrierId !== null) {
-            $query->whereIn('trips.assigned_by', function ($subQuery) use ($carrierId): void {
-                $subQuery->select('user_id')->from('carriers')->where('id', $carrierId);
-            });
+            $this->whereTripsTakenBy($query, $carrierId);
         }
 
         $trips = $query->get();
@@ -156,9 +157,9 @@ class DashboardService implements DashboardServiceInterface
     }
 
     #[Override]
-    public function getVehicleExpensesSummary(array $filters): array
+    public function getVehicleExpensesSummary(User $user, array $filters): array
     {
-        $query = $this->applyVehicleExpenseFilters(VehicleExpense::query(), $filters);
+        $query = $this->applyVehicleExpenseFilters(VehicleExpense::query(), $this->resolveEffectiveCarrierId($user, $filters), $filters);
 
         $totals = (clone $query)
             ->selectRaw('count(*) as count, coalesce(sum(vehicle_expenses.amount), 0) as total_amount')
@@ -242,12 +243,12 @@ class DashboardService implements DashboardServiceInterface
     }
 
     #[Override]
-    public function getVehicles(array $filters): Collection|LengthAwarePaginator
+    public function getVehicles(User $user, array $filters): Collection|LengthAwarePaginator
     {
         /** Toda la flota, incluidos los dados de baja: el tablero muestra cada vehículo tal como está. */
         $query = Vehicle::query()->with('carrier')->orderBy('id');
 
-        $carrierId = $this->resolveCarrierId($filters['carrierId'] ?? null);
+        $carrierId = $this->resolveEffectiveCarrierId($user, $filters);
 
         if ($carrierId !== null) {
             $query->where('carrier_id', $carrierId);
@@ -298,19 +299,16 @@ class DashboardService implements DashboardServiceInterface
      *
      * Every column is qualified with `trips.` because the breakdowns join other tables
      * on top of the very same query. The range cuts on `recolection_date` by whole day.
+     * The company, already resolved against the caller, arrives apart from the filters.
      *
      * @param  Builder<Trip>  $query
-     * @param  array{carrierId?: mixed, dateFrom?: mixed, dateTo?: mixed}  $filters
+     * @param  array{dateFrom?: mixed, dateTo?: mixed}  $filters
      * @return Builder<Trip>
      */
-    private function applyTripFilters(Builder $query, array $filters): Builder
+    private function applyTripFilters(Builder $query, ?int $carrierId, array $filters): Builder
     {
-        $carrierId = $this->resolveCarrierId($filters['carrierId'] ?? null);
-
         if ($carrierId !== null) {
-            $query->whereIn('trips.assigned_by', function ($subQuery) use ($carrierId): void {
-                $subQuery->select('user_id')->from('carriers')->where('id', $carrierId);
-            });
+            $this->whereTripsTakenBy($query, $carrierId);
         }
 
         $dateFrom = $this->resolveDate($filters['dateFrom'] ?? null);
@@ -334,16 +332,15 @@ class DashboardService implements DashboardServiceInterface
      * The join with `vehicles` is always there, because the company of an expense is
      * the company of its vehicle; the `select` stays on the caller. The range cuts on
      * `expense_date`, a plain date, so a straight comparison is already by whole day.
+     * The company, already resolved against the caller, arrives apart from the filters.
      *
      * @param  Builder<VehicleExpense>  $query
-     * @param  array{carrierId?: mixed, dateFrom?: mixed, dateTo?: mixed}  $filters
+     * @param  array{dateFrom?: mixed, dateTo?: mixed}  $filters
      * @return Builder<VehicleExpense>
      */
-    private function applyVehicleExpenseFilters(Builder $query, array $filters): Builder
+    private function applyVehicleExpenseFilters(Builder $query, ?int $carrierId, array $filters): Builder
     {
         $query->join('vehicles', 'vehicles.id', '=', 'vehicle_expenses.vehicle_id');
-
-        $carrierId = $this->resolveCarrierId($filters['carrierId'] ?? null);
 
         if ($carrierId !== null) {
             $query->where('vehicles.carrier_id', $carrierId);
@@ -475,6 +472,47 @@ class DashboardService implements DashboardServiceInterface
                 'total' => (int) $row->total,
             ])
             ->all();
+    }
+
+    /**
+     * Narrow a trips query to the ones taken by the given company.
+     *
+     * The company of a trip is the one of `assigned_by`, always an owner because
+     * `/assignment` requires `role:carrier`; the subquery resolves it in SQL.
+     *
+     * @param  Builder<Trip>  $query
+     */
+    private function whereTripsTakenBy(Builder $query, int $carrierId): void
+    {
+        $query->whereIn('trips.assigned_by', function ($subQuery) use ($carrierId): void {
+            $subQuery->select('user_id')->from('carriers')->where('id', $carrierId);
+        });
+    }
+
+    /**
+     * Resolve the company every block of the dashboard is narrowed to, or null for all.
+     *
+     * `administrator` and `manager` have no scope: for them the answer is the voluntary
+     * `carrierId` filter, tolerant as ever. Anybody else is pinned to its own company
+     * —resolved against the database, never the token claim— and its `carrierId` is
+     * ignored, so a `carrier` can never read another company's numbers. Without a
+     * company it is a 403, the same rule `VehicleService` applies.
+     *
+     * @param  array{carrierId?: mixed}  $filters
+     */
+    private function resolveEffectiveCarrierId(User $user, array $filters): ?int
+    {
+        if (in_array($user->role, [UserRole::Administrator, UserRole::Manager], true)) {
+            return $this->resolveCarrierId($filters['carrierId'] ?? null);
+        }
+
+        $carrier = $user->currentCarrier();
+
+        if ($carrier === null) {
+            throw new ForbiddenError('No perteneces a ninguna empresa transportista');
+        }
+
+        return $carrier->id;
     }
 
     /**

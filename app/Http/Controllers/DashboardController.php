@@ -18,9 +18,9 @@ use OpenApi\Attributes as OA;
     description: <<<'TEXT'
     Tablero de administración: CUATRO endpoints de SOLO LECTURA bajo /api/dashboard que resumen viajes, gastos de vehículos, flota y viajes en curso a partir de lo que los demás dominios ya guardan. No crea tabla, columna ni migración: cada llamada consulta la base en vivo, sin caché.
 
-    PERMISOS — LOS CUATRO ENDPOINTS SON EXCLUSIVOS DE administrator Y manager (middleware role:administrator,manager), sin carrier.required. carrier y pilot reciben 403 «No tienes permisos para acceder a este recurso» en los cuatro: NO HAY TABLERO POR EMPRESA. Y los dos roles admitidos ven EXACTAMENTE LO MISMO, todas las empresas: carrierId es un filtro voluntario, nunca un ámbito.
+    PERMISOS — LOS CUATRO ENDPOINTS ADMITEN administrator, manager Y carrier (middleware role:administrator,manager,carrier + carrier.required). pilot recibe 403 «No tienes permisos para acceder a este recurso» en los cuatro; un carrier SIN EMPRESA vinculada recibe 403 «Debes estar vinculado a un transportista para acceder a este recurso». administrator y manager ven EXACTAMENTE LO MISMO, todas las empresas, y para ellos carrierId es un filtro voluntario. EL carrier VE SOLO SU EMPRESA: el ámbito lo fija el servidor desde su vínculo en la base (no desde el token) y CUALQUIER carrierId QUE MANDE SE IGNORA EN SILENCIO — nunca puede leer los números de otra empresa.
 
-    FILTROS — TODOS TOLERANTES Y SIN FormRequest: nunca hay 422. carrierId debe ser numérico Y existir, si no se ignora; dateFrom/dateTo aceptan solo Y-m-d estricto (01/09/2026 o 2026-9-1 se ignoran) y cortan por día completo; sin fechas es TODO EL HISTÓRICO, no el mes en curso. ATENCIÓN — /trips/in-route y /vehicles NO TIENEN FECHA DE NEGOCIO e ignoran dateFrom/dateTo en silencio.
+    FILTROS — TODOS TOLERANTES Y SIN FormRequest: nunca hay 422. carrierId (solo administrator/manager) debe ser numérico Y existir, si no se ignora; dateFrom/dateTo aceptan solo Y-m-d estricto (01/09/2026 o 2026-9-1 se ignoran) y cortan por día completo; sin fechas es TODO EL HISTÓRICO, no el mes en curso. ATENCIÓN — /trips/in-route y /vehicles NO TIENEN FECHA DE NEGOCIO e ignoran dateFrom/dateTo en silencio.
 
     RANGO DE FECHAS: /trips corta sobre recolection_date; /vehicle-expenses sobre expense_date. En viajes, «empresa» es la de assigned_by (el dueño que tomó el viaje); en gastos y flota, vehicles.carrier_id.
 
@@ -41,7 +41,7 @@ class DashboardController extends Controller
         description: <<<'TEXT'
         Devuelve los agregados de viajes en un solo objeto de OCHO bloques: total, unassigned, byStatus, byCarrier, byClient, byShippingLine, byLocation y byMonth. Los viajes borrados quedan SIEMPRE fuera.
 
-        ATENCIÓN — byCarrier NO SUMA total: agrupa por la empresa de assigned_by y los viajes sin asignar (la bolsa de SPEC 24) no tienen empresa. Suman en total y en unassigned, pero no aparecen en ese desglose. Con ?carrierId= todos los bloques se acotan a esa empresa y unassigned es siempre 0.
+        ATENCIÓN — byCarrier NO SUMA total: agrupa por la empresa de assigned_by y los viajes sin asignar (la bolsa de SPEC 24) no tienen empresa. Suman en total y en unassigned, pero no aparecen en ese desglose. Con ?carrierId= (administrator/manager) o para un carrier (siempre su empresa) todos los bloques se acotan a esa empresa y unassigned es siempre 0.
 
         byStatus lleva SIEMPRE sus tres claves (pending, inRoute, finished) a 0 si no hay filas; los otros cinco desgloses solo traen filas con datos —[] con la base vacía— y van ordenados por total descendente e id ascendente, salvo byMonth, que va por month ascendente y NO rellena los meses sin viajes.
 
@@ -52,7 +52,7 @@ class DashboardController extends Controller
         parameters: [
             new OA\Parameter(
                 name: 'carrierId',
-                description: 'Id de la empresa transportista (carriers.id) a la que acotar los ocho bloques, por el assigned_by de sus viajes. TOLERANTE: un valor no numérico o un id inexistente se ignora y se devuelve el histórico completo, nunca 422 ni un resumen vacío.',
+                description: 'Id de la empresa transportista (carriers.id) — SOLO administrator y manager; un carrier lo ve ignorado, siempre acotado a su empresa — a la que acotar los ocho bloques, por el assigned_by de sus viajes. TOLERANTE: un valor no numérico o un id inexistente se ignora y se devuelve el histórico completo, nunca 422 ni un resumen vacío.',
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', example: 3),
@@ -85,7 +85,7 @@ class DashboardController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso',
+                description: 'El usuario es pilot (mensaje: No tienes permisos para acceder a este recurso) o es un carrier sin empresa vinculada (mensaje: Debes estar vinculado a un transportista para acceder a este recurso).',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
         ],
@@ -93,7 +93,7 @@ class DashboardController extends Controller
     public function trips(Request $request, DashboardServiceInterface $dashboardService)
     {
         try {
-            $summary = $dashboardService->getTripsSummary([
+            $summary = $dashboardService->getTripsSummary(auth('api')->user(), [
                 'carrierId' => $this->queryString($request, 'carrierId'),
                 'dateFrom' => $this->queryString($request, 'dateFrom'),
                 'dateTo' => $this->queryString($request, 'dateTo'),
@@ -126,7 +126,7 @@ class DashboardController extends Controller
         parameters: [
             new OA\Parameter(
                 name: 'carrierId',
-                description: 'Id de la empresa transportista (carriers.id) a la que acotar los viajes en curso, por el assigned_by de cada viaje. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelven todos.',
+                description: 'Id de la empresa transportista (carriers.id) — SOLO administrator y manager; un carrier lo ve ignorado, siempre acotado a su empresa — a la que acotar los viajes en curso, por el assigned_by de cada viaje. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelven todos.',
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', example: 3),
@@ -145,7 +145,7 @@ class DashboardController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso',
+                description: 'El usuario es pilot (mensaje: No tienes permisos para acceder a este recurso) o es un carrier sin empresa vinculada (mensaje: Debes estar vinculado a un transportista para acceder a este recurso).',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
         ],
@@ -153,7 +153,7 @@ class DashboardController extends Controller
     public function tripsInRoute(Request $request, DashboardServiceInterface $dashboardService)
     {
         try {
-            $trips = $dashboardService->getTripsInRoute([
+            $trips = $dashboardService->getTripsInRoute(auth('api')->user(), [
                 'carrierId' => $this->queryString($request, 'carrierId'),
             ]);
 
@@ -182,7 +182,7 @@ class DashboardController extends Controller
         parameters: [
             new OA\Parameter(
                 name: 'carrierId',
-                description: 'Id de la empresa transportista (carriers.id) a la que acotar los ocho bloques, por vehicles.carrier_id. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelve el histórico completo.',
+                description: 'Id de la empresa transportista (carriers.id) — SOLO administrator y manager; un carrier lo ve ignorado, siempre acotado a su empresa — a la que acotar los ocho bloques, por vehicles.carrier_id. TOLERANTE: un valor no numérico o inexistente se ignora y se devuelve el histórico completo.',
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', example: 3),
@@ -215,7 +215,7 @@ class DashboardController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso',
+                description: 'El usuario es pilot (mensaje: No tienes permisos para acceder a este recurso) o es un carrier sin empresa vinculada (mensaje: Debes estar vinculado a un transportista para acceder a este recurso).',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
         ],
@@ -223,7 +223,7 @@ class DashboardController extends Controller
     public function vehicleExpenses(Request $request, DashboardServiceInterface $dashboardService)
     {
         try {
-            $summary = $dashboardService->getVehicleExpensesSummary([
+            $summary = $dashboardService->getVehicleExpensesSummary(auth('api')->user(), [
                 'carrierId' => $this->queryString($request, 'carrierId'),
                 'dateFrom' => $this->queryString($request, 'dateFrom'),
                 'dateTo' => $this->queryString($request, 'dateTo'),
@@ -243,7 +243,7 @@ class DashboardController extends Controller
         operationId: 'dashboardVehicles',
         summary: 'Flota con su viaje en curso',
         description: <<<'TEXT'
-        Lista TODA la flota —de todas las empresas e INCLUIDOS los vehículos inactive y under_repair— en orden id ascendente, con su ficha operativa y, por cada uno, si está en ruta y cuál es su viaje en curso (currentTrip, null si no tiene ninguno; con dos in_route, el de start_date más reciente).
+        Lista TODA la flota —de todas las empresas para administrator/manager, solo la propia para carrier, e INCLUIDOS los vehículos inactive y under_repair— en orden id ascendente, con su ficha operativa y, por cada uno, si está en ruta y cuál es su viaje en curso (currentTrip, null si no tiene ninguno; con dos in_route, el de start_date más reciente).
 
         ATENCIÓN — NO TRAE purchasePrice NI monthlyInsuranceCost: quedaron fuera a propósito. Para la ficha completa está GET /api/vehicles/{vehicle}.
 
@@ -256,7 +256,7 @@ class DashboardController extends Controller
         parameters: [
             new OA\Parameter(
                 name: 'carrierId',
-                description: 'Id de la empresa transportista (carriers.id) dueña de los vehículos. TOLERANTE: un valor no numérico o inexistente se ignora.',
+                description: 'Id de la empresa transportista (carriers.id) — SOLO administrator y manager; un carrier lo ve ignorado, siempre acotado a su empresa — dueña de los vehículos. TOLERANTE: un valor no numérico o inexistente se ignora.',
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', example: 3),
@@ -315,7 +315,7 @@ class DashboardController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El usuario no es administrator ni manager. El mensaje devuelto es: No tienes permisos para acceder a este recurso',
+                description: 'El usuario es pilot (mensaje: No tienes permisos para acceder a este recurso) o es un carrier sin empresa vinculada (mensaje: Debes estar vinculado a un transportista para acceder a este recurso).',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
         ],
@@ -323,7 +323,7 @@ class DashboardController extends Controller
     public function vehicles(Request $request, DashboardServiceInterface $dashboardService)
     {
         try {
-            $vehicles = $dashboardService->getVehicles([
+            $vehicles = $dashboardService->getVehicles(auth('api')->user(), [
                 'carrierId' => $this->queryString($request, 'carrierId'),
                 'status' => $this->queryString($request, 'status'),
                 'condition' => $this->queryString($request, 'condition'),

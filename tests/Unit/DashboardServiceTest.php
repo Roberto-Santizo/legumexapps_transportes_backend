@@ -5,6 +5,7 @@ use App\Enums\UserRole;
 use App\Enums\VehicleExpenseCategory;
 use App\Enums\VehicleExpenseNature;
 use App\Enums\VehicleStatus;
+use App\Errors\ForbiddenError;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use App\Models\Carrier;
 use App\Models\Client;
@@ -25,6 +26,22 @@ use Illuminate\Database\Eloquent\Collection;
 function dashboardService(): DashboardServiceInterface
 {
     return app(DashboardServiceInterface::class);
+}
+
+/**
+ * An administrator: no scope, so `carrierId` behaves as the voluntary filter it is.
+ */
+function dashboardAdmin(): User
+{
+    return User::factory()->create(['role' => UserRole::Administrator]);
+}
+
+/**
+ * The owner of the given company, the user a `carrier` dashboard is scoped through.
+ */
+function dashboardOwnerOf(Carrier $carrier): User
+{
+    return User::query()->findOrFail($carrier->user_id);
 }
 
 /**
@@ -74,7 +91,7 @@ it('resuelve el contrato del dominio contra su implementación', function () {
 */
 
 it('devuelve el resumen de viajes con la forma completa sobre una base vacía', function () {
-    expect(dashboardService()->getTripsSummary([]))->toBe([
+    expect(dashboardService()->getTripsSummary(dashboardAdmin(), []))->toBe([
         'total' => 0,
         'unassigned' => 0,
         'byStatus' => ['pending' => 0, 'inRoute' => 0, 'finished' => 0],
@@ -90,11 +107,11 @@ it('devuelve lo mismo con un carrierId inexistente o no numérico que sin filtro
     dashboardTripOf(Carrier::factory()->create());
     Trip::factory()->create();
 
-    $unfiltered = dashboardService()->getTripsSummary([]);
+    $unfiltered = dashboardService()->getTripsSummary(dashboardAdmin(), []);
 
-    expect(dashboardService()->getTripsSummary(['carrierId' => '999999']))->toBe($unfiltered)
-        ->and(dashboardService()->getTripsSummary(['carrierId' => 'abc']))->toBe($unfiltered)
-        ->and(dashboardService()->getTripsSummary(['carrierId' => '-1']))->toBe($unfiltered)
+    expect(dashboardService()->getTripsSummary(dashboardAdmin(), ['carrierId' => '999999']))->toBe($unfiltered)
+        ->and(dashboardService()->getTripsSummary(dashboardAdmin(), ['carrierId' => 'abc']))->toBe($unfiltered)
+        ->and(dashboardService()->getTripsSummary(dashboardAdmin(), ['carrierId' => '-1']))->toBe($unfiltered)
         ->and($unfiltered['total'])->toBe(2);
 });
 
@@ -112,7 +129,7 @@ it('ordena los desgloses por total descendente y desempata por id ascendente', f
     dashboardTripOf($carrierBig);
     dashboardTripOf($carrierBig);
 
-    $summary = dashboardService()->getTripsSummary([]);
+    $summary = dashboardService()->getTripsSummary(dashboardAdmin(), []);
 
     expect(array_slice(array_column($summary['byClient'], 'clientId'), 0, 3))->toBe([$clientC->id, $clientA->id, $clientB->id])
         ->and(array_column($summary['byCarrier'], 'carrierId'))->toBe([$carrierBig->id, $carrierSmall->id])
@@ -125,7 +142,7 @@ it('ordena byMonth de forma ascendente y con el formato YYYY-MM', function () {
     Trip::factory()->create(['recolection_date' => '2026-02-15 10:00:00']);
     Trip::factory()->create(['recolection_date' => '2026-02-20 10:00:00']);
 
-    expect(dashboardService()->getTripsSummary([])['byMonth'])->toBe([
+    expect(dashboardService()->getTripsSummary(dashboardAdmin(), [])['byMonth'])->toBe([
         ['month' => '2026-02', 'total' => 2],
         ['month' => '2026-11', 'total' => 1],
     ]);
@@ -136,7 +153,7 @@ it('deja unassigned en cero cuando el resumen se acota a una empresa', function 
     dashboardTripOf($carrier);
     Trip::factory()->count(3)->create();
 
-    $summary = dashboardService()->getTripsSummary(['carrierId' => (string) $carrier->id]);
+    $summary = dashboardService()->getTripsSummary(dashboardAdmin(), ['carrierId' => (string) $carrier->id]);
 
     expect($summary['total'])->toBe(1)
         ->and($summary['unassigned'])->toBe(0);
@@ -146,8 +163,8 @@ it('ignora una fecha que no sea exactamente Y-m-d', function () {
     Trip::factory()->create(['recolection_date' => '2026-09-05 10:00:00']);
     Trip::factory()->create(['recolection_date' => '2025-09-05 10:00:00']);
 
-    expect(dashboardService()->getTripsSummary(['dateFrom' => '2026-9-1'])['total'])->toBe(2)
-        ->and(dashboardService()->getTripsSummary(['dateFrom' => '2026-09-01'])['total'])->toBe(1);
+    expect(dashboardService()->getTripsSummary(dashboardAdmin(), ['dateFrom' => '2026-9-1'])['total'])->toBe(2)
+        ->and(dashboardService()->getTripsSummary(dashboardAdmin(), ['dateFrom' => '2026-09-01'])['total'])->toBe(1);
 });
 
 /*
@@ -157,7 +174,7 @@ it('ignora una fecha que no sea exactamente Y-m-d', function () {
 */
 
 it('devuelve el resumen de gastos con la forma completa sobre una base vacía', function () {
-    expect(dashboardService()->getVehicleExpensesSummary([]))->toBe([
+    expect(dashboardService()->getVehicleExpensesSummary(dashboardAdmin(), []))->toBe([
         'totalAmount' => '0.00',
         'count' => 0,
         'byCategory' => [],
@@ -179,7 +196,7 @@ it('ordena byCategory y byCarrier de gastos por monto descendente', function () 
     dashboardExpenseOf($big, ['amount' => 500, 'category' => VehicleExpenseCategory::Other, 'nature' => VehicleExpenseNature::Corrective]);
     dashboardExpenseOf($big, ['amount' => 50, 'category' => VehicleExpenseCategory::Tires, 'nature' => VehicleExpenseNature::Corrective]);
 
-    $summary = dashboardService()->getVehicleExpensesSummary([]);
+    $summary = dashboardService()->getVehicleExpensesSummary(dashboardAdmin(), []);
 
     expect($summary['totalAmount'])->toBe('650.00')
         ->and($summary['count'])->toBe(3)
@@ -200,7 +217,7 @@ it('cuenta los gastos de un vehículo inactivo y acota por la empresa del vehíc
     ]);
     dashboardExpenseOf($other, ['amount' => 25]);
 
-    $summary = dashboardService()->getVehicleExpensesSummary(['carrierId' => (string) $mine->id]);
+    $summary = dashboardService()->getVehicleExpensesSummary(dashboardAdmin(), ['carrierId' => (string) $mine->id]);
 
     expect($summary['count'])->toBe(1)
         ->and($summary['totalAmount'])->toBe('75.00')
@@ -215,7 +232,7 @@ it('corta los gastos por expense_date de forma inclusiva en ambos extremos', fun
     dashboardExpenseOf($carrier, ['amount' => 2, 'expense_date' => '2026-09-30']);
     dashboardExpenseOf($carrier, ['amount' => 4, 'expense_date' => '2026-10-01']);
 
-    $summary = dashboardService()->getVehicleExpensesSummary(['dateFrom' => '2026-09-01', 'dateTo' => '2026-09-30']);
+    $summary = dashboardService()->getVehicleExpensesSummary(dashboardAdmin(), ['dateFrom' => '2026-09-01', 'dateTo' => '2026-09-30']);
 
     expect($summary['count'])->toBe(2)
         ->and($summary['totalAmount'])->toBe('3.00')
@@ -233,8 +250,8 @@ it('devuelve toda la flota como Collection en orden id ascendente y pagina solo 
     Vehicle::factory()->count(3)->create(['carrier_id' => $carrier->id]);
     Vehicle::factory()->create(['carrier_id' => $carrier->id, 'status' => VehicleStatus::Inactive]);
 
-    $all = dashboardService()->getVehicles([]);
-    $page = dashboardService()->getVehicles(['limit' => '10']);
+    $all = dashboardService()->getVehicles(dashboardAdmin(), []);
+    $page = dashboardService()->getVehicles(dashboardAdmin(), ['limit' => '10']);
 
     expect($all)->toBeInstanceOf(Collection::class)
         ->and($all)->toHaveCount(4)
@@ -242,9 +259,9 @@ it('devuelve toda la flota como Collection en orden id ascendente y pagina solo 
         ->and($page)->toBeInstanceOf(LengthAwarePaginator::class)
         ->and($page->total())->toBe(4)
         ->and($page->perPage())->toBe(10)
-        ->and(dashboardService()->getVehicles(['limit' => '500']))->toBeInstanceOf(LengthAwarePaginator::class)
-        ->and(dashboardService()->getVehicles(['limit' => '500'])->perPage())->toBe(100)
-        ->and(dashboardService()->getVehicles(['limit' => 'abc']))->toBeInstanceOf(Collection::class);
+        ->and(dashboardService()->getVehicles(dashboardAdmin(), ['limit' => '500']))->toBeInstanceOf(LengthAwarePaginator::class)
+        ->and(dashboardService()->getVehicles(dashboardAdmin(), ['limit' => '500'])->perPage())->toBe(100)
+        ->and(dashboardService()->getVehicles(dashboardAdmin(), ['limit' => 'abc']))->toBeInstanceOf(Collection::class);
 });
 
 it('cuelga de cada vehículo su viaje en curso más reciente como atributo transitorio', function () {
@@ -255,7 +272,7 @@ it('cuelga de cada vehículo su viaje en curso más reciente como atributo trans
     $latest = dashboardTripOf($carrier, ['vehicle_id' => $vehicle->id, 'status' => TripStatus::InRoute, 'start_date' => '2026-09-14 08:15:00']);
     dashboardTripOf($carrier, ['vehicle_id' => $idle->id, 'status' => TripStatus::Finished, 'start_date' => now(), 'end_date' => now()]);
 
-    $vehicles = dashboardService()->getVehicles([])->keyBy('id');
+    $vehicles = dashboardService()->getVehicles(dashboardAdmin(), [])->keyBy('id');
 
     expect($vehicles->get($vehicle->id)->getAttribute('currentTrip'))->toBeInstanceOf(Trip::class)
         ->and($vehicles->get($vehicle->id)->getAttribute('currentTrip')->id)->toBe($latest->id)
@@ -269,9 +286,9 @@ it('aplica el filtro inRoute antes de paginar e ignora los filtros inválidos', 
     Vehicle::factory()->count(2)->create(['carrier_id' => $carrier->id]);
     dashboardTripOf($carrier, ['vehicle_id' => $busy->id, 'status' => TripStatus::InRoute, 'start_date' => now()]);
 
-    expect(dashboardService()->getVehicles(['inRoute' => 'true', 'limit' => '10'])->total())->toBe(1)
-        ->and(dashboardService()->getVehicles(['inRoute' => 'false']))->toHaveCount(2)
-        ->and(dashboardService()->getVehicles(['inRoute' => 'basura', 'status' => 'basura', 'condition' => 'basura']))->toHaveCount(3);
+    expect(dashboardService()->getVehicles(dashboardAdmin(), ['inRoute' => 'true', 'limit' => '10'])->total())->toBe(1)
+        ->and(dashboardService()->getVehicles(dashboardAdmin(), ['inRoute' => 'false']))->toHaveCount(2)
+        ->and(dashboardService()->getVehicles(dashboardAdmin(), ['inRoute' => 'basura', 'status' => 'basura', 'condition' => 'basura']))->toHaveCount(3);
 });
 
 /*
@@ -297,7 +314,7 @@ it('devuelve los viajes en curso con sus atributos transitorios y sumas de combu
     TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 45]);
     TripFuel::factory()->create(['trip_id' => $trip->id, 'gallons' => 10]);
 
-    $trips = dashboardService()->getTripsInRoute([]);
+    $trips = dashboardService()->getTripsInRoute(dashboardAdmin(), []);
 
     expect($trips)->toHaveCount(1)
         ->and($trips->first()->getAttribute('lastPosition')->id)->toBe($last->id)
@@ -315,7 +332,69 @@ it('ordena los viajes en curso por start_date descendente y acota por carrierId'
     $newer = dashboardTripOf($mine, ['status' => TripStatus::InRoute, 'start_date' => '2026-09-14 08:00:00']);
     dashboardTripOf($other, ['status' => TripStatus::InRoute, 'start_date' => '2026-09-14 09:00:00']);
 
-    expect(dashboardService()->getTripsInRoute([])->modelKeys())->toHaveCount(3)
-        ->and(dashboardService()->getTripsInRoute(['carrierId' => (string) $mine->id])->modelKeys())->toBe([$newer->id, $older->id])
-        ->and(dashboardService()->getTripsInRoute(['carrierId' => '999999']))->toHaveCount(3);
+    expect(dashboardService()->getTripsInRoute(dashboardAdmin(), [])->modelKeys())->toHaveCount(3)
+        ->and(dashboardService()->getTripsInRoute(dashboardAdmin(), ['carrierId' => (string) $mine->id])->modelKeys())->toBe([$newer->id, $older->id])
+        ->and(dashboardService()->getTripsInRoute(dashboardAdmin(), ['carrierId' => '999999']))->toHaveCount(3);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Ámbito por rol
+|--------------------------------------------------------------------------
+*/
+
+it('acota los cuatro métodos a la empresa del transportista e ignora su carrierId', function () {
+    $mine = Carrier::factory()->create();
+    $other = Carrier::factory()->create();
+    $mineTrip = dashboardTripOf($mine, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+    dashboardTripOf($other, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+    dashboardExpenseOf($mine, ['amount' => 100]);
+    dashboardExpenseOf($other, ['amount' => 900]);
+
+    $owner = dashboardOwnerOf($mine);
+    $filters = ['carrierId' => (string) $other->id];
+
+    expect(dashboardService()->getTripsSummary($owner, $filters)['byCarrier'])->toBe([
+        ['carrierId' => $mine->id, 'carrierName' => $mine->name, 'total' => 1],
+    ])
+        ->and(dashboardService()->getTripsInRoute($owner, $filters)->modelKeys())->toBe([$mineTrip->id])
+        ->and(dashboardService()->getVehicleExpensesSummary($owner, $filters)['totalAmount'])->toBe('100.00')
+        ->and(dashboardService()->getVehicles($owner, $filters)->pluck('carrier_id')->unique()->all())->toBe([$mine->id]);
+});
+
+it('acota al piloto vinculado a su empresa y no a la empresa del filtro', function () {
+    $mine = Carrier::factory()->create();
+    $other = Carrier::factory()->create();
+    dashboardTripOf($mine);
+    dashboardTripOf($other);
+
+    $pilot = User::factory()->create(['role' => UserRole::Pilot]);
+    $mine->pilots()->attach($pilot);
+
+    expect(dashboardService()->getTripsSummary($pilot, ['carrierId' => (string) $other->id])['byCarrier'])->toBe([
+        ['carrierId' => $mine->id, 'carrierName' => $mine->name, 'total' => 1],
+    ]);
+});
+
+it('deja al manager sin ámbito, con carrierId como filtro voluntario', function () {
+    $mine = Carrier::factory()->create();
+    $other = Carrier::factory()->create();
+    dashboardTripOf($mine);
+    dashboardTripOf($other);
+
+    $manager = User::factory()->create(['role' => UserRole::Manager]);
+
+    expect(dashboardService()->getTripsSummary($manager, [])['total'])->toBe(2)
+        ->and(dashboardService()->getTripsSummary($manager, ['carrierId' => (string) $other->id])['byCarrier'])->toBe([
+            ['carrierId' => $other->id, 'carrierName' => $other->name, 'total' => 1],
+        ]);
+});
+
+it('rechaza con ForbiddenError a un transportista sin empresa en los cuatro métodos', function () {
+    $carrier = User::factory()->create(['role' => UserRole::Carrier]);
+
+    expect(fn () => dashboardService()->getTripsSummary($carrier, []))->toThrow(ForbiddenError::class, 'No perteneces a ninguna empresa transportista')
+        ->and(fn () => dashboardService()->getTripsInRoute($carrier, []))->toThrow(ForbiddenError::class)
+        ->and(fn () => dashboardService()->getVehicleExpensesSummary($carrier, []))->toThrow(ForbiddenError::class)
+        ->and(fn () => dashboardService()->getVehicles($carrier, []))->toThrow(ForbiddenError::class);
 });

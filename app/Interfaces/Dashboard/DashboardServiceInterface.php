@@ -3,18 +3,22 @@
 namespace App\Interfaces\Dashboard;
 
 use App\Models\Trip;
+use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
- * Cross-domain read model for `administrator` and `manager`.
+ * Cross-domain read model for `administrator`, `manager` and `carrier`.
  *
  * The first domain of the project that owns neither a table nor a write path and
  * reads from other domains: it only aggregates what `trips`, `vehicles`,
  * `vehicle_expenses`, `trip_positions`, `trip_fuels` and `trip_timeouts` already
- * store. There is **no scope**: the two roles already see everything domain by
- * domain, so `carrierId` is a voluntary filter and never a restriction.
+ * store. `administrator` and `manager` have **no scope**: they already see
+ * everything domain by domain, so for them `carrierId` is a voluntary filter. A
+ * `carrier` is always narrowed to its own company (`User::currentCarrier()`, never
+ * the token claim) and its `carrierId` is ignored; without a company it gets a
+ * `ForbiddenError`, as in `VehicleService`.
  *
  * Every filter arrives as it came in the query string and is normalized here with
  * `filter_var(..., FILTER_NULL_ON_FAILURE)` / `tryFrom()`, as in the rest of the
@@ -42,7 +46,7 @@ interface DashboardServiceInterface
      *     byMonth: list<array{month: string, total: int}>
      * }
      */
-    public function getTripsSummary(array $filters): array;
+    public function getTripsSummary(User $user, array $filters): array;
 
     /**
      * Every trip currently `in_route`, newest start first, with its last recorded
@@ -55,7 +59,7 @@ interface DashboardServiceInterface
      * @param  array{carrierId?: mixed}  $filters
      * @return Collection<int, Trip>
      */
-    public function getTripsInRoute(array $filters): Collection;
+    public function getTripsInRoute(User $user, array $filters): Collection;
 
     /**
      * Aggregate the vehicle expenses: total, count and the breakdowns by category,
@@ -77,7 +81,7 @@ interface DashboardServiceInterface
      *     byMonth: list<array{month: string, count: int, totalAmount: string}>
      * }
      */
-    public function getVehicleExpensesSummary(array $filters): array;
+    public function getVehicleExpensesSummary(User $user, array $filters): array;
 
     /**
      * The whole fleet —`inactive` included— in `id ASC` order, each vehicle carrying
@@ -89,5 +93,5 @@ interface DashboardServiceInterface
      * @param  array{carrierId?: mixed, status?: mixed, condition?: mixed, inRoute?: mixed, limit?: mixed}  $filters
      * @return Collection<int, Vehicle>|LengthAwarePaginator<int, Vehicle>
      */
-    public function getVehicles(array $filters): Collection|LengthAwarePaginator;
+    public function getVehicles(User $user, array $filters): Collection|LengthAwarePaginator;
 }
