@@ -96,13 +96,13 @@ it('declara los nueve métodos del contrato', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla trips con sus columnas, incluida deleted_at y la traveled_polyline de SPEC 28', function () {
+it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28 y las estimaciones de SPEC 30', function () {
     expect(Schema::hasTable('trips'))->toBeTrue()
         ->and(Schema::getColumnListing('trips'))->toEqualCanonicalizing([
             'id', 'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
             'destination', 'container', 'transport',
             'recolection_date', 'ship_date', 'start_date', 'end_date',
-            'polyline', 'traveled_polyline', 'observations', 'status',
+            'polyline', 'estimated_kilometers', 'estimated_hours', 'traveled_polyline', 'observations', 'status',
             'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by',
             'created_at', 'updated_at', 'deleted_at',
         ]);

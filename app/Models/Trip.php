@@ -34,12 +34,19 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * never accepted from a body — and `null` means the trip has not finished, finished
  * without a single position, or finished before the column existed; the API does not
  * tell those three apart.
+ *
+ * `estimated_kilometers` and `estimated_hours` are the distance and duration of that
+ * planned route, taken from the same `GET /api/places/directions` response as
+ * `polyline` and always sent together with it: the API never computes, recomputes nor
+ * checks them against the line. Both are nullable without default, and `null` means
+ * exactly one thing — the trip was created before SPEC 30 — because the API does not
+ * let a new trip be created nor edited without them.
  */
 #[Fillable([
     'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
     'destination', 'container', 'transport',
     'recolection_date', 'ship_date', 'start_date', 'end_date',
-    'polyline', 'traveled_polyline', 'observations', 'status',
+    'polyline', 'estimated_kilometers', 'estimated_hours', 'traveled_polyline', 'observations', 'status',
     'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by',
 ])]
 class Trip extends Model
