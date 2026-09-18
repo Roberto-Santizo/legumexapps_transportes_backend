@@ -237,6 +237,8 @@ function tripPayload(array $overrides = []): array
         'recolectionDate' => now()->addDays(3)->startOfSecond()->format('Y-m-d H:i:s'),
         'shipDate' => now()->addDays(5)->startOfSecond()->format('Y-m-d H:i:s'),
         'polyline' => TripFactory::POLYLINE,
+        'estimatedKilometers' => 104.32,
+        'estimatedHours' => 1.75,
         'observations' => 'Cargar a primera hora',
     ], $overrides);
 }
@@ -594,21 +596,67 @@ it('rechaza con 422 el alta cuando falta cualquiera de los campos obligatorios',
     'recolectionDate' => ['recolectionDate', 'La fecha de recolección es obligatoria'],
     'shipDate' => ['shipDate', 'La fecha de embarque es obligatoria'],
     'polyline' => ['polyline', 'La ruta es obligatoria'],
+    'estimatedKilometers' => ['estimatedKilometers', 'La distancia estimada es obligatoria'],
+    'estimatedHours' => ['estimatedHours', 'La duración estimada es obligatoria'],
     'observations' => ['observations', 'Las observaciones son obligatorias'],
 ]);
 
-it('rechaza con 422 un alta con el cuerpo vacío señalando los doce campos', function () {
+it('rechaza con 422 un alta con el cuerpo vacío señalando los catorce campos', function () {
     $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', [])
         ->assertStatus(422)
         ->assertJsonValidationErrors([
             'order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId',
             'destination', 'container', 'transport', 'recolectionDate', 'shipDate',
-            'polyline', 'observations',
+            'polyline', 'estimatedKilometers', 'estimatedHours', 'observations',
         ]);
 
     /** El 422 sale con el formato de Laravel, no con el sobre del ResponseHandler. */
     expect(array_keys($response->json()))->toBe(['message', 'errors']);
 });
+
+it('persiste la distancia y la duración estimadas del alta con dos decimales', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
+        'estimatedKilometers' => '104.32',
+        'estimatedHours' => 1.75,
+    ]))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $response->json('data.id'),
+        'estimated_kilometers' => 104.32,
+        'estimated_hours' => 1.75,
+    ]);
+});
+
+it('acepta cero en las dos estimaciones del alta', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
+        'estimatedKilometers' => 0,
+        'estimatedHours' => 0,
+    ]))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $response->json('data.id'),
+        'estimated_kilometers' => 0,
+        'estimated_hours' => 0,
+    ]);
+});
+
+it('rechaza con 422 una estimación negativa, no numérica o por encima del tope', function (string $campo, mixed $valor, string $mensaje) {
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([$campo => $valor]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([$campo])
+        ->assertJsonFragment([$mensaje]);
+
+    expect(Trip::withTrashed()->count())->toBe(0);
+})->with([
+    'kilómetros negativos' => ['estimatedKilometers', -1, 'La distancia estimada no puede ser negativa'],
+    'kilómetros no numéricos' => ['estimatedKilometers', 'cien', 'La distancia estimada debe ser un número'],
+    'kilómetros por encima de 999999.99' => ['estimatedKilometers', 1000000, 'La distancia estimada supera el máximo permitido'],
+    'horas negativas' => ['estimatedHours', -0.5, 'La duración estimada no puede ser negativa'],
+    'horas no numéricas' => ['estimatedHours', '1h', 'La duración estimada debe ser un número'],
+    'horas por encima de 9999.99' => ['estimatedHours', 10000, 'La duración estimada supera el máximo permitido'],
+]);
 
 it('guarda la orden y el contenedor en mayúsculas con los espacios colapsados', function () {
     $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
@@ -864,6 +912,110 @@ it('rechaza con 422 un estado fuera del enum', function (mixed $status) {
     'un valor inventado' => 'cancelled',
     'el estado en español' => 'pendiente',
     'en mayúsculas' => 'PENDING',
+]);
+
+it('reescribe los tres campos de la ruta cuando el PATCH los manda juntos', function () {
+    $trip = Trip::factory()->create([
+        'polyline' => TripFactory::POLYLINE,
+        'estimated_kilometers' => 10,
+        'estimated_hours' => 0.5,
+    ]);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'polyline' => '_p~iF~ps|U',
+        'estimatedKilometers' => 250.5,
+        'estimatedHours' => 4,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.polyline', '_p~iF~ps|U');
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $trip->id,
+        'polyline' => '_p~iF~ps|U',
+        'estimated_kilometers' => 250.5,
+        'estimated_hours' => 4,
+    ]);
+});
+
+it('no toca la ruta cuando el PATCH no manda ninguno de sus tres campos', function () {
+    $trip = Trip::factory()->create([
+        'polyline' => TripFactory::POLYLINE,
+        'estimated_kilometers' => 104.32,
+        'estimated_hours' => 1.75,
+    ]);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['order' => 'ord-2026-9999'])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $trip->id,
+        'polyline' => TripFactory::POLYLINE,
+        'estimated_kilometers' => 104.32,
+        'estimated_hours' => 1.75,
+    ]);
+});
+
+it('rechaza con 422 un PATCH que manda uno solo o dos de los tres campos de la ruta', function (array $payload, array $faltan) {
+    $trip = Trip::factory()->create([
+        'polyline' => TripFactory::POLYLINE,
+        'estimated_kilometers' => 104.32,
+        'estimated_hours' => 1.75,
+    ]);
+
+    $response = asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", $payload)
+        ->assertStatus(422)
+        ->assertJsonValidationErrors($faltan);
+
+    /** Solo se señalan los que faltan, no los que sí viajaron. */
+    expect(array_keys($response->json('errors')))->toEqualCanonicalizing($faltan);
+
+    foreach ($faltan as $campo) {
+        $mensaje = match ($campo) {
+            'polyline' => 'Si se envían la distancia o la duración estimadas debe enviarse también la ruta',
+            default => 'Si se envía la ruta deben enviarse también la distancia y la duración estimadas',
+        };
+
+        $response->assertJsonPath("errors.{$campo}.0", $mensaje);
+    }
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $trip->id,
+        'polyline' => TripFactory::POLYLINE,
+        'estimated_kilometers' => 104.32,
+        'estimated_hours' => 1.75,
+    ]);
+})->with([
+    'solo polyline' => [['polyline' => '_p~iF~ps|U'], ['estimatedKilometers', 'estimatedHours']],
+    'solo estimatedKilometers' => [['estimatedKilometers' => 250.5], ['polyline', 'estimatedHours']],
+    'solo estimatedHours' => [['estimatedHours' => 4], ['polyline', 'estimatedKilometers']],
+    'polyline y kilómetros' => [['polyline' => '_p~iF~ps|U', 'estimatedKilometers' => 250.5], ['estimatedHours']],
+    'polyline y horas' => [['polyline' => '_p~iF~ps|U', 'estimatedHours' => 4], ['estimatedKilometers']],
+    'kilómetros y horas' => [['estimatedKilometers' => 250.5, 'estimatedHours' => 4], ['polyline']],
+]);
+
+it('rechaza con 422 una ruta con algún campo vacío o fuera de rango aunque viajen los tres', function (array $overrides, string $campo, string $mensaje) {
+    $trip = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'polyline' => '_p~iF~ps|U',
+        'estimatedKilometers' => 250.5,
+        'estimatedHours' => 4,
+        ...$overrides,
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([$campo])
+        ->assertJsonPath("errors.{$campo}.0", $mensaje);
+})->with([
+    'polyline vacía' => [['polyline' => ''], 'polyline', 'La ruta es obligatoria'],
+    'polyline null' => [['polyline' => null], 'polyline', 'La ruta es obligatoria'],
+    'kilómetros null' => [['estimatedKilometers' => null], 'estimatedKilometers', 'La distancia estimada es obligatoria'],
+    'kilómetros negativos' => [['estimatedKilometers' => -1], 'estimatedKilometers', 'La distancia estimada no puede ser negativa'],
+    'kilómetros no numéricos' => [['estimatedKilometers' => 'cien'], 'estimatedKilometers', 'La distancia estimada debe ser un número'],
+    'kilómetros por encima del tope' => [['estimatedKilometers' => 1000000], 'estimatedKilometers', 'La distancia estimada supera el máximo permitido'],
+    'horas null' => [['estimatedHours' => null], 'estimatedHours', 'La duración estimada es obligatoria'],
+    'horas negativas' => [['estimatedHours' => -0.5], 'estimatedHours', 'La duración estimada no puede ser negativa'],
+    'horas no numéricas' => [['estimatedHours' => '1h'], 'estimatedHours', 'La duración estimada debe ser un número'],
+    'horas por encima del tope' => [['estimatedHours' => 10000], 'estimatedHours', 'La duración estimada supera el máximo permitido'],
 ]);
 
 it('revalida los catálogos aunque el PATCH solo mueva una fecha', function () {

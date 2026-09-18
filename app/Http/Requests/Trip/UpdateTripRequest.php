@@ -15,7 +15,7 @@ use OpenApi\Attributes as OA;
     description: <<<'TEXT'
     Cuerpo JSON para editar un viaje. Es EXCLUSIVO del rol administrator. TODOS LOS CAMPOS SON OPCIONALES y solo se toca lo que venga: un CUERPO VACÍO responde 200 como no-op, sin mover siquiera updatedAt. Opcional NO es vaciable: enviar una clave en blanco, de solo espacios o con null es 422.
 
-    Son los mismos doce campos del alta MÁS status, y MENOS pilotId y vehicleId.
+    Son los mismos catorce campos del alta MÁS status, y MENOS pilotId y vehicleId.
 
     ATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR NI DESASIGNAR. pilotId y vehicleId NO SE ACEPTAN AQUÍ y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva la asignación que tuviera. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, exclusiva del carrier. Tampoco se reescriben assignedBy ni registeredBy: mandarlos se descarta igual. Consecuencia real: SI NINGUNA EMPRESA TOMA UN VIAJE, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.
 
@@ -23,7 +23,9 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — LOS CATÁLOGOS SE REVALIDAN SIEMPRE, aunque el cuerpo solo mueva una fecha: el service fusiona lo enviado sobre lo almacenado y vuelve a comprobar los cuatro. Un viaje que apunta a un puerto que se desactivó desde el alta responde 400 aunque el PATCH no toque locationId. Mismo reparto 422 / 400 que el alta: id inventado 422, cliente o naviera BORRADOS 400.
 
-    ATENCIÓN — SI SE CAMBIA locationId O departurePointId HAY QUE REMANDAR LA POLILÍNEA. polyline es obligatoria si se envía, pero nada obliga a enviarla al cambiar el destino: la API NO la recalcula y NO AVISA, así que la guardada queda obsoleta y el mapa dibuja una ruta que ya no corresponde. Debe resolverse de nuevo con GET /api/places/directions y viajar en el MISMO PATCH.
+    ATENCIÓN — LA RUTA SON TRES CAMPOS QUE VIAJAN JUNTOS O NINGUNO. Desde SPEC 30 polyline, estimatedKilometers y estimatedHours se exigen entre sí: mandar uno solo, o dos de los tres, es 422 con un mensaje por cada campo que falta. Un PATCH con solo polyline —válido hasta SPEC 30— ya NO pasa. Los tres salen de la MISMA respuesta de GET /api/places/directions (polyline, distanceKilometers y durationHours) y se reenvían tal cual; la API no coteja los números con la línea.
+
+    ATENCIÓN — SI SE CAMBIA locationId O departurePointId HAY QUE REMANDAR LA RUTA COMPLETA. Nada obliga a enviarla al cambiar el destino: la API NO la recalcula y NO AVISA, así que polyline, estimatedKilometers y estimatedHours quedan obsoletos A LA VEZ y el mapa dibuja una ruta que ya no corresponde. Debe resolverse de nuevo con GET /api/places/directions y viajar en el MISMO PATCH.
 
     Las dos fechas planificadas DEJAN DE EXIGIR FUTURO —editar un viaje ya arrancado no puede obligar a reprogramarlo—; el orden entre ellas se mantiene y solo se comprueba cuando las dos viajan juntas. startDate y endDate NO se aceptan por ninguna vía: las pone el servidor en /start y /finish.
 
@@ -96,9 +98,27 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'polyline',
-            description: 'Polilínea codificada de Google. Opcional; si se envía es obligatoria y texto (La ruta es obligatoria / La ruta debe ser texto). ATENCIÓN — ES EL CAMPO QUE HAY QUE RECORDAR: cambiar locationId o departurePointId sin remandarla deja guardada una ruta que ya no corresponde, y NI LA API AVISA NI LA RECALCULA. Se resuelve con GET /api/places/directions y se envía en este mismo PATCH.',
+            description: 'Polilínea codificada de Google. Opcional; si se envía no puede ir vacía y debe ser texto (La ruta es obligatoria / La ruta debe ser texto), y OBLIGA a enviar también estimatedKilometers y estimatedHours; a la inversa, si viaja cualquiera de los dos números y falta esta, es 422 (Si se envían la distancia o la duración estimadas debe enviarse también la ruta). ATENCIÓN — ES EL CAMPO QUE HAY QUE RECORDAR: cambiar locationId o departurePointId sin remandar la ruta deja guardada una que ya no corresponde, y NI LA API AVISA NI LA RECALCULA. Se resuelve con GET /api/places/directions y se envía en este mismo PATCH.',
             type: 'string',
             example: 'ynzmDbpb_Ln@bAtEsC',
+        ),
+        new OA\Property(
+            property: 'estimatedKilometers',
+            description: 'Distancia estimada en kilómetros. Opcional; si se envía no puede ir vacía, debe ser numérica, no negativa y de 999999.99 como máximo (La distancia estimada es obligatoria / La distancia estimada debe ser un número / La distancia estimada no puede ser negativa / La distancia estimada supera el máximo permitido). VIAJA JUNTO A polyline Y estimatedHours: si falta cuando alguno de los otros dos viene, 422 (Si se envía la ruta deben enviarse también la distancia y la duración estimadas). Es el distanceKilometers de GET /api/places/directions, sin convertir.',
+            type: 'number',
+            format: 'float',
+            minimum: 0,
+            maximum: 999999.99,
+            example: 104.32,
+        ),
+        new OA\Property(
+            property: 'estimatedHours',
+            description: 'Duración estimada en horas decimales. Opcional; si se envía no puede ir vacía, debe ser numérica, no negativa y de 9999.99 como máximo (La duración estimada es obligatoria / La duración estimada debe ser un número / La duración estimada no puede ser negativa / La duración estimada supera el máximo permitido). VIAJA JUNTO A polyline Y estimatedKilometers: si falta cuando alguno de los otros dos viene, 422 (Si se envía la ruta deben enviarse también la distancia y la duración estimadas). Es el durationHours de GET /api/places/directions, sin convertir.',
+            type: 'number',
+            format: 'float',
+            minimum: 0,
+            maximum: 9999.99,
+            example: 1.75,
         ),
         new OA\Property(
             property: 'observations',
@@ -168,6 +188,11 @@ class UpdateTripRequest extends FormRequest
          * Las dos fechas dejan de exigir futuro: editar un viaje ya arrancado no puede
          * obligar a reprogramarlo. El orden entre ellas sí se mantiene, y solo se comprueba
          * cuando las dos viajan juntas.
+         *
+         * Los tres campos de la ruta viajan juntos o ninguno (SPEC 30). No llevan `sometimes`
+         * a propósito: con él las reglas no corren cuando la clave falta, y `required_with`
+         * necesita correr precisamente entonces. `filled` conserva el «opcional pero no
+         * vaciable» que `sometimes|required` da al resto de campos.
          */
         return [
             'order' => ['sometimes', 'required', 'string', 'max:255'],
@@ -180,7 +205,9 @@ class UpdateTripRequest extends FormRequest
             'transport' => ['sometimes', 'required', 'string', 'max:255'],
             'recolectionDate' => ['sometimes', 'required', 'date'],
             'shipDate' => ['sometimes', 'required', 'date', 'after_or_equal:recolectionDate'],
-            'polyline' => ['sometimes', 'required', 'string'],
+            'polyline' => ['filled', 'required_with:estimatedKilometers,estimatedHours', 'string'],
+            'estimatedKilometers' => ['filled', 'required_with:polyline,estimatedHours', 'numeric', 'min:0', 'max:999999.99'],
+            'estimatedHours' => ['filled', 'required_with:polyline,estimatedKilometers', 'numeric', 'min:0', 'max:9999.99'],
             'observations' => ['sometimes', 'required', 'string'],
             'status' => ['sometimes', 'required', Rule::enum(TripStatus::class)],
         ];
@@ -221,8 +248,19 @@ class UpdateTripRequest extends FormRequest
             'shipDate.required' => 'La fecha de embarque es obligatoria',
             'shipDate.date' => 'La fecha de embarque no es válida',
             'shipDate.after_or_equal' => 'La fecha de embarque no puede ser anterior a la de recolección',
-            'polyline.required' => 'La ruta es obligatoria',
+            'polyline.filled' => 'La ruta es obligatoria',
+            'polyline.required_with' => 'Si se envían la distancia o la duración estimadas debe enviarse también la ruta',
             'polyline.string' => 'La ruta debe ser texto',
+            'estimatedKilometers.filled' => 'La distancia estimada es obligatoria',
+            'estimatedKilometers.required_with' => 'Si se envía la ruta deben enviarse también la distancia y la duración estimadas',
+            'estimatedKilometers.numeric' => 'La distancia estimada debe ser un número',
+            'estimatedKilometers.min' => 'La distancia estimada no puede ser negativa',
+            'estimatedKilometers.max' => 'La distancia estimada supera el máximo permitido',
+            'estimatedHours.filled' => 'La duración estimada es obligatoria',
+            'estimatedHours.required_with' => 'Si se envía la ruta deben enviarse también la distancia y la duración estimadas',
+            'estimatedHours.numeric' => 'La duración estimada debe ser un número',
+            'estimatedHours.min' => 'La duración estimada no puede ser negativa',
+            'estimatedHours.max' => 'La duración estimada supera el máximo permitido',
             'observations.required' => 'Las observaciones son obligatorias',
             'observations.string' => 'Las observaciones deben ser texto',
             'status.required' => 'El estado del viaje es obligatorio',
