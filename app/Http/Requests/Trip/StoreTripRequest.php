@@ -11,7 +11,7 @@ use OpenApi\Attributes as OA;
     schema: 'StoreTripRequest',
     title: 'Alta de viaje',
     description: <<<'TEXT'
-    Cuerpo JSON para publicar un viaje de exportación. Son DOCE CAMPOS Y LOS DOCE SON OBLIGATORIOS: order, clientId, shippingLineId, departurePointId, locationId, destination, container, transport, recolectionDate, shipDate, polyline y observations. Falta cualquiera de ellos y la respuesta es 422. Es EXCLUSIVO del rol administrator.
+    Cuerpo JSON para publicar un viaje de exportación. Son CATORCE CAMPOS Y LOS CATORCE SON OBLIGATORIOS: order, clientId, shippingLineId, departurePointId, locationId, destination, container, transport, recolectionDate, shipDate, polyline, estimatedKilometers, estimatedHours y observations. Falta cualquiera de ellos y la respuesta es 422. Es EXCLUSIVO del rol administrator.
 
     ATENCIÓN — CINCO CAMPOS SE DESCARTAN SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. Mandarlos no cambia nada y no da 422. El viaje NACE pending, SIN TRIPULACIÓN —pilotId, vehicleId y assignedById salen en null— y el registeredBy se toma del usuario autenticado. La tripulación solo la escribe PATCH /api/trips/{trip}/assignment, que es del carrier: EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA.
 
@@ -19,11 +19,13 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y LA API NUNCA LLAMA A GOOGLE. polyline es obligatoria aquí y también en el PATCH; se resuelve antes con GET /api/places/directions (SPEC 16) y se envía ya calculada. El backend no la recalcula ni la valida contra el par punto de partida / puerto.
 
+    ATENCIÓN — DESDE SPEC 30 LA RUTA SON TRES CAMPOS, NO UNO. estimatedKilometers y estimatedHours son OBLIGATORIOS y salen de la MISMA respuesta de GET /api/places/directions que polyline: se reenvían distanceKilometers y durationHours SIN CONVERTIR NADA. La API los guarda tal cual —numeric, min:0, con tope 999999.99 km y 9999.99 h— y NO los coteja con la polilínea: mandar 1000 km con una línea de 5 km es legal. Un POST de doce campos, el de antes de SPEC 30, es 422.
+
     NORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos, sin 400 ni 422.
 
     Cualquier otra clave que se envíe se descarta en silencio.
     TEXT,
-    required: ['order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId', 'destination', 'container', 'transport', 'recolectionDate', 'shipDate', 'polyline', 'observations'],
+    required: ['order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId', 'destination', 'container', 'transport', 'recolectionDate', 'shipDate', 'polyline', 'estimatedKilometers', 'estimatedHours', 'observations'],
     properties: [
         new OA\Property(
             property: 'order',
@@ -94,6 +96,24 @@ use OpenApi\Attributes as OA;
             description: 'Polilínea codificada de Google con la ruta prevista. OBLIGATORIA y texto (mensajes: La ruta es obligatoria / La ruta debe ser texto). ATENCIÓN — LA RESUELVE EL FRONTEND con GET /api/places/directions y la API NUNCA LLAMA A GOOGLE ni la recalcula: se guarda tal cual llega, sin comprobar que corresponda al punto de partida y al puerto enviados. No tiene límite de longitud —la columna es TEXT—.',
             type: 'string',
             example: 'ynzmDbpb_Ln@bAtEsC',
+        ),
+        new OA\Property(
+            property: 'estimatedKilometers',
+            description: 'Distancia estimada de la ruta prevista, en kilómetros. OBLIGATORIA, numérica, no negativa y de 999999.99 como máximo (mensajes: La distancia estimada es obligatoria / La distancia estimada debe ser un número / La distancia estimada no puede ser negativa / La distancia estimada supera el máximo permitido). Es el distanceKilometers de GET /api/places/directions, reenviado tal cual: la API no lo calcula ni lo comprueba contra polyline. 0 es válido. Se persiste con dos decimales y sale como string "104.32".',
+            type: 'number',
+            format: 'float',
+            minimum: 0,
+            maximum: 999999.99,
+            example: 104.32,
+        ),
+        new OA\Property(
+            property: 'estimatedHours',
+            description: 'Duración estimada de la ruta prevista, en horas decimales. OBLIGATORIA, numérica, no negativa y de 9999.99 como máximo (mensajes: La duración estimada es obligatoria / La duración estimada debe ser un número / La duración estimada no puede ser negativa / La duración estimada supera el máximo permitido). Es el durationHours de GET /api/places/directions, reenviado tal cual —horas, NO minutos ni segundos—. 0 es válido. Se persiste con dos decimales y sale como string "1.75".',
+            type: 'number',
+            format: 'float',
+            minimum: 0,
+            maximum: 9999.99,
+            example: 1.75,
         ),
         new OA\Property(
             property: 'observations',
@@ -172,6 +192,9 @@ class StoreTripRequest extends FormRequest
             'shipDate' => ['required', 'date', 'after:now', 'after_or_equal:recolectionDate'],
             /** La ruta ya resuelta por el front con GET /api/places/directions: la API no llama a Google. */
             'polyline' => ['required', 'string'],
+            /** Sus estimaciones, de la misma respuesta; los max calcan la precisión de la columna para que un desbordamiento sea 422 y no 500. */
+            'estimatedKilometers' => ['required', 'numeric', 'min:0', 'max:999999.99'],
+            'estimatedHours' => ['required', 'numeric', 'min:0', 'max:9999.99'],
             'observations' => ['required', 'string'],
         ];
     }
@@ -215,6 +238,14 @@ class StoreTripRequest extends FormRequest
             'shipDate.after_or_equal' => 'La fecha de embarque no puede ser anterior a la de recolección',
             'polyline.required' => 'La ruta es obligatoria',
             'polyline.string' => 'La ruta debe ser texto',
+            'estimatedKilometers.required' => 'La distancia estimada es obligatoria',
+            'estimatedKilometers.numeric' => 'La distancia estimada debe ser un número',
+            'estimatedKilometers.min' => 'La distancia estimada no puede ser negativa',
+            'estimatedKilometers.max' => 'La distancia estimada supera el máximo permitido',
+            'estimatedHours.required' => 'La duración estimada es obligatoria',
+            'estimatedHours.numeric' => 'La duración estimada debe ser un número',
+            'estimatedHours.min' => 'La duración estimada no puede ser negativa',
+            'estimatedHours.max' => 'La duración estimada supera el máximo permitido',
             'observations.required' => 'Las observaciones son obligatorias',
             'observations.string' => 'Las observaciones deben ser texto',
         ];

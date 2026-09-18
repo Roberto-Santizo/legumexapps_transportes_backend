@@ -57,6 +57,8 @@ class TripFactory extends Factory
             'start_date' => null,
             'end_date' => null,
             'polyline' => self::POLYLINE,
+            'estimated_kilometers' => fake()->randomFloat(2, 1, 600),
+            'estimated_hours' => fake()->randomFloat(2, 0.1, 12),
             'observations' => fake()->sentence(),
             'status' => TripStatus::Pending,
             'pilot_id' => null,
