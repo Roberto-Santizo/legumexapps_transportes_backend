@@ -16,6 +16,7 @@ use App\Models\DeparturePoint;
 use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\TripPosition;
 use App\Models\TripTimeout;
@@ -212,6 +213,7 @@ class TripService implements TripServiceInterface
         $trip = Trip::query()
             ->with(self::RELATIONS)
             ->withSum($this->confirmedFuelGallonsSum(), 'gallons')
+            ->withSum($this->confirmedExpensesAmountSum(), 'amount')
             ->find($id);
 
         if ($trip === null) {
@@ -396,6 +398,24 @@ class TripService implements TripServiceInterface
                 'registered_by' => $user->id,
             ]);
 
+            /**
+             * El primer viático es OPCIONAL (SPEC 31): solo si viaja `expenseAmount` se
+             * inserta, en la misma transacción y detrás del mismo lock que la carga. Sin
+             * él la asignación queda como hasta SPEC 30, y `expenseDescription` a secas se
+             * ignora en silencio. Reasignar con monto AÑADE otra fila, como la carga.
+             */
+            if (isset($data['expenseAmount'])) {
+                TripExpense::create([
+                    'trip_id' => $trip->id,
+                    'amount' => $data['expenseAmount'],
+                    'description' => $data['expenseDescription'] ?? null,
+                    /** Nace sin confirmar: lo confirma su piloto por /api/trip-expenses/{tripExpense}/confirm. */
+                    'received_at' => null,
+                    'confirmed_by' => null,
+                    'registered_by' => $user->id,
+                ]);
+            }
+
             return $trip;
         });
 
@@ -550,6 +570,7 @@ class TripService implements TripServiceInterface
         $trip = Trip::withTrashed()
             ->with(self::RELATIONS)
             ->withSum($this->confirmedFuelGallonsSum(), 'gallons')
+            ->withSum($this->confirmedExpensesAmountSum(), 'amount')
             ->when($lock, fn (Builder $query) => $query->lockForUpdate())
             ->find($id);
 
@@ -873,7 +894,21 @@ class TripService implements TripServiceInterface
     }
 
     /**
-     * Load everything a detail read paints: the eight relations and the fuel sum.
+     * The withSum/loadSum spec that feeds `totalExpensesAmount` (SPEC 31).
+     *
+     * Mirror of `confirmedFuelGallonsSum()`: only the allowances the pilot **confirmed**
+     * count, and the value lands on the model as `total_expenses_amount`, the single
+     * attribute `TripResource` reads for it.
+     *
+     * @return array<string, callable>
+     */
+    private function confirmedExpensesAmountSum(): array
+    {
+        return ['expenses as total_expenses_amount' => fn (Builder $query) => $query->whereNotNull('received_at')];
+    }
+
+    /**
+     * Load everything a detail read paints: the eight relations and the two sums.
      *
      * Used by the five writes, which already hold the row: `loadSum()` re-reads the sum
      * **after** the write, so an assignment that just inserted a load reports the truth
@@ -881,7 +916,9 @@ class TripService implements TripServiceInterface
      */
     private function loadDetail(Trip $trip): Trip
     {
-        return $trip->load(self::RELATIONS)->loadSum($this->confirmedFuelGallonsSum(), 'gallons');
+        return $trip->load(self::RELATIONS)
+            ->loadSum($this->confirmedFuelGallonsSum(), 'gallons')
+            ->loadSum($this->confirmedExpensesAmountSum(), 'amount');
     }
 
     /**

@@ -24,6 +24,7 @@ require __DIR__.'/pilots.php';
 require __DIR__.'/places.php';
 require __DIR__.'/products.php';
 require __DIR__.'/shipping_lines.php';
+require __DIR__.'/trip-expenses.php';
 require __DIR__.'/trip-fuels.php';
 require __DIR__.'/trips.php';
 require __DIR__.'/vehicles.php';

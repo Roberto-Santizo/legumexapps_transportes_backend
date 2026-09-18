@@ -2,6 +2,7 @@
 
 use App\Enums\UserRole;
 use App\Http\Controllers\TripController;
+use App\Http\Controllers\TripExpenseController;
 use App\Http\Controllers\TripFuelController;
 use App\Http\Controllers\TripPositionController;
 use App\Http\Controllers\TripTimeoutController;
@@ -84,6 +85,19 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
 
     Route::get('/{trip}/fuels', [TripFuelController::class, 'index'])
         ->name('fuels.index');
+
+    /**
+     * Los viáticos son el calco de las cargas de combustible: mismas dos rutas
+     * anidadas, mismos roles y misma confirmación fuera del viaje, en
+     * routes/trip-expenses.php. Registrar es del transportista que tomó el viaje;
+     * leer lo decide el ámbito de SPEC 24 en el service, con el piloto asignado dentro.
+     */
+    Route::post('/{trip}/expenses', [TripExpenseController::class, 'store'])
+        ->middleware(["role:{$carrier}"])
+        ->name('expenses.store');
+
+    Route::get('/{trip}/expenses', [TripExpenseController::class, 'index'])
+        ->name('expenses.index');
 
     /**
      * Las paradas se derivan del rastro y se leen igual que él: jwt.auth a secas, el

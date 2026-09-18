@@ -155,6 +155,20 @@ class Trip extends Model
     }
 
     /**
+     * The travel allowances registered on this trip (SPEC 31).
+     *
+     * Same reason to exist as `fuels()`: neither Resource exposes the rows, but
+     * `totalExpensesAmount` is resolved with `withSum` —restricted to the confirmed
+     * allowances— and that needs the relation to hang off.
+     *
+     * @return HasMany<TripExpense, $this>
+     */
+    public function expenses(): HasMany
+    {
+        return $this->hasMany(TripExpense::class);
+    }
+
+    /**
      * Normalize a commercial reference: trim it, collapse inner whitespace and upper case it.
      *
      * A single function shared by `order` and `container`, against the project's habit of

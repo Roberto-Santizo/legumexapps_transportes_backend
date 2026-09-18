@@ -11,6 +11,7 @@ use App\Models\Location;
 use App\Models\PilotDocument;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\TripPosition;
 use App\Models\User;
@@ -244,7 +245,7 @@ function tripPayload(array $overrides = []): array
 }
 
 /**
- * The 39 keys `TripResource` promises, in the order the resource declares them.
+ * The 40 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
  * its name —the vehicle adds a third key, `vehicleImage`—, `points` is derived from
@@ -267,7 +268,7 @@ function tripResourceKeys(): array
         'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
         'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
-        'totalFuelGallons',
+        'totalFuelGallons', 'totalExpensesAmount',
         'createdAt', 'updatedAt', 'deletedAt',
     ];
 }
@@ -2064,7 +2065,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 17 claves en el listado y las 39 del detalle, y no las confunde', function () {
+it('devuelve 17 claves en el listado y las 40 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -2072,7 +2073,7 @@ it('devuelve 17 claves en el listado y las 39 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(39)
+    expect(tripResourceKeys())->toHaveCount(40)
         ->and(tripListResourceKeys())->toHaveCount(17)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripResourceKeys());
@@ -2957,7 +2958,7 @@ it('coloca las dos claves del recorrido justo después de las estimaciones de SP
     $indexOfPoints = array_search('points', $keys, true);
 
     expect(array_slice($keys, $indexOfPoints, 6))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'observations'])
-        ->and($keys)->toHaveCount(39);
+        ->and($keys)->toHaveCount(40);
 });
 
 it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
@@ -3170,4 +3171,212 @@ it('deja el TripInRouteResource del tablero sin las dos estimaciones', function 
 
     expect($response->json('data'))->toHaveCount(1)
         ->and($response->json('data.0'))->not->toHaveKeys(['estimatedKilometers', 'estimatedHours']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 31 — El viático opcional en la asignación y totalExpensesAmount
+|--------------------------------------------------------------------------
+|
+| /assignment gana dos campos opcionales: con expenseAmount inserta el primer viático
+| en la misma transacción que la carga; sin él, nada cambia. El detalle gana la clave
+| totalExpensesAmount, que solo suma los viáticos confirmados. /start no los exige.
+|
+*/
+
+/**
+ * The four mandatory fields of `/assignment`, to which each test adds its own extras.
+ *
+ * @param  array{carrier: Carrier, owner: User, pilot: User, vehicle: Vehicle}  $team
+ * @param  array<string, mixed>  $extra
+ * @return array<string, mixed>
+ */
+function tripAssignmentBody(array $team, array $extra = []): array
+{
+    return [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        ...$extra,
+    ];
+}
+
+it('deja exactamente un viático sin confirmar al asignar con expenseAmount', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($team, [
+        'expenseAmount' => 350.5,
+        'expenseDescription' => '  Alimentación y peajes  ',
+    ]))
+        ->assertOk()
+        /** La suma solo cuenta lo confirmado, así que un viaje recién asignado sigue en 0.00. */
+        ->assertJsonPath('data.totalExpensesAmount', '0.00')
+        ->assertJsonPath('data.totalFuelGallons', '0.00');
+
+    $this->assertDatabaseCount('trip_expenses', 1);
+    $this->assertDatabaseCount('trip_fuels', 1);
+
+    $this->assertDatabaseHas('trip_expenses', [
+        'trip_id' => $trip->id,
+        'amount' => '350.50',
+        'description' => 'Alimentación y peajes',
+        'received_at' => null,
+        'confirmed_by' => null,
+        /** El autor del primer viático es quien asignó, no el piloto. */
+        'registered_by' => $team['owner']->id,
+    ]);
+});
+
+it('no crea ningún viático al asignar sin expenseAmount, y la asignación sigue igual', function (array $extra) {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($team, $extra))
+        ->assertOk()
+        ->assertJsonPath('data.pilotId', $team['pilot']->id)
+        ->assertJsonPath('data.totalExpensesAmount', '0.00');
+
+    /** La carga sí; el viático no. */
+    $this->assertDatabaseCount('trip_fuels', 1);
+    $this->assertDatabaseCount('trip_expenses', 0);
+})->with([
+    'sin los dos campos' => [[]],
+    'expenseAmount en null' => [['expenseAmount' => null]],
+    /** Una descripción sin monto se ignora en silencio: ni fila ni 422. */
+    'solo expenseDescription' => [['expenseDescription' => 'Peajes']],
+    'monto null con descripción' => [['expenseAmount' => null, 'expenseDescription' => 'Peajes']],
+]);
+
+it('rechaza con 422 un viático inválido al asignar, sin asignar nada', function (array $extra, string $campo, string $mensaje) {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($team, $extra))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([$campo])
+        ->assertJsonFragment([$mensaje]);
+
+    expect($trip->fresh()->assigned_by)->toBeNull();
+
+    $this->assertDatabaseCount('trip_fuels', 0);
+    $this->assertDatabaseCount('trip_expenses', 0);
+})->with([
+    'monto en cero' => [['expenseAmount' => 0], 'expenseAmount', 'El monto del viático debe ser mayor a 0'],
+    'monto negativo' => [['expenseAmount' => -10], 'expenseAmount', 'El monto del viático debe ser mayor a 0'],
+    'monto no numérico' => [['expenseAmount' => 'abc'], 'expenseAmount', 'El monto del viático debe ser un número'],
+    'monto desbordado' => [['expenseAmount' => 100000000], 'expenseAmount', 'El monto del viático no puede superar 99999999.99'],
+    'descripción larga' => [['expenseAmount' => 100, 'expenseDescription' => str_repeat('a', 256)], 'expenseDescription', 'La descripción del viático no puede superar los 255 caracteres'],
+    'descripción no texto' => [['expenseAmount' => 100, 'expenseDescription' => ['x']], 'expenseDescription', 'La descripción del viático debe ser texto'],
+]);
+
+it('añade un segundo viático al reasignar con monto, sin pisar el primero', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    $otroPiloto = userWithRole(UserRole::Pilot);
+    $team['carrier']->pilots()->attach($otroPiloto);
+    $otroVehiculo = Vehicle::factory()->create(['carrier_id' => $team['carrier']->id]);
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($team, [
+        'expenseAmount' => 350,
+    ]))->assertOk();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($team, [
+        'pilotId' => $otroPiloto->id,
+        'vehicleId' => $otroVehiculo->id,
+        'expenseAmount' => 125.25,
+    ]))->assertOk();
+
+    $this->assertDatabaseCount('trip_expenses', 2);
+
+    expect(TripExpense::query()->where('trip_id', '=', $trip->id)->orderBy('id')->pluck('amount')->all())
+        ->toBe(['350.00', '125.25']);
+});
+
+it('no deja ningún viático cuando la asignación falla por una de sus guardas', function () {
+    $empresaA = tripTeam();
+    $empresaB = tripTeam();
+
+    /** El viaje ya lo tomó otra empresa: 403. */
+    $ajeno = tripAssignedTo($empresaA);
+
+    asUser($empresaB['owner'])->patchJson("/api/trips/{$ajeno->id}/assignment", tripAssignmentBody($empresaB, [
+        'expenseAmount' => 350,
+    ]))->assertForbidden();
+
+    /** La tripulación no es asignable —vehículo de otra empresa—: 400. */
+    $libre = Trip::factory()->create();
+
+    asUser($empresaA['owner'])->patchJson("/api/trips/{$libre->id}/assignment", tripAssignmentBody($empresaA, [
+        'vehicleId' => $empresaB['vehicle']->id,
+        'expenseAmount' => 350,
+    ]))->assertStatus(400);
+
+    $this->assertDatabaseCount('trip_expenses', 0);
+    $this->assertDatabaseCount('trip_fuels', 0);
+});
+
+it('arranca el viaje sin ningún viático confirmado: /start no mira los viáticos', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+    tripFuelConfirmed($trip->id);
+
+    /** Un viático registrado y sin confirmar no bloquea nada. */
+    TripExpense::factory()->create(['trip_id' => $trip->id]);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'in_route')
+        ->assertJsonPath('data.totalExpensesAmount', '0.00');
+});
+
+it('ignora expenseAmount y expenseDescription en el PATCH general del administrador', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'expenseAmount' => 900,
+        'expenseDescription' => 'Nada',
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.totalExpensesAmount', '0.00');
+
+    /** El administrador no registra viáticos por ninguna vía. */
+    $this->assertDatabaseCount('trip_expenses', 0);
+});
+
+it('suma en totalExpensesAmount solo los viáticos confirmados del detalle', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 300.25]);
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 124.75]);
+    TripExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 1000]);
+
+    /** El viático confirmado de otro viaje no se suma en este. */
+    TripExpense::factory()->confirmed()->create(['amount' => 5000]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalExpensesAmount', '425.00');
+});
+
+it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el listado en 17 claves', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+
+    $admin = userWithRole(UserRole::Administrator);
+
+    $keys = array_keys(asUser($admin)->getJson("/api/trips/{$trip->id}")->json('data'));
+    $indexOfFuel = array_search('totalFuelGallons', $keys, true);
+
+    expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'createdAt'])
+        ->and($keys)->toHaveCount(40);
+
+    $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
+
+    expect($delListado)->not->toHaveKey('totalExpensesAmount')
+        ->and(array_keys($delListado))->toHaveCount(17);
 });

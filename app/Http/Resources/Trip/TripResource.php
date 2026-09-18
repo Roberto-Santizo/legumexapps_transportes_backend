@@ -9,7 +9,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 39 keys in camelCase, the largest resource of the
+ * The trip as the API paints it: 40 keys in camelCase, the largest resource of the
  * project.
  *
  * The six relations go out **flat**, as an id plus its name side by side, never as a
@@ -26,6 +26,10 @@ use OpenApi\Attributes as OA;
  * `totalFuelGallons` (SPEC 27) sums the **confirmed** loads only, resolved by the
  * `withSum` of the service and not by loading any row, so a freshly assigned trip
  * reads "0.00" even though `/assignment` already created its first load.
+ *
+ * `totalExpensesAmount` (SPEC 31) is its mirror for the travel allowances: the sum of
+ * the ones the pilot confirmed receiving, resolved the same way and painted right
+ * after it. Unlike fuel, nothing about it blocks `/start`.
  *
  * `traveledPolyline` and `traveledPoints` (SPEC 28) are the real route, the mirror of
  * `polyline` and `points`: the `trip_positions` trail encoded by `/finish` and decoded
@@ -44,7 +48,7 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 39 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 17 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 40 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 17 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
@@ -54,7 +58,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO. Un viaje NO tiene carrierId: nace de nadie y no hay columna de empresa dueña. La empresa entra en escena cuando toma el viaje, y el vínculo se deriva siempre de assignedById. Por eso administrator y manager ven todos los viajes; un carrier ve la bolsa —los pending con pilotId y vehicleId en null— más los asignados por su propia empresa; y un pilot ve SOLO aquellos donde pilotId es él, sin la bolsa.
 
-    ATENCIÓN — totalFuelGallons SOLO CUENTA LAS CARGAS CONFIRMADAS (SPEC 27), y es la clave 35, añadida entre registeredByName y createdAt. Sale como CADENA de dos decimales y vale "0.00" en todo viaje recién asignado, aunque /assignment ya le haya creado su primera carga: confirmar es cosa del piloto. Mientras valga "0.00" el viaje NO PUEDE ARRANCAR. Las cargas en sí NO viajan en este recurso —no hay clave fuels— y se piden aparte con GET /api/trips/{trip}/fuels.
+    ATENCIÓN — totalFuelGallons SOLO CUENTA LAS CARGAS CONFIRMADAS (SPEC 27), y es la clave 36, añadida entre registeredByName y totalExpensesAmount. Sale como CADENA de dos decimales y vale "0.00" en todo viaje recién asignado, aunque /assignment ya le haya creado su primera carga: confirmar es cosa del piloto. Mientras valga "0.00" el viaje NO PUEDE ARRANCAR. Las cargas en sí NO viajan en este recurso —no hay clave fuels— y se piden aparte con GET /api/trips/{trip}/fuels.
 
     points es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.
 
@@ -62,7 +66,9 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — LA RUTA PREVISTA SON TRES DATOS, NO UNO (SPEC 30): polyline/points, estimatedKilometers y estimatedHours. Los dos números los mandó el frontend en el alta o en el PATCH, sacados de distanceKilometers/durationHours de GET /api/places/directions, y salen como CADENA con dos decimales ("104.32", "1.75"), como totalFuelGallons. Son null SOLO en viajes creados antes de SPEC 30 —sin backfill—: por la API no se puede crear ni editar un viaje que quede sin ellos. La API no los coteja con la polilínea ni con el recorrido real. Van como claves 21 y 22, entre points y traveledPolyline, y SÍ SALEN EN EL LISTADO.
 
-    Las 39 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, createdAt, updatedAt y deletedAt.
+    ATENCIÓN — totalExpensesAmount SOLO CUENTA LOS VIÁTICOS CONFIRMADOS (SPEC 31), y es la clave 37, añadida entre totalFuelGallons y createdAt. Sale como CADENA de dos decimales y vale "0.00" hasta que el piloto confirme haber recibido el dinero. A diferencia del combustible, NO bloquea nada: /start no exige viáticos. Los viáticos en sí NO viajan en este recurso —no hay clave expenses— y se piden aparte con GET /api/trips/{trip}/expenses.
+
+    Las 40 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -308,6 +314,12 @@ use OpenApi\Attributes as OA;
             example: '145.50',
         ),
         new OA\Property(
+            property: 'totalExpensesAmount',
+            description: 'Viáticos CONFIRMADOS del viaje en GTQ (SPEC 31), como CADENA con dos decimales. ATENCIÓN — SOLO SUMA LOS VIÁTICOS QUE EL PILOTO CONFIRMÓ HABER RECIBIDO: un viaje recién asignado con expenseAmount devuelve "0.00" aunque /assignment ya le haya creado su primer viático, porque nace sin confirmar. Es el MISMO número que el totalAmount de GET /api/trips/{trip}/expenses, que lista los pendientes con isConfirmed en false. Lo resuelve un withSum acotado a received_at IS NOT NULL, sin cargar ninguna fila, así que el detalle NO devuelve los viáticos: no hay clave expenses ni contador. A diferencia de totalFuelGallons, NO BLOQUEA NADA: /start no exige viáticos. NO APARECE EN EL LISTADO: TripListItem sigue en 17 claves.',
+            type: 'string',
+            example: '850.00',
+        ),
+        new OA\Property(
             property: 'createdAt',
             description: 'Fecha de alta del viaje. Formato propio d-m-Y h:i:s A, NO ISO 8601, por eso se documenta como string sin format date-time. No cambia nunca y no tiene nada que ver con recolectionDate.',
             type: 'string',
@@ -407,6 +419,8 @@ class TripResource extends JsonResource
              * ninguna carga y sigue sin exponer el listado.
              */
             'totalFuelGallons' => number_format((float) ($this->total_fuel_gallons ?? 0), 2, '.', ''),
+            /** Espejo de totalFuelGallons para los viáticos (SPEC 31): solo los confirmados, resuelto por withSum. */
+            'totalExpensesAmount' => number_format((float) ($this->total_expenses_amount ?? 0), 2, '.', ''),
             'createdAt' => $this->created_at?->format('d-m-Y h:i:s A'),
             'updatedAt' => $this->updated_at?->format('d-m-Y h:i:s A'),
             'deletedAt' => $this->deleted_at?->format('d-m-Y h:i:s A'),

@@ -134,11 +134,19 @@ interface TripServiceInterface
      * pilot and vehicle do not. The load is born unconfirmed, and until its pilot
      * confirms it the trip cannot be started.
      *
-     * @param  array{pilotId: int, vehicleId: int, fuelGallons: float|string, fuelType: string}  $data
-     *                                                                                                  all four are required since SPEC 27 —a breaking change with no grace period—: a
-     *                                                                                                  trip is never assigned a pilot without a vehicle, nor a crew without fuel.
-     *                                                                                                  fuelGallons is a positive amount crossed against nothing, and fuelType one of the
-     *                                                                                                  four FuelType cases, which is not required to have an active FuelPrice.
+     * Since SPEC 31 the transaction may also insert the trip's **first travel
+     * allowance**, but only when `expenseAmount` travels: without it the assignment is
+     * exactly what SPEC 27 left, and an `expenseDescription` on its own is ignored in
+     * silence. Like the load, it is born unconfirmed and reassigning with an amount
+     * appends another row. Nothing about it blocks `/start`.
+     *
+     * @param  array{pilotId: int, vehicleId: int, fuelGallons: float|string, fuelType: string, expenseAmount?: float|string|null, expenseDescription?: string|null}  $data
+     *                                                                                                                                                                       the first four are required since SPEC 27 —a breaking change with no grace
+     *                                                                                                                                                                       period—: a trip is never assigned a pilot without a vehicle, nor a crew without
+     *                                                                                                                                                                       fuel. fuelGallons is a positive amount crossed against nothing, and fuelType one
+     *                                                                                                                                                                       of the four FuelType cases, which is not required to have an active FuelPrice.
+     *                                                                                                                                                                       expenseAmount, when present and not null, is a positive amount crossed against
+     *                                                                                                                                                                       nothing; expenseDescription is already trimmed, null when blank.
      */
     public function assign(User $user, int $id, array $data): Trip;
 
