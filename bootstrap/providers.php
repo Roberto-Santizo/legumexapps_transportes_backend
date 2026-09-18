@@ -17,6 +17,7 @@ use App\Providers\Product\ProductProvider;
 use App\Providers\ShippingLine\ShippingLineProvider;
 use App\Providers\Storage\StorageProvider;
 use App\Providers\Trip\TripProvider;
+use App\Providers\TripExpense\TripExpenseProvider;
 use App\Providers\TripFuel\TripFuelProvider;
 use App\Providers\TripPosition\TripPositionProvider;
 use App\Providers\TripTimeout\TripTimeoutProvider;
@@ -42,6 +43,7 @@ return [
     ShippingLineProvider::class,
     StorageProvider::class,
     TripProvider::class,
+    TripExpenseProvider::class,
     TripFuelProvider::class,
     TripPositionProvider::class,
     TripTimeoutProvider::class,

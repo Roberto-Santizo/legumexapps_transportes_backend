@@ -12,7 +12,9 @@ use OpenApi\Attributes as OA;
     schema: 'AssignTripRequest',
     title: 'Asignación de tripulación a un viaje',
     description: <<<'TEXT'
-    Cuerpo JSON con el que una empresa transportista TOMA un viaje. EXACTAMENTE CUATRO CAMPOS —pilotId, vehicleId, fuelGallons y fuelType— Y LOS CUATRO SON OBLIGATORIOS: no se puede asignar solo el piloto, solo el vehículo ni la tripulación sin combustible, y faltar cualquiera de ellos es 422.
+    Cuerpo JSON con el que una empresa transportista TOMA un viaje. CUATRO CAMPOS OBLIGATORIOS —pilotId, vehicleId, fuelGallons y fuelType—: no se puede asignar solo el piloto, solo el vehículo ni la tripulación sin combustible, y faltar cualquiera de ellos es 422. Y DOS OPCIONALES desde SPEC 31 —expenseAmount y expenseDescription—: el primer viático del viaje, si la empresa lo entrega en este mismo acto.
+
+    ATENCIÓN — EL VIÁTICO ES OPCIONAL Y NO ROMPE NADA (SPEC 31). Si viaja expenseAmount, la asignación inserta el primer viático en trip_expenses dentro de la MISMA TRANSACCIÓN que la carga de combustible, sin confirmar —receivedAt y confirmedBy en null—, así que el viaje sale con totalExpensesAmount en "0.00" hasta que el piloto pase por PATCH /api/trip-expenses/{tripExpense}/confirm. Si NO viaja, no se crea ninguna fila y la asignación queda exactamente como hasta SPEC 30. expenseDescription SIN expenseAmount SE IGNORA EN SILENCIO, con 200 y sin 422. Reasignar con monto AÑADE otro viático, como la carga. Un viaje ARRANCA CON O SIN VIÁTICOS: /start no los exige.
 
     ATENCIÓN — CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA (SPEC 27). Este cuerpo pasó de DOS campos a CUATRO: un cliente que siga mandando solo pilotId y vehicleId recibe 422 EN TODAS SUS ASIGNACIONES, con «Los galones de combustible son obligatorios» y «El tipo de combustible es obligatorio». No hay periodo de convivencia ni valor por defecto, igual que el POST de vehículos en SPEC 13, el de destinos en SPEC 21 y el register de SPEC 25. Asignar tripulación y asignar combustible son el mismo acto: así ningún viaje queda asignado con cero cargas.
 
@@ -59,6 +61,23 @@ use OpenApi\Attributes as OA;
             enum: ['regular', 'premium', 'diesel', 'diesel_premium'],
             example: 'diesel',
         ),
+        new OA\Property(
+            property: 'expenseAmount',
+            description: 'Monto en GTQ del PRIMER viático del viaje, el que esta llamada inserta en trip_expenses. OPCIONAL (SPEC 31): si se omite o viaja null no se crea ninguna fila. Si viaja, numérico, MAYOR QUE CERO (min:0.01) y hasta 99999999.99, con los mensajes literales: El monto del viático debe ser un número / El monto del viático debe ser mayor a 0 / El monto del viático no puede superar 99999999.99. SIN VALIDACIÓN CRUZADA y APPEND-ONLY: un monto mal tecleado se queda para siempre. Nace SIN CONFIRMAR, así que no suma en totalExpensesAmount hasta que el piloto lo confirme.',
+            type: 'number',
+            format: 'float',
+            nullable: true,
+            minimum: 0.01,
+            example: 350,
+        ),
+        new OA\Property(
+            property: 'expenseDescription',
+            description: 'Concepto del primer viático. OPCIONAL, texto de 255 caracteres como máximo, solo trim (mensajes: La descripción del viático debe ser texto / La descripción del viático no puede superar los 255 caracteres). SOLO TIENE EFECTO JUNTO A expenseAmount: sola se ignora en silencio.',
+            type: 'string',
+            nullable: true,
+            maxLength: 255,
+            example: 'Alimentación y peajes',
+        ),
     ],
     type: 'object',
 )]
@@ -67,6 +86,20 @@ class AssignTripRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    /**
+     * Trim the allowance description before validating, and turn a blank one into `null`.
+     *
+     * Same treatment `StoreTripExpenseRequest` gives it: only trim, keeping the casing.
+     */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('expenseDescription'))) {
+            $description = trim($this->input('expenseDescription'));
+
+            $this->merge(['expenseDescription' => $description === '' ? null : $description]);
+        }
     }
 
     /**
@@ -96,12 +129,19 @@ class AssignTripRequest extends FormRequest
          * con la distancia, ni con un techo de negocio. Y `fuelType` se valida solo contra
          * los cuatro casos del enum: no se exige que ese tipo tenga un precio vigente,
          * porque aquí no se guarda ningún precio.
+         *
+         * `expenseAmount` y `expenseDescription` son OPCIONALES (SPEC 31): el viático se
+         * entrega a veces en el mismo acto y a veces después por POST /{trip}/expenses,
+         * así que no se impone. `null` aquí sí vale —es «sin viático»— y una descripción
+         * sin monto se ignora en silencio en el service.
          */
         return [
             'pilotId' => ['required', 'integer', 'exists:users,id'],
             'vehicleId' => ['required', 'integer', 'exists:vehicles,id'],
             'fuelGallons' => ['required', 'numeric', 'min:0.01'],
             'fuelType' => ['required', Rule::enum(FuelType::class)],
+            'expenseAmount' => ['sometimes', 'nullable', 'numeric', 'min:0.01', 'max:99999999.99'],
+            'expenseDescription' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
     }
 
@@ -122,6 +162,11 @@ class AssignTripRequest extends FormRequest
             'fuelGallons.min' => 'Los galones de combustible deben ser mayores a 0',
             'fuelType.required' => 'El tipo de combustible es obligatorio',
             'fuelType.enum' => 'El tipo de combustible seleccionado no es válido',
+            'expenseAmount.numeric' => 'El monto del viático debe ser un número',
+            'expenseAmount.min' => 'El monto del viático debe ser mayor a 0',
+            'expenseAmount.max' => 'El monto del viático no puede superar 99999999.99',
+            'expenseDescription.string' => 'La descripción del viático debe ser texto',
+            'expenseDescription.max' => 'La descripción del viático no puede superar los 255 caracteres',
         ];
     }
 }

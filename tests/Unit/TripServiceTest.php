@@ -15,6 +15,7 @@ use App\Models\DeparturePoint;
 use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\TripPosition;
 use App\Models\User;
@@ -1141,4 +1142,129 @@ it('no escribe traveled_polyline desde update', function () {
 
     expect($editado->traveled_polyline)->toBeNull()
         ->and($trip->fresh()->traveled_polyline)->toBeNull();
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 31 — El viático opcional que escribe assign() y la suma del detalle
+|--------------------------------------------------------------------------
+*/
+
+it('inserta el primer viático sin confirmar cuando la asignación trae expenseAmount', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create();
+
+    $asignado = tripService()->assign($team['owner'], $trip->id, [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        'expenseAmount' => 350.5,
+        'expenseDescription' => 'Alimentación y peajes',
+    ]);
+
+    $expense = TripExpense::query()->where('trip_id', '=', $trip->id)->sole();
+
+    expect(TripExpense::count())->toBe(1)
+        ->and($expense->amount)->toBe('350.50')
+        ->and($expense->description)->toBe('Alimentación y peajes')
+        ->and($expense->received_at)->toBeNull()
+        ->and($expense->confirmed_by)->toBeNull()
+        /** El autor del primer viático es quien asignó, no el piloto. */
+        ->and($expense->registered_by)->toBe($team['owner']->id)
+        /** Sin ninguno confirmado el withSum devuelve null, y el Resource lo pinta como "0.00". */
+        ->and($asignado->total_expenses_amount)->toBeNull();
+});
+
+it('no inserta ningún viático cuando la asignación no trae expenseAmount', function (array $extra) {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create();
+
+    tripService()->assign($team['owner'], $trip->id, [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        ...$extra,
+    ]);
+
+    /** La carga sí; el viático no. Una descripción sola se ignora en silencio. */
+    expect(TripFuel::count())->toBe(1)
+        ->and(TripExpense::count())->toBe(0)
+        ->and($trip->fresh()->assigned_by)->toBe($team['owner']->id);
+})->with([
+    'sin los dos campos' => [[]],
+    'expenseAmount en null' => [['expenseAmount' => null]],
+    'solo expenseDescription' => [['expenseDescription' => 'Peajes']],
+]);
+
+it('añade otro viático al reasignar con monto, sin pisar ni borrar el anterior', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create();
+
+    $otroPiloto = tripServiceUser(UserRole::Pilot);
+    $team['carrier']->pilots()->attach($otroPiloto);
+
+    $data = [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        'expenseAmount' => 350,
+    ];
+
+    tripService()->assign($team['owner'], $trip->id, $data);
+    tripService()->assign($team['owner'], $trip->id, [...$data, 'pilotId' => $otroPiloto->id, 'expenseAmount' => 125.25]);
+
+    expect(TripExpense::query()->where('trip_id', '=', $trip->id)->orderBy('id')->pluck('amount')->all())
+        ->toBe(['350.00', '125.25']);
+});
+
+it('no deja ningún viático cuando la asignación se cae por una de sus guardas', function () {
+    $empresaA = tripServiceTeam();
+    $empresaB = tripServiceTeam();
+    $trip = Trip::factory()->create();
+
+    expect(fn () => tripService()->assign($empresaA['owner'], $trip->id, [
+        'pilotId' => $empresaA['pilot']->id,
+        'vehicleId' => $empresaB['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        'expenseAmount' => 350,
+    ]))->toThrow(BadRequestError::class);
+
+    expect(TripExpense::count())->toBe(0)
+        ->and(TripFuel::count())->toBe(0)
+        ->and($trip->fresh()->assigned_by)->toBeNull();
+});
+
+it('resuelve total_expenses_amount con los viáticos confirmados en el detalle', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create([
+        'pilot_id' => $team['pilot']->id,
+        'vehicle_id' => $team['vehicle']->id,
+        'assigned_by' => $team['owner']->id,
+    ]);
+
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 300.25]);
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 124.75]);
+    TripExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 1000]);
+
+    $detalle = tripService()->getTripById(tripServiceUser(UserRole::Administrator), $trip->id);
+
+    expect((float) $detalle->total_expenses_amount)->toBe(425.0);
+});
+
+it('arranca sin exigir ningún viático confirmado', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create([
+        'pilot_id' => $team['pilot']->id,
+        'vehicle_id' => $team['vehicle']->id,
+        'assigned_by' => $team['owner']->id,
+    ]);
+
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id]);
+    TripExpense::factory()->create(['trip_id' => $trip->id]);
+
+    expect(tripService()->start($team['pilot'], $trip->id)->status)->toBe(TripStatus::InRoute);
 });
