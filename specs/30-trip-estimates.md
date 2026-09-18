@@ -1,6 +1,6 @@
 # SPEC 30 — Distancia y tiempo estimados del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 16, SPEC 24, SPEC 28
 > **Fecha:** 2026-09-17
 > **Objetivo:** Guardar en `trips` la distancia (`estimated_kilometers`) y la duración (`estimated_hours`) estimadas de la ruta prevista, enviadas por el frontend junto a `polyline` en el `POST` y el `PATCH` general, y exponerlas en `TripResource` y `TripListResource`.
@@ -115,20 +115,20 @@ Cada paso deja la suite verde y la API funcionando.
 
 ## Criterios de aceptación
 
-- [ ] `trips` tiene `estimated_kilometers` (`decimal(8,2)`, nullable) y `estimated_hours` (`decimal(6,2)`, nullable), y las filas anteriores a la migración quedan en `null`.
-- [ ] `POST /api/trips` sin `estimatedKilometers` o sin `estimatedHours` responde 422 con el mensaje en español del campo que falta.
-- [ ] `POST /api/trips` con `estimatedKilometers` o `estimatedHours` negativo, no numérico o por encima del `max` responde 422; con `0` responde 201.
-- [ ] `POST /api/trips` con los 14 campos responde 201 y persiste los dos valores.
-- [ ] `PATCH /api/trips/{trip}` con solo `polyline`, con solo uno de los dos números, o con dos de los tres campos de la ruta responde 422.
-- [ ] `PATCH /api/trips/{trip}` con los tres campos de la ruta responde 200 y reescribe los tres; sin ninguno de los tres responde 200 y no los toca.
-- [ ] `GET /api/trips/{trip}` devuelve 39 claves, con `estimatedKilometers` y `estimatedHours` inmediatamente después de `points` y antes de `traveledPolyline`, como string de dos decimales (`"104.32"`, `"1.75"`).
-- [ ] `GET /api/trips` y `GET /api/trips/current` devuelven 17 claves por viaje, con las dos nuevas entre `endDate` y `observations`, en el mismo formato.
-- [ ] Un viaje con las columnas en `null` devuelve `null` en las dos claves en ambos Resources.
-- [ ] `PATCH /{trip}/assignment`, `/start` y `/finish` no tocan las dos columnas.
-- [ ] `TripInRouteResource` (dashboard), `TripPositionResource` y el payload de `TripPositionUpdated` no cambian de forma.
-- [ ] `TripFactory` genera valores válidos para las dos columnas.
-- [ ] `storage/api-docs/api-docs.json` documenta los dos campos nuevos en los dos FormRequests y los dos Resources.
-- [ ] `php artisan test --compact` pasa completo y `vendor/bin/pint --dirty --test` no reporta cambios en los archivos tocados.
+- [x] `trips` tiene `estimated_kilometers` (`decimal(8,2)`, nullable) y `estimated_hours` (`decimal(6,2)`, nullable), y las filas anteriores a la migración quedan en `null`.
+- [x] `POST /api/trips` sin `estimatedKilometers` o sin `estimatedHours` responde 422 con el mensaje en español del campo que falta.
+- [x] `POST /api/trips` con `estimatedKilometers` o `estimatedHours` negativo, no numérico o por encima del `max` responde 422; con `0` responde 201.
+- [x] `POST /api/trips` con los 14 campos responde 201 y persiste los dos valores.
+- [x] `PATCH /api/trips/{trip}` con solo `polyline`, con solo uno de los dos números, o con dos de los tres campos de la ruta responde 422.
+- [x] `PATCH /api/trips/{trip}` con los tres campos de la ruta responde 200 y reescribe los tres; sin ninguno de los tres responde 200 y no los toca.
+- [x] `GET /api/trips/{trip}` devuelve 39 claves, con `estimatedKilometers` y `estimatedHours` inmediatamente después de `points` y antes de `traveledPolyline`, como string de dos decimales (`"104.32"`, `"1.75"`).
+- [x] `GET /api/trips` y `GET /api/trips/current` devuelven 17 claves por viaje, con las dos nuevas entre `endDate` y `observations`, en el mismo formato.
+- [x] Un viaje con las columnas en `null` devuelve `null` en las dos claves en ambos Resources.
+- [x] `PATCH /{trip}/assignment`, `/start` y `/finish` no tocan las dos columnas.
+- [x] `TripInRouteResource` (dashboard), `TripPositionResource` y el payload de `TripPositionUpdated` no cambian de forma.
+- [x] `TripFactory` genera valores válidos para las dos columnas.
+- [x] `storage/api-docs/api-docs.json` documenta los dos campos nuevos en los dos FormRequests y los dos Resources.
+- [ ] `php artisan test --compact` pasa completo y `vendor/bin/pint --dirty --test` no reporta cambios en los archivos tocados. _(Pint limpio; la suite queda en 2975/2976: el único fallo es `TripTimeoutTest › no toca ninguna parada al iniciar el viaje`, roto en `main` desde SPEC 27 —`/start` exige carga confirmada— y ajeno a esta spec.)_
 
 ---
 
