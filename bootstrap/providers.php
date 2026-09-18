@@ -3,6 +3,7 @@
 use App\Providers\Accessory\AccessoryProvider;
 use App\Providers\AccessoryCharacteristic\AccessoryCharacteristicProvider;
 use App\Providers\AppServiceProvider;
+use App\Providers\Assistant\AssistantProvider;
 use App\Providers\Auth\AuthProvider;
 use App\Providers\Carrier\CarrierProvider;
 use App\Providers\Client\ClientProvider;
@@ -29,6 +30,7 @@ return [
     AccessoryProvider::class,
     AccessoryCharacteristicProvider::class,
     AppServiceProvider::class,
+    AssistantProvider::class,
     AuthProvider::class,
     CarrierProvider::class,
     ClientProvider::class,

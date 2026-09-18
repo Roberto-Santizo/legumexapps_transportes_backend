@@ -905,6 +905,100 @@
                 ]
             }
         },
+        "/api/assistant/chat": {
+            "post": {
+                "tags": [
+                    "Assistant"
+                ],
+                "summary": "Conversar con el asistente del tablero",
+                "description": "Envía el último mensaje del usuario y devuelve la respuesta del asistente como stream SSE con el protocolo del Vercel AI SDK. Solo se lee el último mensaje del array: debe ser role user con al menos un part de tipo text no vacío (422 si no). Sin conversationId se abre una conversación nueva; con él se continúa (404 si no existe, 403 si es de otro usuario). El UUID de la conversación viaja siempre en la cabecera X-Conversation-Id.",
+                "operationId": "assistantChat",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ChatRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Stream SSE con el protocolo UI Message Stream del Vercel AI SDK. Termina con data: [DONE].",
+                        "headers": {
+                            "X-Conversation-Id": {
+                                "description": "UUID de la conversación, nueva o continuada. Mandarlo como conversationId en el siguiente turno.",
+                                "schema": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                }
+                            },
+                            "x-vercel-ai-ui-message-stream": {
+                                "description": "Versión del protocolo: v1.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "v1"
+                                }
+                            }
+                        },
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "type": "string",
+                                    "example": "data: {\"type\":\"start\",\"messageId\":\"...\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"...\",\"delta\":\"Hay 3 viajes en ruta.\"}\n\ndata: {\"type\":\"finish\"}\n\ndata: [DONE]\n\n"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "pilot; carrier sin empresa; o conversación de otro usuario («No tienes permisos para acceder a esta conversación»).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "La conversación no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Sin mensajes, último mensaje que no es del usuario o sin texto, o conversationId que no es UUID.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/auth/register": {
             "post": {
                 "tags": [
@@ -10497,6 +10591,69 @@
                 },
                 "type": "object"
             },
+            "ChatRequest": {
+                "title": "Turno del asistente",
+                "description": "El cuerpo que manda useChat del Vercel AI SDK con DefaultChatTransport, tal cual, más conversationId. LA API SOLO LEE EL ÚLTIMO MENSAJE: debe ser del usuario (role user) y tener al menos un part de tipo text con texto; los mensajes anteriores del array se ignoran, porque el historial lo guarda y lo reinyecta el servidor desde la conversación. El texto se forma uniendo los parts de tipo text del último mensaje, con un máximo de 4000 caracteres.\n\nconversationId es opcional: sin él (o null) se abre una conversación nueva para el usuario autenticado y su id viaja en la cabecera X-Conversation-Id de la respuesta; con él se continúa esa conversación, que debe existir (404) y ser del mismo usuario (403).",
+                "required": [
+                    "messages"
+                ],
+                "properties": {
+                    "conversationId": {
+                        "description": "UUID de la conversación a continuar, o null/ausente para abrir una nueva.",
+                        "type": "string",
+                        "format": "uuid",
+                        "example": "019968a1-3d7e-7c1a-9b2f-4e5d6c7b8a90",
+                        "nullable": true
+                    },
+                    "messages": {
+                        "description": "Mensajes UIMessage del Vercel AI SDK. Solo cuenta el último.",
+                        "type": "array",
+                        "items": {
+                            "required": [
+                                "role",
+                                "parts"
+                            ],
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "example": "msg-1"
+                                },
+                                "role": {
+                                    "type": "string",
+                                    "example": "user",
+                                    "enum": [
+                                        "user",
+                                        "assistant",
+                                        "system"
+                                    ]
+                                },
+                                "parts": {
+                                    "type": "array",
+                                    "items": {
+                                        "required": [
+                                            "type"
+                                        ],
+                                        "properties": {
+                                            "type": {
+                                                "type": "string",
+                                                "example": "text"
+                                            },
+                                            "text": {
+                                                "type": "string",
+                                                "example": "¿Cuántos viajes hay en ruta ahora?",
+                                                "nullable": true
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                }
+                            },
+                            "type": "object"
+                        }
+                    }
+                },
+                "type": "object"
+            },
             "ConfirmAccountRequest": {
                 "title": "Confirmación de cuenta",
                 "description": "Correo de la cuenta y código de confirmación de 6 dígitos.",
@@ -15247,6 +15404,10 @@
         {
             "name": "Accessories",
             "description": "Inventario nacional de accesorios: llantas, gatos hidráulicos, juegos de cadenas y demás material suelto. El accesorio NO pertenece a ninguna empresa transportista NI está asignado a ningún vehículo —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId ni vehicleId. Los cinco endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. ATENCIÓN — UNA FILA ES UNA UNIDAD FÍSICA: no hay campo quantity; dos llantas iguales son DOS registros con DOS códigos distintos, y contar existencias es contar filas. ATENCIÓN — currentValue ES DERIVADO Y DE SOLO SALIDA: no hay columna, ni job, ni caché; se recalcula en cada lectura con depreciación LINEAL (años = purchaseDate.diffInDays(hoy) / 365; depreciado = price * (annualDepreciation / 100) * años; currentValue = round(max(0, price - depreciado), 2)), así que el mismo accesorio devuelve un valor distinto cada día sin que nadie escriba en la tabla y NO se puede filtrar ni ordenar por él. Reglas que atraviesan el dominio: el name se guarda normalizado y EN MAYÚSCULAS con los espacios internos colapsados, mientras que el code se guarda en mayúsculas pero SIN colapsarlos —\"A 100\" y \"A100\" son códigos distintos—; ambos son únicos a nivel global y sus duplicados salen por 422 desde el FormRequest (sin la asimetría 422/400 de Locations), aunque el service repite esos mismos mensajes como 400 para las llamadas directas; la unicidad del code es CIEGA AL STATUS, de modo que un accesorio dado de baja NO libera su código, al contrario que la placa de un vehículo; el status es un ENUM DE TRES VALORES (active, inactive, under_repair) y NO un booleano, no se acepta en el alta y se mueve libremente por el PATCH, que es la única vía —NO existe /toggle-status—; y el DELETE es una BAJA LÓGICA que solo pone status en \"inactive\", con la fila viva y todavía visible en el listado. La salida va en camelCase, con price, annualDepreciation y currentValue como CADENAS de dos decimales (GTQ por convención), purchaseDate en d-m-Y y createdAt en d-m-Y h:i:s A, NUNCA ISO 8601; el recurso no expone updatedAt y registeredBy es el NOMBRE del usuario, no su id."
+        },
+        {
+            "name": "Assistant",
+            "description": "Asistente conversacional del tablero: UN endpoint, POST /api/assistant/chat, que responde en lenguaje natural preguntas sobre viajes, flota y gastos de mantenimiento consultando los mismos agregados de /api/dashboard. El modelo NUNCA toca la base: solo llama a cuatro herramientas de solo lectura (trips_summary, trips_in_route, vehicle_expenses_summary, fleet) que envuelven el servicio del tablero con el usuario autenticado, así que el ámbito por rol es EXACTAMENTE el de /api/dashboard: administrator y manager ven todas las empresas; carrier, solo la suya, y cualquier carrierId que el modelo intente mandar se ignora.\n\nPERMISOS — mismos middlewares que el tablero: role:administrator,manager,carrier + carrier.required. pilot recibe 403; un carrier sin empresa, 403.\n\nLA RESPUESTA NO ES EL SOBRE JSON HABITUAL: es un stream Server-Sent Events con el protocolo UI Message Stream del Vercel AI SDK (cabeceras Content-Type: text/event-stream y x-vercel-ai-ui-message-stream: v1, líneas data: {...} terminadas en data: [DONE]), pensado para consumirse con useChat + DefaultChatTransport en React. Los parts posibles son start, start-step, text-start/text-delta/text-end, tool-input-available, tool-output-available, finish-step, finish y error.\n\nCONVERSACIONES — cada turno se persiste (agent_conversations / agent_conversation_messages) y el servidor reinyecta el historial al modelo: el cliente NO necesita mandar los mensajes anteriores. La cabecera X-Conversation-Id de la respuesta trae el UUID de la conversación (nueva o continuada); el cliente lo guarda y lo manda como conversationId en el siguiente turno. Está expuesta en CORS.\n\nERRORES — todo lo que puede fallar con un código (401, 403, 404, 422) falla ANTES de abrir el stream y sale con el sobre JSON de siempre. Una vez abierto el stream, un fallo del proveedor de IA llega DENTRO del stream como un part {\"type\":\"error\"} con 200, nunca como 5xx."
         },
         {
             "name": "Auth",

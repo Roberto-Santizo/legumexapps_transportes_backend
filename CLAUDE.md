@@ -24,7 +24,7 @@ En un `apiResource`, las rutas fijas (`/join`, `/me`, `/me/pilots`, `/current`, 
 
 Dominios ya implementados: `Auth`, `Carrier`, `Vehicle`, `VehicleExpense`, `FuelPrice`, `Product`, `Zone`, `Location`, `FreightRate`, `Pilot`, `Place`, `Accessory`, `AccessoryCharacteristic`, `DeparturePoint`, `Client`, `ShippingLine`, `Trip`, `TripPosition`, `TripFuel`, `TripTimeout`, `Dashboard`, `TripExpense` (SPEC 01–31; **hay dos SPEC 27**, `27-trip-fuels.md` y `27-trip-timeouts.md`, ambas implementadas; SPEC 28 y SPEC 30 no crean dominio, amplían `Trip`; SPEC 29 crea `Dashboard` sin tabla ni FormRequest; SPEC 31 crea `TripExpense` como calco de `TripFuel`).
 
-`laravel/ai` está instalado (`config/ai.php`, migración `agent_conversations`/`agent_conversation_messages`, stubs `agent*.stub`/`tool.stub`) pero **ningún código de `app/` lo usa todavía**: es infraestructura preparada, no un dominio.
+`laravel/ai` (`config/ai.php`, migración `agent_conversations`/`agent_conversation_messages`, stubs `agent*.stub`/`tool.stub`) sostiene el dominio `Assistant`: el agente y sus tools viven en `app/Ai/`, fuera de las capas de la tabla, porque no son HTTP.
 
 ## Respuestas y errores
 
@@ -368,6 +368,15 @@ Cuatro endpoints de **solo lectura** bajo `/api/dashboard`, para `administrator`
 - Los dos Resources de agregados (`TripsSummaryResource`, `VehicleExpensesSummaryResource`) envuelven el **array** que devuelve el service, no un modelo; el listado paginado de flota va por `PaginatedResource($paginator, DashboardVehicleResource::class)`.
 - Un `carrier` sin empresa que llegue al service (fuera del middleware) recibe `ForbiddenError` desde `resolveEffectiveCarrierId()`, doble guarda como en `VehicleService`.
 - Fuera, si llega, en otra spec: combustible agregado, empresas y pilotos, paradas históricas, inventario de accesorios, Top N, comparativas, export, caché, jobs y websocket.
+
+## Dominio Assistant (chat del tablero)
+
+Un solo endpoint, `POST /api/assistant/chat`, con los mismos middlewares que `/api/dashboard` (`jwt.auth` + `role:administrator,manager,carrier` + `carrier.required`). **Primer dominio cuya respuesta no es el sobre JSON**: es un stream SSE con el protocolo UI Message Stream del Vercel AI SDK (`usingVercelDataProtocol()` → `Content-Type: text/event-stream`, `x-vercel-ai-ui-message-stream: v1`, `data: [DONE]` al final), pensado para `useChat` + `DefaultChatTransport` en React.
+
+- Capas: `routes/assistant.php`, `AssistantController`, `ChatRequest`, `AssistantServiceInterface` → `AssistantService`, `AssistantProvider`. Sin Resource: el stream lo serializa el SDK. El agente `App\Ai\Agents\DashboardAssistant` (`#[Provider('gemini')]`, `#[MaxSteps(8)]`, `#[Timeout(90)]`, `RemembersConversations`) se construye con `new DashboardAssistant($user)`; sus cuatro tools en `app/Ai/Tools/Dashboard/` (`trips_summary`, `trips_in_route`, `vehicle_expenses_summary`, `fleet`) envuelven `DashboardServiceInterface` con el usuario autenticado, así que **el modelo hereda el ámbito de SPEC 29 y nunca toca la BD**. `DashboardTool::filters()` castea todo escalar a string porque el service espera query-string (`resolvePerPage`, `inRoute` hacen `is_string`), y devuelve los `ApiException` como `{"error": ...}` para que el modelo los explique.
+- **Body nativo de `useChat`** (`{ conversationId?, messages: [{ role, parts: [{ type: 'text', text }] }] }`); **solo cuenta el último mensaje**, que debe ser `user` con texto (≤ 4000 chars) → si no, 422 sobre `messages`. El historial lo reinyecta el servidor desde `agent_conversations`, no el cliente.
+- **La conversación se crea antes del stream** (`ConversationStore::storeConversation()`, título = prompt recortado a 100) y el agente se lanza con `continue($id, $user)`: así el UUID sale en la cabecera **`X-Conversation-Id`** (expuesta en `config/cors.php`) y el SDK no gasta una llamada extra generando título. `conversationId` inexistente → 404; de otro usuario → 403. Todo lo que tiene código de estado falla **antes** de abrir el stream y sale por `ResponseHandler`; un fallo del proveedor durante el stream llega como part `{"type":"error"}` con 200.
+- Tests: `DashboardAssistant::fake([...])` (el gateway falso soporta `stream()` y `ToolCall`, que ejecuta el `handle()` real de la tool); `streamedContent()` para leer el cuerpo. `Http::preventStrayRequests()` no interfiere. Sin historial (`GET /conversations` no existe), sin borrado y sin websocket.
 
 ## Almacenamiento de archivos
 
