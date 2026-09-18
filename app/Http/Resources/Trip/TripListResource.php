@@ -7,7 +7,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * El viaje como lo pinta el listado: 15 claves, la vista de tabla del frontend.
+ * El viaje como lo pinta el listado: 17 claves, la vista de tabla del frontend.
  *
  * Es la versión recortada de {@see TripResource}, que sigue siendo la de los otros siete
  * endpoints. Aquí no salen los ids de las relaciones —solo sus nombres—, ni `polyline` ni
@@ -18,20 +18,26 @@ use OpenApi\Attributes as OA;
  * polilínea por elemento, así que un `limit=100` ya no decodifica cien.
  *
  * Las fechas conservan el formato propio del dominio `d-m-Y h:i:s A`, no ISO 8601.
+ *
+ * `estimatedKilometers` y `estimatedHours` (SPEC 30) sí salen aquí, al revés que
+ * `polyline`/`points`: son dos escalares baratos que permiten pintar «104 km · 1.75 h»
+ * en una fila sin pedir el detalle. Mismo formato que en {@see TripResource}.
  */
 #[OA\Schema(
     schema: 'TripListItem',
     title: 'Viaje en el listado',
     description: <<<'TEXT'
-    El viaje tal como sale en GET /api/trips: 15 CLAVES en camelCase, no las 34 del detalle. Es una vista de tabla, no el recurso completo.
+    El viaje tal como sale en GET /api/trips: 17 CLAVES en camelCase, no las 39 del detalle. Es una vista de tabla, no el recurso completo.
 
     ATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; vehicleImage, pilotDpiImage ni pilotLicenseImage; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.
 
     ATENCIÓN — points NO SE CALCULA EN EL LISTADO. La polilínea solo se decodifica en el detalle, así que el mapa se pinta desde ahí y nunca desde una fila de la tabla.
 
+    Lo que SÍ trae de la ruta prevista desde SPEC 30 son sus dos números: estimatedKilometers y estimatedHours, como cadena de dos decimales o null en los viajes anteriores a esa spec. Bastan para pintar «104 km · 1.75 h» en la fila sin pedir el detalle.
+
     Las cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés. Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.
 
-    Las 15 claves salen siempre en este orden: id, order, status, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, observations, pilotName, vehiclePlate y registeredByName.
+    Las 17 claves salen siempre en este orden: id, order, status, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, estimatedKilometers, estimatedHours, observations, pilotName, vehiclePlate y registeredByName.
     TEXT,
     properties: [
         new OA\Property(
@@ -109,6 +115,20 @@ use OpenApi\Attributes as OA;
             example: '05-09-2026 02:30:10 PM',
         ),
         new OA\Property(
+            property: 'estimatedKilometers',
+            description: 'Distancia estimada de la ruta prevista, en kilómetros, como CADENA con dos decimales ("104.32"): el mismo valor y formato que en el detalle. La mandó el frontend con la polilínea (distanceKilometers de GET /api/places/directions) y la API no la calcula ni la valida. null SOLO en viajes anteriores a SPEC 30.',
+            type: 'string',
+            nullable: true,
+            example: '104.32',
+        ),
+        new OA\Property(
+            property: 'estimatedHours',
+            description: 'Duración estimada de la ruta prevista, en HORAS DECIMALES, como CADENA con dos decimales ("1.75" = 1 h 45 min): el mismo valor y formato que en el detalle. No es un ETA. null SOLO en viajes anteriores a SPEC 30.',
+            type: 'string',
+            nullable: true,
+            example: '1.75',
+        ),
+        new OA\Property(
             property: 'observations',
             description: 'Instrucciones del viaje, tal como se teclearon —solo trim, conservando mayúsculas, minúsculas y saltos de línea—. Es obligatorio en el alta: cuando el viaje lo publica el administrador y lo ejecuta otra empresa, es el ÚNICO CANAL DE INSTRUCCIONES del dominio.',
             type: 'string',
@@ -141,7 +161,7 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'TripListResponse',
     title: 'Listado de viajes sin paginar',
-    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 15 claves, NO el Trip de 34 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
+    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 17 claves, NO el Trip de 39 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
     properties: [
         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
         new OA\Property(property: 'message', type: 'string', example: 'Viajes obtenidos correctamente'),
@@ -152,7 +172,7 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'PaginatedTripListResponse',
     title: 'Listado de viajes paginado',
-    description: 'Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 15 claves.',
+    description: 'Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 17 claves.',
     allOf: [
         new OA\Schema(ref: '#/components/schemas/TripListResponse'),
         new OA\Schema(ref: '#/components/schemas/PaginationMeta'),
@@ -183,6 +203,9 @@ class TripListResource extends JsonResource
             'shipDate' => $this->ship_date?->format('d-m-Y h:i:s A'),
             'startDate' => $this->start_date?->format('d-m-Y h:i:s A'),
             'endDate' => $this->end_date?->format('d-m-Y h:i:s A'),
+            /** Mismo formato que en el detalle: cadena de dos decimales, o null en los viajes anteriores a SPEC 30. */
+            'estimatedKilometers' => $this->estimated_kilometers === null ? null : number_format((float) $this->estimated_kilometers, 2, '.', ''),
+            'estimatedHours' => $this->estimated_hours === null ? null : number_format((float) $this->estimated_hours, 2, '.', ''),
             'observations' => $this->observations,
             'pilotName' => $this->pilot?->name,
             'vehiclePlate' => $this->vehicle?->plate,

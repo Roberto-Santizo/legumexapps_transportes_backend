@@ -9,7 +9,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 37 keys in camelCase, the largest resource of the
+ * The trip as the API paints it: 39 keys in camelCase, the largest resource of the
  * project.
  *
  * The six relations go out **flat**, as an id plus its name side by side, never as a
@@ -31,6 +31,11 @@ use OpenApi\Attributes as OA;
  * `polyline` and `points`: the `trip_positions` trail encoded by `/finish` and decoded
  * here the same way. Both stay `null` / `[]` until the pilot closes the trip.
  *
+ * `estimatedKilometers` and `estimatedHours` (SPEC 30) are the distance and duration
+ * of the planned route, sent by the frontend together with `polyline` and painted as
+ * two-decimal strings like `totalFuelGallons`. Both are `null` only on trips created
+ * before the columns existed: the API never lets a new trip go without them.
+ *
  * `deletedAt` is null on six of the seven endpoints that paint it, because none of them
  * can reach a deleted trip. The exception is the response of the DELETE itself, which
  * paints the row that was just soft deleted.
@@ -39,7 +44,7 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 37 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 15 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 39 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 17 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
@@ -53,9 +58,11 @@ use OpenApi\Attributes as OA;
 
     points es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.
 
-    ATENCIÓN — HAY DOS POLILÍNEAS Y NO SON LA MISMA (SPEC 28): polyline/points es la ruta PREVISTA que mandó el frontend, y traveledPolyline/traveledPoints es la ruta REAL, el rastro de trip_positions que la API codifica UNA SOLA VEZ, al cerrar el viaje con /finish. Van justo después de points, como claves 21 y 22. Mientras el viaje no esté finalizado valen null y [] —también en un viaje in_route con miles de puntos reportados: para el rastro en vivo están el websocket y GET /api/trips/{trip}/positions—, y siguen en null/[] en un viaje finalizado sin ningún punto o cerrado antes de SPEC 28. La API no distingue esos tres nulls. Las coordenadas van a CINCO decimales (formato de Google), no a los ocho de trip_positions.
+    ATENCIÓN — HAY DOS POLILÍNEAS Y NO SON LA MISMA (SPEC 28): polyline/points es la ruta PREVISTA que mandó el frontend, y traveledPolyline/traveledPoints es la ruta REAL, el rastro de trip_positions que la API codifica UNA SOLA VEZ, al cerrar el viaje con /finish. Van justo después de estimatedKilometers y estimatedHours, como claves 23 y 24. Mientras el viaje no esté finalizado valen null y [] —también en un viaje in_route con miles de puntos reportados: para el rastro en vivo están el websocket y GET /api/trips/{trip}/positions—, y siguen en null/[] en un viaje finalizado sin ningún punto o cerrado antes de SPEC 28. La API no distingue esos tres nulls. Las coordenadas van a CINCO decimales (formato de Google), no a los ocho de trip_positions.
 
-    Las 37 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, traveledPolyline, traveledPoints, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, createdAt, updatedAt y deletedAt.
+    ATENCIÓN — LA RUTA PREVISTA SON TRES DATOS, NO UNO (SPEC 30): polyline/points, estimatedKilometers y estimatedHours. Los dos números los mandó el frontend en el alta o en el PATCH, sacados de distanceKilometers/durationHours de GET /api/places/directions, y salen como CADENA con dos decimales ("104.32", "1.75"), como totalFuelGallons. Son null SOLO en viajes creados antes de SPEC 30 —sin backfill—: por la API no se puede crear ni editar un viaje que quede sin ellos. La API no los coteja con la polilínea ni con el recorrido real. Van como claves 21 y 22, entre points y traveledPolyline, y SÍ SALEN EN EL LISTADO.
+
+    Las 39 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -191,6 +198,20 @@ use OpenApi\Attributes as OA;
             example: [[28.64893, -68.17554], [28.64869, -68.17588], [28.64762, -68.17514]],
         ),
         new OA\Property(
+            property: 'estimatedKilometers',
+            description: 'Distancia estimada de la ruta PREVISTA, en kilómetros, como CADENA con dos decimales ("104.32"), igual que totalFuelGallons: hay que parsearla para operar. La mandó el frontend en el alta o en el PATCH —es el distanceKilometers de GET /api/places/directions para esa misma polyline, sin convertir— y la API la guarda tal cual: NO la calcula, NO la recalcula y NO la compara con la polilínea ni con el recorrido real. ATENCIÓN — ES null SOLO EN VIAJES ANTERIORES A SPEC 30 (no hubo backfill): un viaje nuevo nunca sale sin ella. Si polyline queda obsoleta tras un PATCH que cambió el destino sin remandar la ruta, este valor queda obsoleto con ella. Sale también en el listado (TripListItem).',
+            type: 'string',
+            nullable: true,
+            example: '104.32',
+        ),
+        new OA\Property(
+            property: 'estimatedHours',
+            description: 'Duración estimada de la ruta PREVISTA, en HORAS DECIMALES —no minutos ni segundos—, como CADENA con dos decimales ("1.75" = 1 h 45 min). Es el durationHours de GET /api/places/directions para esa misma polyline, mandado por el frontend sin convertir y guardado tal cual: la API no lo calcula ni lo coteja con nada, y no es un ETA —no mira startDate ni el rastro—. ATENCIÓN — ES null SOLO EN VIAJES ANTERIORES A SPEC 30 (no hubo backfill). "0.00" es un valor legítimo: una ruta muy corta redondeada. Sale también en el listado (TripListItem).',
+            type: 'string',
+            nullable: true,
+            example: '1.75',
+        ),
+        new OA\Property(
             property: 'traveledPolyline',
             description: 'Polilínea codificada de Google con la ruta REAL del viaje (SPEC 28): todo el rastro de trip_positions, en orden recorded_at asc e id asc, tal cual se reportó —sin simplificar ni colapsar puntos repetidos—. NO LA MANDA NADIE: la escribe el servidor UNA SOLA VEZ, en PATCH /api/trips/{trip}/finish, y mandarla en el POST o en el PATCH se ignora en silencio. ATENCIÓN — ES null EN TRES CASOS QUE LA API NO DISTINGUE: el viaje no ha terminado (aunque esté in_route y tenga miles de puntos: para eso están el websocket y GET /api/trips/{trip}/positions), terminó sin reportar ni un punto, o terminó antes de SPEC 28 (no hubo backfill). No es la ruta prevista: esa es polyline.',
             type: 'string',
@@ -226,7 +247,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'pilotDpiImage',
-            description: 'URL pública y permanente de la foto del ANVERSO del DPI del piloto asignado, lista para usar como src. Va PREFIJADA con «pilot» igual que pilotId y pilotName porque aquí conviven cuatro entidades y un dpiImage suelto no diría de quién es. ATENCIÓN — HAY DOS MOTIVOS DISTINTOS PARA QUE VENGA null y el frontend no los distingue desde aquí: que el viaje siga en la bolsa (entonces pilotId y pilotName también son null) o que el piloto se registrara antes de SPEC 25 (entonces pilotId y pilotName sí traen valor). El viaje NO guarda copia del documento: la URL se resuelve desde el piloto, así que es la misma que devuelve GET /api/pilots. NO SALE EN EL LISTADO: TripListItem sigue con sus 15 claves.',
+            description: 'URL pública y permanente de la foto del ANVERSO del DPI del piloto asignado, lista para usar como src. Va PREFIJADA con «pilot» igual que pilotId y pilotName porque aquí conviven cuatro entidades y un dpiImage suelto no diría de quién es. ATENCIÓN — HAY DOS MOTIVOS DISTINTOS PARA QUE VENGA null y el frontend no los distingue desde aquí: que el viaje siga en la bolsa (entonces pilotId y pilotName también son null) o que el piloto se registrara antes de SPEC 25 (entonces pilotId y pilotName sí traen valor). El viaje NO guarda copia del documento: la URL se resuelve desde el piloto, así que es la misma que devuelve GET /api/pilots. NO SALE EN EL LISTADO: TripListItem sigue con sus 17 claves.',
             type: 'string',
             nullable: true,
             example: 'https://bucket.s3.amazonaws.com/pilot-documents/9f3a2c1d-8b4e-4a70-9c21-5d6e7f801a2b.jpg',
@@ -254,7 +275,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'vehicleImage',
-            description: 'URL pública y permanente de la imagen del vehículo asignado, lista para usar como src, resuelta desde la relación igual que en GET /api/vehicles/{vehicle}. Es el ÚNICO CASO DEL RECURSO EN QUE UNA RELACIÓN SALE CON TRES CLAVES —vehicleId, vehiclePlate y vehicleImage—, y sigue siendo plana: no hay ningún objeto vehicle anidado. La imagen es siempre un cuadrado de 800x800 px recortado desde el centro, en el formato original (jpg o png). ATENCIÓN — HAY DOS MOTIVOS DISTINTOS PARA QUE VENGA null y el frontend no los distingue desde aquí: que el viaje siga en la bolsa (entonces vehicleId y vehiclePlate también son null) o que el vehículo asignado no tenga imagen (entonces vehicleId y vehiclePlate sí traen valor). No es la clave interna del objeto: el cliente no debe derivarla ni componerla a mano. NO SALE EN EL LISTADO: TripListItem sigue con sus 15 claves y del vehículo solo pinta vehiclePlate.',
+            description: 'URL pública y permanente de la imagen del vehículo asignado, lista para usar como src, resuelta desde la relación igual que en GET /api/vehicles/{vehicle}. Es el ÚNICO CASO DEL RECURSO EN QUE UNA RELACIÓN SALE CON TRES CLAVES —vehicleId, vehiclePlate y vehicleImage—, y sigue siendo plana: no hay ningún objeto vehicle anidado. La imagen es siempre un cuadrado de 800x800 px recortado desde el centro, en el formato original (jpg o png). ATENCIÓN — HAY DOS MOTIVOS DISTINTOS PARA QUE VENGA null y el frontend no los distingue desde aquí: que el viaje siga en la bolsa (entonces vehicleId y vehiclePlate también son null) o que el vehículo asignado no tenga imagen (entonces vehicleId y vehiclePlate sí traen valor). No es la clave interna del objeto: el cliente no debe derivarla ni componerla a mano. NO SALE EN EL LISTADO: TripListItem sigue con sus 17 claves y del vehículo solo pinta vehiclePlate.',
             type: 'string',
             nullable: true,
             example: 'https://bucket.s3.amazonaws.com/vehicles/9f1c2b7a-3d4e-4f10-9a2b-7c8d5e6f0a1b.png',
@@ -282,7 +303,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'totalFuelGallons',
-            description: 'Galones de combustible CONFIRMADOS del viaje (SPEC 27), como CADENA con dos decimales. ATENCIÓN — SOLO SUMA LAS CARGAS CONFIRMADAS por el piloto: un viaje RECIÉN ASIGNADO devuelve "0.00" aunque /assignment ya le haya creado su primera carga, porque nace sin confirmar. El cero es explicable, no un error, y la forma de explicarlo es pedir GET /api/trips/{trip}/fuels, que lista las pendientes con isConfirmed en false. Es el MISMO número que el totalGallons de ese listado. Lo resuelve un withSum acotado a loaded_at IS NOT NULL, sin cargar ninguna fila, así que el detalle NO devuelve las cargas: no hay clave fuels ni contador de cargas. ATENCIÓN — mientras este valor sea "0.00" EL VIAJE NO PUEDE ARRANCAR: /start responde 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje». Y como la tabla es append-only, un total inflado por una cantidad mal tecleada no se puede corregir por API. NO APARECE EN EL LISTADO: TripListItem sigue en 15 claves.',
+            description: 'Galones de combustible CONFIRMADOS del viaje (SPEC 27), como CADENA con dos decimales. ATENCIÓN — SOLO SUMA LAS CARGAS CONFIRMADAS por el piloto: un viaje RECIÉN ASIGNADO devuelve "0.00" aunque /assignment ya le haya creado su primera carga, porque nace sin confirmar. El cero es explicable, no un error, y la forma de explicarlo es pedir GET /api/trips/{trip}/fuels, que lista las pendientes con isConfirmed en false. Es el MISMO número que el totalGallons de ese listado. Lo resuelve un withSum acotado a loaded_at IS NOT NULL, sin cargar ninguna fila, así que el detalle NO devuelve las cargas: no hay clave fuels ni contador de cargas. ATENCIÓN — mientras este valor sea "0.00" EL VIAJE NO PUEDE ARRANCAR: /start responde 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje». Y como la tabla es append-only, un total inflado por una cantidad mal tecleada no se puede corregir por API. NO APARECE EN EL LISTADO: TripListItem sigue en 17 claves.',
             type: 'string',
             example: '145.50',
         ),
@@ -349,6 +370,9 @@ class TripResource extends JsonResource
             'polyline' => $this->polyline,
             /** Los mismos pares que devuelve GET /api/places/directions para esta cadena. */
             'points' => PolylineDecoder::decode($this->polyline),
+            /** Las dos estimaciones de la ruta prevista (SPEC 30): cadena de dos decimales, o null en los viajes anteriores a la columna. */
+            'estimatedKilometers' => $this->estimated_kilometers === null ? null : number_format((float) $this->estimated_kilometers, 2, '.', ''),
+            'estimatedHours' => $this->estimated_hours === null ? null : number_format((float) $this->estimated_hours, 2, '.', ''),
             'traveledPolyline' => $this->traveled_polyline,
             /** La ruta real, decodificada igual que la prevista; [] mientras /finish no la escriba. */
             'traveledPoints' => PolylineDecoder::decode($this->traveled_polyline ?? ''),
