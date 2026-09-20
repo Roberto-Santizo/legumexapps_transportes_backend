@@ -8,6 +8,7 @@ use App\Enums\VehicleCondition;
 use App\Enums\VehicleExpenseNature;
 use App\Enums\VehicleStatus;
 use App\Errors\ForbiddenError;
+use App\Errors\NotFoundError;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use App\Models\Carrier;
 use App\Models\Trip;
@@ -292,6 +293,26 @@ class DashboardService implements DashboardServiceInterface
         $this->attachCurrentTrips($perPage === null ? $vehicles : $vehicles->getCollection());
 
         return $vehicles;
+    }
+
+    #[Override]
+    public function getVehicle(User $user, int $id): Vehicle
+    {
+        $vehicle = Vehicle::query()->with('carrier')->find($id);
+
+        if ($vehicle === null) {
+            throw new NotFoundError('El vehículo no existe');
+        }
+
+        $carrierId = $this->resolveEffectiveCarrierId($user, []);
+
+        if ($carrierId !== null && $vehicle->carrier_id !== $carrierId) {
+            throw new ForbiddenError('No puedes acceder a un vehículo que no pertenece a tu empresa transportista');
+        }
+
+        $this->attachCurrentTrips(new Collection([$vehicle]));
+
+        return $vehicle;
     }
 
     /**

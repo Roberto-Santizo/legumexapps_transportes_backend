@@ -11,34 +11,21 @@ use OpenApi\Attributes as OA;
     schema: 'ChatRequest',
     title: 'Turno del asistente',
     description: <<<'TEXT'
-    El cuerpo que manda useChat del Vercel AI SDK con DefaultChatTransport, tal cual, más conversationId. LA API SOLO LEE EL ÚLTIMO MENSAJE: debe ser del usuario (role user) y tener al menos un part de tipo text con texto; los mensajes anteriores del array se ignoran, porque el historial lo guarda y lo reinyecta el servidor desde la conversación. El texto se forma uniendo los parts de tipo text del último mensaje, con un máximo de 4000 caracteres.
-
-    conversationId es opcional: sin él (o null) se abre una conversación nueva para el usuario autenticado y su id viaja en la cabecera X-Conversation-Id de la respuesta; con él se continúa esa conversación, que debe existir (404) y ser del mismo usuario (403).
+    La conversación completa tal como la tiene el cliente: una lista de mensajes en orden cronológico, cada uno con su role (user o assistant) y su content. La memoria vive en el cliente: la API no guarda nada y en cada petición recibe el historial entero. EL ÚLTIMO MENSAJE ES LA PREGUNTA DEL TURNO: debe ser role user, con texto (se recorta con trim) y de 1 a 4000 caracteres; los anteriores se pasan al modelo como contexto, sin filtrar. Máximo 50 mensajes por petición y 10000 caracteres por mensaje de historial.
     TEXT,
     required: ['messages'],
     properties: [
-        new OA\Property(property: 'conversationId', description: 'UUID de la conversación a continuar, o null/ausente para abrir una nueva.', type: 'string', format: 'uuid', example: '019968a1-3d7e-7c1a-9b2f-4e5d6c7b8a90', nullable: true),
         new OA\Property(
             property: 'messages',
-            description: 'Mensajes UIMessage del Vercel AI SDK. Solo cuenta el último.',
+            description: 'Historial en orden cronológico, terminando en el mensaje del usuario a responder. Entre 1 y 50 mensajes.',
             type: 'array',
+            minItems: 1,
+            maxItems: 50,
             items: new OA\Items(
-                required: ['role', 'parts'],
+                required: ['role', 'content'],
                 properties: [
-                    new OA\Property(property: 'id', type: 'string', example: 'msg-1'),
-                    new OA\Property(property: 'role', type: 'string', enum: ['user', 'assistant', 'system'], example: 'user'),
-                    new OA\Property(
-                        property: 'parts',
-                        type: 'array',
-                        items: new OA\Items(
-                            required: ['type'],
-                            properties: [
-                                new OA\Property(property: 'type', type: 'string', example: 'text'),
-                                new OA\Property(property: 'text', type: 'string', example: '¿Cuántos viajes hay en ruta ahora?', nullable: true),
-                            ],
-                            type: 'object',
-                        ),
-                    ),
+                    new OA\Property(property: 'role', type: 'string', enum: ['user', 'assistant'], example: 'user'),
+                    new OA\Property(property: 'content', type: 'string', maxLength: 10000, example: '¿Cuántos viajes hay en ruta ahora?'),
                 ],
                 type: 'object',
             ),
@@ -48,8 +35,14 @@ use OpenApi\Attributes as OA;
 )]
 class ChatRequest extends FormRequest
 {
-    /** Longest prompt accepted in one turn. */
+    /** Longest prompt accepted in one turn: the last message, the one the model answers. */
     private const int MAX_PROMPT_LENGTH = 4000;
+
+    /** Longest content accepted for a message of the history, the assistant's included. */
+    private const int MAX_HISTORY_MESSAGE_LENGTH = 10000;
+
+    /** Most messages —history plus prompt— accepted in one request. */
+    private const int MAX_MESSAGES = 50;
 
     /**
      * Determine if the user is authorized to make this request.
@@ -67,12 +60,9 @@ class ChatRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'conversationId' => ['sometimes', 'nullable', 'uuid'],
-            'messages' => ['required', 'array', 'min:1'],
-            'messages.*.role' => ['required', 'string', 'in:user,assistant,system'],
-            'messages.*.parts' => ['required', 'array'],
-            'messages.*.parts.*.type' => ['required', 'string'],
-            'messages.*.parts.*.text' => ['nullable', 'string'],
+            'messages' => ['required', 'array', 'min:1', 'max:'.self::MAX_MESSAGES],
+            'messages.*.role' => ['required', 'string', 'in:user,assistant'],
+            'messages.*.content' => ['required', 'string', 'max:'.self::MAX_HISTORY_MESSAGE_LENGTH],
         ];
     }
 
@@ -84,22 +74,21 @@ class ChatRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'conversationId.uuid' => 'El identificador de la conversación no es válido',
             'messages.required' => 'Los mensajes son obligatorios',
             'messages.array' => 'Los mensajes deben ser una lista',
             'messages.min' => 'Debes enviar al menos un mensaje',
+            'messages.max' => 'No puedes enviar más de '.self::MAX_MESSAGES.' mensajes',
             'messages.*.role.required' => 'Cada mensaje debe indicar su rol',
-            'messages.*.role.in' => 'El rol del mensaje no es válido',
-            'messages.*.parts.required' => 'Cada mensaje debe traer sus partes',
-            'messages.*.parts.array' => 'Las partes del mensaje deben ser una lista',
-            'messages.*.parts.*.type.required' => 'Cada parte del mensaje debe indicar su tipo',
-            'messages.*.parts.*.text.string' => 'El texto de la parte debe ser una cadena',
+            'messages.*.role.in' => 'El rol del mensaje debe ser user o assistant',
+            'messages.*.content.required' => 'Cada mensaje debe tener contenido',
+            'messages.*.content.string' => 'El contenido del mensaje debe ser una cadena de texto',
+            'messages.*.content.max' => 'Un mensaje no puede superar los '.self::MAX_HISTORY_MESSAGE_LENGTH.' caracteres',
         ];
     }
 
     /**
-     * The last message is the only one that matters: it must come from the user and
-     * carry text, or the turn has nothing to answer.
+     * The last message is the question of the turn: it must come from the user and
+     * fit the prompt limit, which is tighter than the one of the history.
      */
     public function withValidator(Validator $validator): void
     {
@@ -108,65 +97,59 @@ class ChatRequest extends FormRequest
                 return;
             }
 
-            $last = $this->lastMessage();
-
-            if (($last['role'] ?? null) !== 'user') {
+            if ($this->lastMessage()['role'] !== 'user') {
                 $validator->errors()->add('messages', 'El último mensaje debe ser del usuario');
 
                 return;
             }
 
-            $prompt = $this->prompt();
-
-            if ($prompt === '') {
-                $validator->errors()->add('messages', 'El último mensaje debe tener texto');
-            } elseif (mb_strlen($prompt) > self::MAX_PROMPT_LENGTH) {
+            if (mb_strlen($this->prompt()) > self::MAX_PROMPT_LENGTH) {
                 $validator->errors()->add('messages', 'El mensaje no puede superar los '.self::MAX_PROMPT_LENGTH.' caracteres');
             }
         });
     }
 
     /**
-     * The text of the last message: its `text` parts joined, trimmed.
+     * The text of the turn: the last message, trimmed.
      */
     public function prompt(): string
     {
-        $parts = $this->lastMessage()['parts'] ?? [];
-
-        $texts = array_map(
-            static fn (array $part): string => (string) ($part['text'] ?? ''),
-            array_filter(
-                is_array($parts) ? $parts : [],
-                static fn (mixed $part): bool => is_array($part) && ($part['type'] ?? null) === 'text',
-            ),
-        );
-
-        return trim(implode("\n", $texts));
+        return trim($this->lastMessage()['content']);
     }
 
     /**
-     * The conversation to continue, or null to open a new one.
+     * The previous turns, in order: every message but the last one.
+     *
+     * @return list<array{role: string, content: string}>
      */
-    public function conversationId(): ?string
+    public function history(): array
     {
-        $conversationId = $this->input('conversationId');
-
-        return is_string($conversationId) && $conversationId !== '' ? $conversationId : null;
+        return array_slice($this->messagesInput(), 0, -1);
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{role: string, content: string}
      */
     private function lastMessage(): array
     {
-        $messages = $this->input('messages');
+        $messages = $this->messagesInput();
 
-        if (! is_array($messages) || $messages === []) {
-            return [];
-        }
+        return $messages[array_key_last($messages)];
+    }
 
-        $last = end($messages);
-
-        return is_array($last) ? $last : [];
+    /**
+     * The messages as sent, reduced to the two keys the rules guarantee.
+     *
+     * Read from the input and not from `validated()`, because the after hook runs
+     * while the validator is still deciding and `validated()` would re-run it.
+     *
+     * @return list<array{role: string, content: string}>
+     */
+    private function messagesInput(): array
+    {
+        return array_values(array_map(
+            static fn (array $message): array => ['role' => (string) $message['role'], 'content' => (string) $message['content']],
+            $this->input('messages'),
+        ));
     }
 }

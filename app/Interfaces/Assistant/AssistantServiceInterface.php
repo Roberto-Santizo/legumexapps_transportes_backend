@@ -2,8 +2,6 @@
 
 namespace App\Interfaces\Assistant;
 
-use App\Errors\ForbiddenError;
-use App\Errors\NotFoundError;
 use App\Models\User;
 use Laravel\Ai\Responses\StreamableAgentResponse;
 
@@ -12,23 +10,19 @@ use Laravel\Ai\Responses\StreamableAgentResponse;
  *
  * The first domain of the project whose response is not a JSON envelope: the service
  * returns the SDK's streamable response and the controller turns it into the Vercel
- * AI SDK protocol (`text/event-stream`). Everything that can fail with a status code
- * —conversation missing, conversation of someone else— fails **before** the stream
- * opens, so it still comes out through `ResponseHandler`. Once the stream is open,
- * provider errors are reported inside it as an `error` part, never as a 5xx.
+ * AI SDK protocol (`text/event-stream`). Nothing is persisted: the memory lives in
+ * the client, which sends the previous turns with every request. Once the stream is
+ * open, provider errors are reported inside it as an `error` part, never as a 5xx.
  */
 interface AssistantServiceInterface
 {
     /**
-     * Answer one turn of a conversation, streaming.
+     * Answer one turn, streaming, with the previous turns as context.
      *
-     * Without `$conversationId` a new conversation is opened for the user, titled with
-     * the prompt itself; with it the conversation is resumed and the previous turns
-     * are handed to the model by the SDK. Either way the returned response already
-     * carries `conversationId`, so the caller can expose it before iterating.
+     * `$history` is the conversation so far as the client kept it, oldest first and
+     * without `$prompt`; it is handed to the model as is and never stored.
      *
-     * @throws NotFoundError when the conversation does not exist
-     * @throws ForbiddenError when the conversation belongs to another user
+     * @param  list<array{role: string, content: string}>  $history
      */
-    public function chat(User $user, string $prompt, ?string $conversationId): StreamableAgentResponse;
+    public function chat(User $user, string $prompt, array $history = []): StreamableAgentResponse;
 }

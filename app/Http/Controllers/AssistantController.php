@@ -16,25 +16,24 @@ use OpenApi\Attributes as OA;
 
     LA RESPUESTA NO ES EL SOBRE JSON HABITUAL: es un stream Server-Sent Events con el protocolo UI Message Stream del Vercel AI SDK (cabeceras Content-Type: text/event-stream y x-vercel-ai-ui-message-stream: v1, líneas data: {...} terminadas en data: [DONE]), pensado para consumirse con useChat + DefaultChatTransport en React. Los parts posibles son start, start-step, text-start/text-delta/text-end, tool-input-available, tool-output-available, finish-step, finish y error.
 
-    CONVERSACIONES — cada turno se persiste (agent_conversations / agent_conversation_messages) y el servidor reinyecta el historial al modelo: el cliente NO necesita mandar los mensajes anteriores. La cabecera X-Conversation-Id de la respuesta trae el UUID de la conversación (nueva o continuada); el cliente lo guarda y lo manda como conversationId en el siguiente turno. Está expuesta en CORS.
+    MEMORIA EN EL CLIENTE — la API no guarda la conversación: en cada petición el cliente manda la lista completa de mensajes (role user/assistant + content) en orden cronológico, el último es la pregunta del turno y los anteriores se pasan al modelo como contexto. Nada se persiste; si el cliente pierde la lista, el asistente no la recuerda.
 
-    ERRORES — todo lo que puede fallar con un código (401, 403, 404, 422) falla ANTES de abrir el stream y sale con el sobre JSON de siempre. Una vez abierto el stream, un fallo del proveedor de IA llega DENTRO del stream como un part {"type":"error"} con 200, nunca como 5xx.
+    ERRORES — todo lo que puede fallar con un código (401, 403, 422) falla ANTES de abrir el stream y sale con el sobre JSON de siempre. Una vez abierto el stream, un fallo del proveedor de IA llega DENTRO del stream como un part {"type":"error"} con 200, nunca como 5xx.
     TEXT,
 )]
 class AssistantController extends Controller
 {
     /**
-     * Answer one turn of the conversation with the dashboard assistant, streaming.
+     * Answer one turn with the dashboard assistant, streaming, with the history the client sent.
      *
-     * The stream is opened here, not in the service: `toResponse()` is what starts it,
-     * and the conversation header has to be set on the response object before that.
+     * The stream is opened here, not in the service: `toResponse()` is what starts it.
      */
     #[OA\Post(
         path: '/api/assistant/chat',
         operationId: 'assistantChat',
         summary: 'Conversar con el asistente del tablero',
         description: <<<'TEXT'
-        Envía el último mensaje del usuario y devuelve la respuesta del asistente como stream SSE con el protocolo del Vercel AI SDK. Solo se lee el último mensaje del array: debe ser role user con al menos un part de tipo text no vacío (422 si no). Sin conversationId se abre una conversación nueva; con él se continúa (404 si no existe, 403 si es de otro usuario). El UUID de la conversación viaja siempre en la cabecera X-Conversation-Id.
+        Envía la conversación completa y devuelve la respuesta del asistente como stream SSE con el protocolo del Vercel AI SDK. El cuerpo lleva un único campo, messages: entre 1 y 50 mensajes con role (user o assistant) y content, en orden cronológico; el último debe ser del usuario y tener de 1 a 4000 caracteres (422 si no), y los anteriores viajan al modelo como contexto. Nada se persiste en el servidor.
         TEXT,
         security: [['bearerAuth' => []]],
         requestBody: new OA\RequestBody(required: true, content: new OA\JsonContent(ref: '#/components/schemas/ChatRequest')),
@@ -44,7 +43,6 @@ class AssistantController extends Controller
                 response: 200,
                 description: 'Stream SSE con el protocolo UI Message Stream del Vercel AI SDK. Termina con data: [DONE].',
                 headers: [
-                    new OA\Header(header: 'X-Conversation-Id', description: 'UUID de la conversación, nueva o continuada. Mandarlo como conversationId en el siguiente turno.', schema: new OA\Schema(type: 'string', format: 'uuid')),
                     new OA\Header(header: 'x-vercel-ai-ui-message-stream', description: 'Versión del protocolo: v1.', schema: new OA\Schema(type: 'string', example: 'v1')),
                 ],
                 content: new OA\MediaType(
@@ -53,20 +51,16 @@ class AssistantController extends Controller
                 ),
             ),
             new OA\Response(response: 401, description: 'Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado', content: new OA\JsonContent(ref: '#/components/schemas/ApiError')),
-            new OA\Response(response: 403, description: 'pilot; carrier sin empresa; o conversación de otro usuario («No tienes permisos para acceder a esta conversación»).', content: new OA\JsonContent(ref: '#/components/schemas/ApiError')),
-            new OA\Response(response: 404, description: 'La conversación no existe', content: new OA\JsonContent(ref: '#/components/schemas/ApiError')),
-            new OA\Response(response: 422, description: 'Sin mensajes, último mensaje que no es del usuario o sin texto, o conversationId que no es UUID.', content: new OA\JsonContent(ref: '#/components/schemas/ValidationError')),
+            new OA\Response(response: 403, description: 'pilot, o carrier sin empresa.', content: new OA\JsonContent(ref: '#/components/schemas/ApiError')),
+            new OA\Response(response: 422, description: 'Sin mensajes o más de 50; rol que no es user ni assistant; contenido ausente, no textual o de más de 10000 caracteres; último mensaje que no es del usuario o de más de 4000 caracteres.', content: new OA\JsonContent(ref: '#/components/schemas/ValidationError')),
         ],
     )]
     public function chat(ChatRequest $request, AssistantServiceInterface $assistantService)
     {
         try {
-            $stream = $assistantService->chat(auth('api')->user(), $request->prompt(), $request->conversationId());
+            $stream = $assistantService->chat(auth('api')->user(), $request->prompt(), $request->history());
 
-            $response = $stream->usingVercelDataProtocol()->toResponse($request);
-            $response->headers->set('X-Conversation-Id', $stream->conversationId);
-
-            return $response;
+            return $stream->usingVercelDataProtocol()->toResponse($request);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }

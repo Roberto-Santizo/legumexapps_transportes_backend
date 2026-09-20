@@ -70,21 +70,23 @@ function toolTripOf(Carrier $carrier, array $attributes = []): Trip
 |--------------------------------------------------------------------------
 */
 
-it('expone los cuatro tools de solo lectura con los nombres que usa el system prompt', function () {
+it('expone los once tools de solo lectura con los nombres que usa el system prompt', function () {
     $tools = iterator_to_array(new DashboardAssistant(toolAdmin())->tools());
 
     expect(array_map(ToolNameResolver::resolve(...), $tools))
-        ->toBe(['trips_summary', 'trips_in_route', 'vehicle_expenses_summary', 'fleet']);
+        ->toBe([
+            'trips_summary', 'trips_in_route', 'vehicle_expenses_summary', 'fleet',
+            'trips', 'trip', 'trip_fuels', 'trip_expenses', 'trip_timeouts',
+            'vehicle', 'vehicle_expenses',
+        ]);
 });
 
-it('declara un schema donde ningún argumento es obligatorio', function (string $tool) {
-    $schema = dashboardTool($tool, toolAdmin())->schema(new JsonSchemaTypeFactory);
+it('declara un schema de tablero donde ningún argumento es obligatorio', function (string $tool) {
+    $factory = new JsonSchemaTypeFactory;
+    $schema = $factory->object(dashboardTool($tool, toolAdmin())->schema($factory))->toArray();
 
-    foreach ($schema as $name => $type) {
-        expect($type->toArray())->not->toHaveKey('required', $name);
-    }
-
-    expect($schema)->toHaveKey('carrierId');
+    expect($schema)->not->toHaveKey('required')
+        ->and($schema['properties'])->toHaveKey('carrierId');
 })->with([
     TripsSummaryTool::class,
     TripsInRouteTool::class,

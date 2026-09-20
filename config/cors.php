@@ -25,11 +25,7 @@ return [
 
     'allowed_headers' => ['*'],
 
-    /*
-    | El asistente devuelve el UUID de la conversación en esta cabecera; sin exponerla
-    | el navegador no deja leerla desde el frontend.
-    */
-    'exposed_headers' => ['X-Conversation-Id'],
+    'exposed_headers' => [],
 
     'max_age' => 0,
 

@@ -911,7 +911,7 @@
                     "Assistant"
                 ],
                 "summary": "Conversar con el asistente del tablero",
-                "description": "Envía el último mensaje del usuario y devuelve la respuesta del asistente como stream SSE con el protocolo del Vercel AI SDK. Solo se lee el último mensaje del array: debe ser role user con al menos un part de tipo text no vacío (422 si no). Sin conversationId se abre una conversación nueva; con él se continúa (404 si no existe, 403 si es de otro usuario). El UUID de la conversación viaja siempre en la cabecera X-Conversation-Id.",
+                "description": "Envía la conversación completa y devuelve la respuesta del asistente como stream SSE con el protocolo del Vercel AI SDK. El cuerpo lleva un único campo, messages: entre 1 y 50 mensajes con role (user o assistant) y content, en orden cronológico; el último debe ser del usuario y tener de 1 a 4000 caracteres (422 si no), y los anteriores viajan al modelo como contexto. Nada se persiste en el servidor.",
                 "operationId": "assistantChat",
                 "requestBody": {
                     "required": true,
@@ -927,13 +927,6 @@
                     "200": {
                         "description": "Stream SSE con el protocolo UI Message Stream del Vercel AI SDK. Termina con data: [DONE].",
                         "headers": {
-                            "X-Conversation-Id": {
-                                "description": "UUID de la conversación, nueva o continuada. Mandarlo como conversationId en el siguiente turno.",
-                                "schema": {
-                                    "type": "string",
-                                    "format": "uuid"
-                                }
-                            },
                             "x-vercel-ai-ui-message-stream": {
                                 "description": "Versión del protocolo: v1.",
                                 "schema": {
@@ -962,17 +955,7 @@
                         }
                     },
                     "403": {
-                        "description": "pilot; carrier sin empresa; o conversación de otro usuario («No tienes permisos para acceder a esta conversación»).",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiError"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "La conversación no existe",
+                        "description": "pilot, o carrier sin empresa.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -982,7 +965,7 @@
                         }
                     },
                     "422": {
-                        "description": "Sin mensajes, último mensaje que no es del usuario o sin texto, o conversationId que no es UUID.",
+                        "description": "Sin mensajes o más de 50; rol que no es user ni assistant; contenido ausente, no textual o de más de 10000 caracteres; último mensaje que no es del usuario o de más de 4000 caracteres.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -10593,63 +10576,38 @@
             },
             "ChatRequest": {
                 "title": "Turno del asistente",
-                "description": "El cuerpo que manda useChat del Vercel AI SDK con DefaultChatTransport, tal cual, más conversationId. LA API SOLO LEE EL ÚLTIMO MENSAJE: debe ser del usuario (role user) y tener al menos un part de tipo text con texto; los mensajes anteriores del array se ignoran, porque el historial lo guarda y lo reinyecta el servidor desde la conversación. El texto se forma uniendo los parts de tipo text del último mensaje, con un máximo de 4000 caracteres.\n\nconversationId es opcional: sin él (o null) se abre una conversación nueva para el usuario autenticado y su id viaja en la cabecera X-Conversation-Id de la respuesta; con él se continúa esa conversación, que debe existir (404) y ser del mismo usuario (403).",
+                "description": "La conversación completa tal como la tiene el cliente: una lista de mensajes en orden cronológico, cada uno con su role (user o assistant) y su content. La memoria vive en el cliente: la API no guarda nada y en cada petición recibe el historial entero. EL ÚLTIMO MENSAJE ES LA PREGUNTA DEL TURNO: debe ser role user, con texto (se recorta con trim) y de 1 a 4000 caracteres; los anteriores se pasan al modelo como contexto, sin filtrar. Máximo 50 mensajes por petición y 10000 caracteres por mensaje de historial.",
                 "required": [
                     "messages"
                 ],
                 "properties": {
-                    "conversationId": {
-                        "description": "UUID de la conversación a continuar, o null/ausente para abrir una nueva.",
-                        "type": "string",
-                        "format": "uuid",
-                        "example": "019968a1-3d7e-7c1a-9b2f-4e5d6c7b8a90",
-                        "nullable": true
-                    },
                     "messages": {
-                        "description": "Mensajes UIMessage del Vercel AI SDK. Solo cuenta el último.",
+                        "description": "Historial en orden cronológico, terminando en el mensaje del usuario a responder. Entre 1 y 50 mensajes.",
                         "type": "array",
                         "items": {
                             "required": [
                                 "role",
-                                "parts"
+                                "content"
                             ],
                             "properties": {
-                                "id": {
-                                    "type": "string",
-                                    "example": "msg-1"
-                                },
                                 "role": {
                                     "type": "string",
                                     "example": "user",
                                     "enum": [
                                         "user",
-                                        "assistant",
-                                        "system"
+                                        "assistant"
                                     ]
                                 },
-                                "parts": {
-                                    "type": "array",
-                                    "items": {
-                                        "required": [
-                                            "type"
-                                        ],
-                                        "properties": {
-                                            "type": {
-                                                "type": "string",
-                                                "example": "text"
-                                            },
-                                            "text": {
-                                                "type": "string",
-                                                "example": "¿Cuántos viajes hay en ruta ahora?",
-                                                "nullable": true
-                                            }
-                                        },
-                                        "type": "object"
-                                    }
+                                "content": {
+                                    "type": "string",
+                                    "example": "¿Cuántos viajes hay en ruta ahora?",
+                                    "maxLength": 10000
                                 }
                             },
                             "type": "object"
-                        }
+                        },
+                        "maxItems": 50,
+                        "minItems": 1
                     }
                 },
                 "type": "object"
@@ -15407,7 +15365,7 @@
         },
         {
             "name": "Assistant",
-            "description": "Asistente conversacional del tablero: UN endpoint, POST /api/assistant/chat, que responde en lenguaje natural preguntas sobre viajes, flota y gastos de mantenimiento consultando los mismos agregados de /api/dashboard. El modelo NUNCA toca la base: solo llama a cuatro herramientas de solo lectura (trips_summary, trips_in_route, vehicle_expenses_summary, fleet) que envuelven el servicio del tablero con el usuario autenticado, así que el ámbito por rol es EXACTAMENTE el de /api/dashboard: administrator y manager ven todas las empresas; carrier, solo la suya, y cualquier carrierId que el modelo intente mandar se ignora.\n\nPERMISOS — mismos middlewares que el tablero: role:administrator,manager,carrier + carrier.required. pilot recibe 403; un carrier sin empresa, 403.\n\nLA RESPUESTA NO ES EL SOBRE JSON HABITUAL: es un stream Server-Sent Events con el protocolo UI Message Stream del Vercel AI SDK (cabeceras Content-Type: text/event-stream y x-vercel-ai-ui-message-stream: v1, líneas data: {...} terminadas en data: [DONE]), pensado para consumirse con useChat + DefaultChatTransport en React. Los parts posibles son start, start-step, text-start/text-delta/text-end, tool-input-available, tool-output-available, finish-step, finish y error.\n\nCONVERSACIONES — cada turno se persiste (agent_conversations / agent_conversation_messages) y el servidor reinyecta el historial al modelo: el cliente NO necesita mandar los mensajes anteriores. La cabecera X-Conversation-Id de la respuesta trae el UUID de la conversación (nueva o continuada); el cliente lo guarda y lo manda como conversationId en el siguiente turno. Está expuesta en CORS.\n\nERRORES — todo lo que puede fallar con un código (401, 403, 404, 422) falla ANTES de abrir el stream y sale con el sobre JSON de siempre. Una vez abierto el stream, un fallo del proveedor de IA llega DENTRO del stream como un part {\"type\":\"error\"} con 200, nunca como 5xx."
+            "description": "Asistente conversacional del tablero: UN endpoint, POST /api/assistant/chat, que responde en lenguaje natural preguntas sobre viajes, flota y gastos de mantenimiento consultando los mismos agregados de /api/dashboard. El modelo NUNCA toca la base: solo llama a cuatro herramientas de solo lectura (trips_summary, trips_in_route, vehicle_expenses_summary, fleet) que envuelven el servicio del tablero con el usuario autenticado, así que el ámbito por rol es EXACTAMENTE el de /api/dashboard: administrator y manager ven todas las empresas; carrier, solo la suya, y cualquier carrierId que el modelo intente mandar se ignora.\n\nPERMISOS — mismos middlewares que el tablero: role:administrator,manager,carrier + carrier.required. pilot recibe 403; un carrier sin empresa, 403.\n\nLA RESPUESTA NO ES EL SOBRE JSON HABITUAL: es un stream Server-Sent Events con el protocolo UI Message Stream del Vercel AI SDK (cabeceras Content-Type: text/event-stream y x-vercel-ai-ui-message-stream: v1, líneas data: {...} terminadas en data: [DONE]), pensado para consumirse con useChat + DefaultChatTransport en React. Los parts posibles son start, start-step, text-start/text-delta/text-end, tool-input-available, tool-output-available, finish-step, finish y error.\n\nMEMORIA EN EL CLIENTE — la API no guarda la conversación: en cada petición el cliente manda la lista completa de mensajes (role user/assistant + content) en orden cronológico, el último es la pregunta del turno y los anteriores se pasan al modelo como contexto. Nada se persiste; si el cliente pierde la lista, el asistente no la recuerda.\n\nERRORES — todo lo que puede fallar con un código (401, 403, 422) falla ANTES de abrir el stream y sale con el sobre JSON de siempre. Una vez abierto el stream, un fallo del proveedor de IA llega DENTRO del stream como un part {\"type\":\"error\"} con 200, nunca como 5xx."
         },
         {
             "name": "Auth",
