@@ -99,16 +99,29 @@ it('declara los nueve métodos del contrato', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28 y las estimaciones de SPEC 30', function () {
+it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30 y las métricas reales de SPEC 32', function () {
     expect(Schema::hasTable('trips'))->toBeTrue()
         ->and(Schema::getColumnListing('trips'))->toEqualCanonicalizing([
             'id', 'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
             'destination', 'container', 'transport',
             'recolection_date', 'ship_date', 'start_date', 'end_date',
-            'polyline', 'estimated_kilometers', 'estimated_hours', 'traveled_polyline', 'observations', 'status',
+            'polyline', 'estimated_kilometers', 'estimated_hours',
+            'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
             'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by',
             'created_at', 'updated_at', 'deleted_at',
         ]);
+});
+
+it('deja las métricas reales en null por defecto y solo el estado finished de la factory las rellena', function () {
+    $pendiente = Trip::factory()->create();
+    $finalizado = Trip::factory()->finished()->create();
+
+    expect($pendiente->traveled_kilometers)->toBeNull()
+        ->and($pendiente->traveled_hours)->toBeNull()
+        ->and((float) $finalizado->fresh()->traveled_kilometers)->toBeGreaterThan(0)
+        ->and((float) $finalizado->fresh()->traveled_hours)->toBeGreaterThan(0)
+        ->and($finalizado->fresh()->traveled_kilometers)->toMatch('/^\d+\.\d{2}$/')
+        ->and($finalizado->fresh()->traveled_hours)->toMatch('/^\d+\.\d{2}$/');
 });
 
 it('declara exactamente tres estados y ningún label', function () {

@@ -105,12 +105,17 @@ class TripFactory extends Factory
 
     /**
      * Indicate that the assigned pilot already closed the trip.
+     *
+     * The two real metrics of SPEC 32 get plausible values here and nowhere else:
+     * `definition()` leaves them null because only `/finish` writes them.
      */
     public function finished(): static
     {
         return $this->inRoute()->state(fn (array $attributes) => [
             'status' => TripStatus::Finished,
             'end_date' => now(),
+            'traveled_kilometers' => fake()->randomFloat(2, 1, 700),
+            'traveled_hours' => fake()->randomFloat(2, 0.1, 14),
         ]);
     }
 

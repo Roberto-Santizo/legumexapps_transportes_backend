@@ -41,12 +41,23 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * checks them against the line. Both are nullable without default, and `null` means
  * exactly one thing — the trip was created before SPEC 30 — because the API does not
  * let a new trip be created nor edited without them.
+ *
+ * `traveled_kilometers` and `traveled_hours` are the real counterparts of those two
+ * estimates (SPEC 32), written **only on `/finish`** in the same `update()` as
+ * `end_date` and `traveled_polyline`: the kilometers are the raw Haversine sum of
+ * every consecutive pair of the `trip_positions` trail —no GPS-noise threshold, no
+ * simplification— and the hours are `end_date - start_date`, stops included. Derived
+ * data, never accepted from a body. Unlike `traveled_polyline`, `null` has a single
+ * meaning here —the trip has not finished, or finished before SPEC 32—: a trip that
+ * finished with zero or one position stores `0.00`, because zero is a legitimate
+ * distance while an empty string is not a polyline.
  */
 #[Fillable([
     'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
     'destination', 'container', 'transport',
     'recolection_date', 'ship_date', 'start_date', 'end_date',
-    'polyline', 'estimated_kilometers', 'estimated_hours', 'traveled_polyline', 'observations', 'status',
+    'polyline', 'estimated_kilometers', 'estimated_hours',
+    'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
     'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by',
 ])]
 class Trip extends Model
