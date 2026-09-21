@@ -41,13 +41,15 @@ use OpenApi\Attributes as OA;
 
     EL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.
 
-    LA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 17 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 40 claves en camelCase —34 hasta SPEC 27, que añadió totalFuelGallons; 35 hasta SPEC 28, que añadió traveledPolyline y traveledPoints; 37 hasta SPEC 30, que añadió estimatedKilometers y estimatedHours; 39 hasta SPEC 31, que añadió totalExpensesAmount—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.
+    LA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 19 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 42 claves en camelCase —34 hasta SPEC 27, que añadió totalFuelGallons; 35 hasta SPEC 28, que añadió traveledPolyline y traveledPoints; 37 hasta SPEC 30, que añadió estimatedKilometers y estimatedHours; 39 hasta SPEC 31, que añadió totalExpensesAmount; 40 hasta SPEC 32, que añadió traveledKilometers y traveledHours—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.
 
     ATENCIÓN — IMPACTO DE SPEC 27 (COMBUSTIBLE) SOBRE ESTE DOMINIO, Y UNO DE LOS DOS CAMBIOS ES INCOMPATIBLE. Uno: PATCH /api/trips/{trip}/assignment PASA DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType, los cuatro obligatorios, SIN PERIODO DE GRACIA— y crea la primera carga de combustible dentro de su propia transacción; reasignar AÑADE otra carga en vez de pisarla. Dos: PATCH /api/trips/{trip}/start gana un CUARTO 400, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje», comprobado DESPUÉS de «El viaje ya fue iniciado», así que LOS VIAJES ASIGNADOS ANTES DE SPEC 27 NO PUEDEN ARRANCAR hasta que su empresa registre una carga y el piloto la confirme —no hubo backfill y el administrador no puede desbloquearlos—. /finish NO comprueba nada de combustible. El detalle gana la clave totalFuelGallons (solo las cargas CONFIRMADAS), el PATCH general NO acepta fuelGallons ni fuelType —se ignoran en silencio con 200—, GET /api/trips no gana ningún filtro de combustible y TripListItem sigue en 15 claves. Las cargas se gestionan en su propio dominio, Trip Fuels.
 
     IMPACTO DE SPEC 31 (VIÁTICOS) SOBRE ESTE DOMINIO, SIN NADA INCOMPATIBLE: PATCH /api/trips/{trip}/assignment gana DOS CAMPOS OPCIONALES, expenseAmount y expenseDescription, y si viaja el primero crea el primer viático dentro de su misma transacción; sin él nada cambia. El detalle gana la clave totalExpensesAmount (solo los viáticos CONFIRMADOS). Ni /start ni /finish miran los viáticos, el PATCH general NO acepta expenseAmount ni expenseDescription, GET /api/trips no gana filtros y TripListItem sigue en 17 claves. Los viáticos se gestionan en su propio dominio, Trip Expenses.
 
     ATENCIÓN — IMPACTO DE SPEC 30 (ESTIMACIONES), Y ES INCOMPATIBLE. El POST PASA DE DOCE CAMPOS A CATORCE —estimatedKilometers y estimatedHours, obligatorios, SIN PERIODO DE GRACIA—, y en el PATCH general los tres campos de la ruta (polyline, estimatedKilometers, estimatedHours) VIAJAN JUNTOS O NINGUNO: un PATCH con solo polyline, válido hasta SPEC 30, ahora es 422. Los dos números son el distanceKilometers y el durationHours de GET /api/places/directions, reenviados sin convertir; la API no los calcula ni los coteja con la polilínea. Salen como cadena de dos decimales en el detalle (claves 21 y 22) Y en el listado (claves 12 y 13), y son null solo en los viajes anteriores a la spec. /assignment, /start y /finish no los tocan.
+
+    IMPACTO DE SPEC 32 (DISTANCIA Y TIEMPO REALES), SIN NADA INCOMPATIBLE: el cierre con PATCH /api/trips/{trip}/finish CALCULA Y PERSISTE traveledKilometers —suma Haversine EN CRUDO de los segmentos consecutivos del rastro de trip_positions, sin filtrar ruido GPS— y traveledHours —endDate menos startDate en horas decimales, SIN descontar paradas—, en el mismo UPDATE que endDate, status y traveledPolyline. Salen como cadena de dos decimales en el detalle (claves 25 y 26, tras traveledPoints) Y en el listado (claves 14 y 15, tras estimatedHours), en la misma escala que las estimaciones para comparar a ojo; la API NO las compara. Son null en todo viaje pending o in_route —también en GET /api/trips/current— y en los finalizados antes de la spec (sin backfill); un viaje que terminó con cero o un punto vale "0.00", no null. NINGÚN BODY LAS ACEPTA: mandarlas en el POST o en cualquier PATCH se ignora en silencio con 200. /finish no gana guardas, no hay rutas nuevas y GET /api/trips no gana filtros.
 
     IMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto.
     TEXT,
@@ -69,7 +71,7 @@ class TripController extends Controller
 
         LOS OCHO FILTROS SON TOLERANTES y se combinan entre sí: un status fuera del enum, un id no numérico, una fecha que no sea exactamente Y-m-d o un search en blanco SE IGNORAN EN SILENCIO y la lectura devuelve 200 con el listado completo, NUNCA 422. Un filtro sin coincidencias devuelve 200 con data vacío, tampoco 404. Cualquier otro query param se ignora.
 
-        ATENCIÓN — EL LISTADO NO DEVUELVE EL RECURSO COMPLETO. Cada elemento es un TripListItem de 17 CLAVES, no el Trip de 39 del detalle: no vienen los ids de las relaciones (shippingLineId, locationId, pilotId, vehicleId…), ni clientId ni clientName, ni destination, ni transport, ni polyline, NI points, ni createdAt, updatedAt o deletedAt. De cada relación sale solo su nombre. Para pintar el mapa, filtrar por un id que salga de una fila o ver el resto de campos hay que pedir GET /api/trips/{trip}.
+        ATENCIÓN — EL LISTADO NO DEVUELVE EL RECURSO COMPLETO. Cada elemento es un TripListItem de 19 CLAVES, no el Trip de 42 del detalle: no vienen los ids de las relaciones (shippingLineId, locationId, pilotId, vehicleId…), ni clientId ni clientName, ni destination, ni transport, ni polyline, NI points, ni createdAt, updatedAt o deletedAt. De cada relación sale solo su nombre. Para pintar el mapa, filtrar por un id que salga de una fila o ver el resto de campos hay que pedir GET /api/trips/{trip}.
 
         El orden es FIJO y no configurable: recolection_date DESC —lo próximo a recoger primero— y, a igualdad, id DESC. No hay sortBy ni sortDir.
 
@@ -159,7 +161,7 @@ class TripController extends Controller
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Viajes obtenidos correctamente. Sin limit se devuelve TripListResponse; con limit numérico, PaginatedTripListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Cada elemento es un TripListItem de 17 claves, NO el Trip de 39 del detalle. Un listado vacío —porque el ámbito no deja ver ninguno o porque los filtros no casan— devuelve 200 con data vacío, nunca 404 ni 403. Los viajes borrados no se listan, y por eso el listado tampoco trae deletedAt.',
+                description: 'Viajes obtenidos correctamente. Sin limit se devuelve TripListResponse; con limit numérico, PaginatedTripListResponse, con total, currentPage y lastPage aplanados en la raíz del sobre. Cada elemento es un TripListItem de 19 claves, NO el Trip de 42 del detalle. Un listado vacío —porque el ámbito no deja ver ninguno o porque los filtros no casan— devuelve 200 con data vacío, nunca 404 ni 403. Los viajes borrados no se listan, y por eso el listado tampoco trae deletedAt.',
                 content: new OA\JsonContent(
                     oneOf: [
                         new OA\Schema(ref: '#/components/schemas/TripListResponse'),
@@ -204,7 +206,7 @@ class TripController extends Controller
 
         ATENCIÓN — ES LA MISMA CONDICIÓN QUE ABRE POST /api/trips/{trip}/positions. Si esto devuelve un viaje, ese endpoint acepta puntos para él; si devuelve null, ese endpoint responde 400 «El viaje no está en ruta». Las dos preguntas son la misma, y por eso conviene resolver esta antes de arrancar el rastreo.
 
-        ATENCIÓN — DEVUELVE UN TripListItem DE 17 CLAVES, NO EL Trip DE 39. No trae polyline ni points, así que NO ALCANZA PARA PINTAR EL MAPA: hay que pedir GET /api/trips/{trip} con el id devuelto. Un viaje BORRADO mientras su piloto lo conducía sale como null, sin 400 ni 404.
+        ATENCIÓN — DEVUELVE UN TripListItem DE 19 CLAVES, NO EL Trip DE 42. traveledKilometers y traveledHours vienen SIEMPRE en null aquí: solo se calculan al cerrar el viaje, y este endpoint solo devuelve viajes in_route. No trae polyline ni points, así que NO ALCANZA PARA PINTAR EL MAPA: hay que pedir GET /api/trips/{trip} con el id devuelto. Un viaje BORRADO mientras su piloto lo conducía sale como null, sin 400 ni 404.
 
         Si un piloto llegara a tener dos viajes in_route a la vez —el dominio no valida solape—, se devuelve el del startDate más reciente, y el id desempata.
         TEXT,
@@ -213,7 +215,7 @@ class TripController extends Controller
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Consulta resuelta. data trae el TripListItem del viaje in_route del piloto autenticado —con las mismas 17 claves del listado y las fechas en el formato propio d-m-Y h:i:s A—, o null si no está conduciendo ninguno. LOS DOS CASOS SON 200: no hay 404 en este endpoint.',
+                description: 'Consulta resuelta. data trae el TripListItem del viaje in_route del piloto autenticado —con las mismas 19 claves del listado y las fechas en el formato propio d-m-Y h:i:s A—, o null si no está conduciendo ninguno. LOS DOS CASOS SON 200: no hay 404 en este endpoint.',
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
@@ -338,7 +340,7 @@ class TripController extends Controller
         operationId: 'showTrip',
         summary: 'Obtener un viaje por id',
         description: <<<'TEXT'
-        Devuelve un viaje concreto con sus 40 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.
+        Devuelve un viaje concreto con sus 42 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.
 
         ATENCIÓN — UN VIAJE FUERA DE ÁMBITO RESPONDE 403, NO 404, y es deliberado: el ámbito esconde filas de un listado, no pretende que nunca se publicaran. Es lo contrario del viaje borrado, que sí es 404. Los dos mensajes de 403 son distintos según el rol: un pilot que pide un viaje que no tiene asignado recibe «No puedes acceder a un viaje que no tienes asignado»; un carrier que pide uno tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista».
 
@@ -500,7 +502,7 @@ class TripController extends Controller
 
         ES UN BORRADO LÓGICO (soft delete): la fila SIGUE EN LA BASE con su deleted_at puesto, pero DESAPARECE de la API para siempre. No se lista, no se consulta por id —el GET responde 404— y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni un status— que la devuelva, ni endpoint /restore. UN VIAJE BORRADO POR ERROR SOLO SE RECUPERA DESDE LA BASE DE DATOS.
 
-        ATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 40 claves. En los otros siete endpoints es siempre null.
+        ATENCIÓN — ESTA ES LA ÚNICA RESPUESTA DE LA API QUE DEVUELVE deletedAt CON VALOR: pinta la fila que se acaba de borrar, con sus 42 claves. En los otros siete endpoints es siempre null.
 
         NO HAY CONFIRMACIÓN Y NO SE COMPRUEBA EL ESTADO: se borra igual un viaje pending que uno in_route o uno ya finished, y también uno que una empresa ya tomó, sin avisar a nadie —no hay notificaciones—. De hecho, BORRAR Y VOLVER A CREAR ES LA ÚNICA SALIDA cuando un viaje se queda atascado: el administrador no puede asignar y no se puede desasignar.
 
@@ -746,7 +748,7 @@ class TripController extends Controller
         operationId: 'finishTrip',
         summary: 'Finalizar un viaje',
         description: <<<'TEXT'
-        Marca el cierre real del viaje: escribe endDate y mueve status a finished.
+        Marca el cierre real del viaje: escribe endDate, mueve status a finished y, desde SPEC 28 y SPEC 32, deja escrita la ruta real con sus dos números.
 
         ATENCIÓN — NO TIENE CUERPO, igual que /start. No lleva FormRequest y no acepta ningún campo: LA FECHA LA PONE EL now() DEL SERVIDOR y mandarla en el body NO SE USA.
 
@@ -759,6 +761,8 @@ class TripController extends Controller
         No hay ruta inversa: no existe /unfinish ni forma de limpiar endDate, y el cierre no dispara ninguna notificación ni ningún cálculo de costos —este dominio no cotiza nada—.
 
         DESDE SPEC 28 EL CIERRE ESCRIBE ADEMÁS LA RUTA REAL: codifica todo el rastro de trip_positions del viaje —en orden recorded_at asc e id asc, sin simplificar— en traveledPolyline, en el mismo UPDATE que endDate y status, y la respuesta ya trae traveledPolyline y traveledPoints con valor. Sin ningún punto reportado quedan en null y [] y el cierre NO se bloquea: /finish no gana guardas. Es la ÚNICA escritura de esa columna en toda la API.
+
+        DESDE SPEC 32 EL CIERRE CALCULA ADEMÁS LOS DOS NÚMEROS DE LA RUTA REAL, en el mismo UPDATE: traveledKilometers, la suma Haversine de todos los segmentos consecutivos del rastro (EN CRUDO: sin descartar el ruido GPS de un camión parado ni saltos espurios; con cero o un punto vale "0.00", no null), y traveledHours, endDate menos startDate en horas decimales con el mismo now() que se escribe en endDate (TIEMPO BRUTO, sin descontar las paradas). El rastro se lee UNA SOLA VEZ para la polilínea y la distancia. Salen como cadena de dos decimales, en la misma escala que estimatedKilometers/estimatedHours; la API NO los compara: desvío y retraso son una resta del frontend. Tampoco aquí hay guardas nuevas, y cada /finish recalcula y sobrescribe los dos.
         TEXT,
         security: [['bearerAuth' => []]],
         tags: ['Trips'],
@@ -774,7 +778,7 @@ class TripController extends Controller
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Viaje finalizado correctamente. Devuelve el viaje con endDate puesto con la HORA DEL SERVIDOR, en el formato d-m-Y h:i:s A, status en finished y, desde SPEC 28, traveledPolyline y traveledPoints con el rastro codificado (null y [] si el viaje no reportó ningún punto). startDate y la asignación no cambian.',
+                description: 'Viaje finalizado correctamente. Devuelve el viaje con endDate puesto con la HORA DEL SERVIDOR, en el formato d-m-Y h:i:s A, status en finished, desde SPEC 28 traveledPolyline y traveledPoints con el rastro codificado (null y [] si el viaje no reportó ningún punto) y, desde SPEC 32, traveledKilometers y traveledHours calculados como cadena de dos decimales ("0.00" en kilómetros si no hubo puntos, nunca null). startDate y la asignación no cambian.',
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
