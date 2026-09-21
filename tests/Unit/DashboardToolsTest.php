@@ -70,7 +70,7 @@ function toolTripOf(Carrier $carrier, array $attributes = []): Trip
 |--------------------------------------------------------------------------
 */
 
-it('expone los once tools de solo lectura con los nombres que usa el system prompt', function () {
+it('expone los trece tools con los nombres que usa el system prompt', function () {
     $tools = iterator_to_array(new DashboardAssistant(toolAdmin())->tools());
 
     expect(array_map(ToolNameResolver::resolve(...), $tools))
@@ -78,6 +78,7 @@ it('expone los once tools de solo lectura con los nombres que usa el system prom
             'trips_summary', 'trips_in_route', 'vehicle_expenses_summary', 'fleet',
             'trips', 'trip', 'trip_fuels', 'trip_expenses', 'trip_timeouts',
             'vehicle', 'vehicle_expenses',
+            'export_trips', 'export_vehicle_expenses',
         ]);
 });
 

@@ -6,6 +6,7 @@ use App\Models\Carrier;
 use App\Models\Trip;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Ai\Responses\Data\ToolCall;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
@@ -250,6 +251,26 @@ it('ejecuta las herramientas de un viaje concreto con el ámbito del usuario', f
         ->and($body)->toContain('"type":"tool-output-available"')
         ->and($body)->toContain('\"order\":\"ORD-4242\"')
         ->and($body)->not->toContain('\"polyline\"');
+});
+
+it('genera un reporte Excel desde el chat y emite su URL en el stream', function () {
+    Trip::factory()->finished()->count(2)->create();
+    Trip::factory()->create();
+
+    $body = chatAs(userWithRole(UserRole::Manager), 'Genérame un reporte de Excel de los viajes terminados', [
+        new ToolCall('call-1', 'export_trips', ['status' => 'finished']),
+        'Aquí tienes el reporte con 2 viajes.',
+    ])->assertOk()->streamedContent();
+
+    $files = Storage::disk(config('filesystems.default'))->allFiles('reports');
+
+    expect($body)->toContain('"toolName":"export_trips"')
+        ->and($body)->toContain('"type":"tool-output-available"')
+        ->and($body)->toContain('\"rows\":2')
+        ->and($body)->toContain('\"truncated\":false')
+        ->and($body)->toContain('bucket.s3.test\/reports\/')
+        ->and($files)->toHaveCount(1)
+        ->and($files[0])->toEndWith('.xlsx');
 });
 
 it('deja pasar a un transportista con empresa', function () {

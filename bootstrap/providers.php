@@ -15,6 +15,7 @@ use App\Providers\Location\LocationProvider;
 use App\Providers\Pilot\PilotProvider;
 use App\Providers\Place\PlaceProvider;
 use App\Providers\Product\ProductProvider;
+use App\Providers\Report\ReportProvider;
 use App\Providers\ShippingLine\ShippingLineProvider;
 use App\Providers\Storage\StorageProvider;
 use App\Providers\Trip\TripProvider;
@@ -42,6 +43,7 @@ return [
     PilotProvider::class,
     PlaceProvider::class,
     ProductProvider::class,
+    ReportProvider::class,
     ShippingLineProvider::class,
     StorageProvider::class,
     TripProvider::class,
