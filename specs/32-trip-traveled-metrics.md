@@ -1,6 +1,6 @@
 # SPEC 32 — Distancia y tiempo reales del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 24, SPEC 26, SPEC 27 (trip-timeouts), SPEC 28, SPEC 30
 > **Fecha:** 2026-09-21
 > **Objetivo:** Al finalizar un viaje (`PATCH /api/trips/{trip}/finish`), calcular y persistir en `trips` la distancia real recorrida (`traveled_kilometers`, suma Haversine del rastro de `trip_positions`) y la duración real (`traveled_hours`, `end_date − start_date`), y exponerlas en `TripResource` y `TripListResource`.
@@ -124,19 +124,19 @@ Cada paso deja la suite verde y la API funcionando.
 
 ## Criterios de aceptación
 
-- [ ] `trips` tiene `traveled_kilometers` (`decimal(8,2)`, nullable) y `traveled_hours` (`decimal(6,2)`, nullable), y las filas anteriores a la migración quedan en `null`.
-- [ ] `PATCH /api/trips/{trip}/finish` con tres o más puntos persiste `traveled_kilometers` igual a la suma Haversine de los segmentos consecutivos en `recorded_at asc, id asc`, en kilómetros con dos decimales.
-- [ ] `PATCH /api/trips/{trip}/finish` con cero o con un punto persiste `traveled_kilometers = 0.00`, no `null`.
-- [ ] `PATCH /api/trips/{trip}/finish` persiste `traveled_hours = round((end_date − start_date) / 3600, 2)` usando el mismo `now()` que escribe en `end_date`.
-- [ ] `/finish` ejecuta **una sola consulta** a `trip_positions` para polilínea y distancia.
-- [ ] `PATCH /api/trips/{trip}`, `/assignment` y `/start` no tocan las dos columnas; mandarlas en cualquier body se ignora con 200.
-- [ ] `GET /api/trips/{trip}` devuelve 42 claves, con `traveledKilometers` y `traveledHours` inmediatamente después de `traveledPoints` y antes de `observations`, como string de dos decimales (`"111.40"`, `"2.10"`).
-- [ ] `GET /api/trips` y `GET /api/trips/current` devuelven 19 claves por viaje, con las dos nuevas entre `estimatedHours` y `observations`, en el mismo formato.
-- [ ] Un viaje `pending` o `in_route` devuelve `null` en las dos claves en ambos Resources.
-- [ ] `TripInRouteResource` (dashboard), `TripPositionResource` y el payload de `TripPositionUpdated` no cambian de forma.
-- [ ] `TripFactory::finished()` genera valores válidos para las dos columnas y `definition()` las deja en `null`.
-- [ ] `storage/api-docs/api-docs.json` documenta las dos claves nuevas en los dos Resources.
-- [ ] `php artisan test --compact` pasa completo y `vendor/bin/pint --dirty --test` no reporta cambios en los archivos tocados.
+- [x] `trips` tiene `traveled_kilometers` (`decimal(8,2)`, nullable) y `traveled_hours` (`decimal(6,2)`, nullable), y las filas anteriores a la migración quedan en `null`.
+- [x] `PATCH /api/trips/{trip}/finish` con tres o más puntos persiste `traveled_kilometers` igual a la suma Haversine de los segmentos consecutivos en `recorded_at asc, id asc`, en kilómetros con dos decimales.
+- [x] `PATCH /api/trips/{trip}/finish` con cero o con un punto persiste `traveled_kilometers = 0.00`, no `null`.
+- [x] `PATCH /api/trips/{trip}/finish` persiste `traveled_hours = round((end_date − start_date) / 3600, 2)` usando el mismo `now()` que escribe en `end_date`.
+- [x] `/finish` ejecuta **una sola consulta** a `trip_positions` para polilínea y distancia.
+- [x] `PATCH /api/trips/{trip}`, `/assignment` y `/start` no tocan las dos columnas; mandarlas en cualquier body se ignora con 200.
+- [x] `GET /api/trips/{trip}` devuelve 42 claves, con `traveledKilometers` y `traveledHours` inmediatamente después de `traveledPoints` y antes de `observations`, como string de dos decimales (`"111.40"`, `"2.10"`).
+- [x] `GET /api/trips` y `GET /api/trips/current` devuelven 19 claves por viaje, con las dos nuevas entre `estimatedHours` y `observations`, en el mismo formato.
+- [x] Un viaje `pending` o `in_route` devuelve `null` en las dos claves en ambos Resources.
+- [x] `TripInRouteResource` (dashboard), `TripPositionResource` y el payload de `TripPositionUpdated` no cambian de forma.
+- [x] `TripFactory::finished()` genera valores válidos para las dos columnas y `definition()` las deja en `null`.
+- [x] `storage/api-docs/api-docs.json` documenta las dos claves nuevas en los dos Resources.
+- [x] `php artisan test --compact` pasa completo y `vendor/bin/pint --dirty --test` no reporta cambios en los archivos tocados.
 
 ---
 
