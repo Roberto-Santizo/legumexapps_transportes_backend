@@ -905,6 +905,83 @@
                 ]
             }
         },
+        "/api/assistant/chat": {
+            "post": {
+                "tags": [
+                    "Assistant"
+                ],
+                "summary": "Conversar con el asistente del tablero",
+                "description": "Envía la conversación completa y devuelve la respuesta del asistente como stream SSE con el protocolo del Vercel AI SDK. El cuerpo lleva un único campo, messages: entre 1 y 50 mensajes con role (user o assistant) y content, en orden cronológico; el último debe ser del usuario y tener de 1 a 4000 caracteres (422 si no), y los anteriores viajan al modelo como contexto. Nada se persiste en el servidor.",
+                "operationId": "assistantChat",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ChatRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Stream SSE con el protocolo UI Message Stream del Vercel AI SDK. Termina con data: [DONE].",
+                        "headers": {
+                            "x-vercel-ai-ui-message-stream": {
+                                "description": "Versión del protocolo: v1.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "v1"
+                                }
+                            }
+                        },
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "type": "string",
+                                    "example": "data: {\"type\":\"start\",\"messageId\":\"...\"}\n\ndata: {\"type\":\"text-delta\",\"id\":\"...\",\"delta\":\"Hay 3 viajes en ruta.\"}\n\ndata: {\"type\":\"finish\"}\n\ndata: [DONE]\n\n"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "pilot, o carrier sin empresa.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Sin mensajes o más de 50; rol que no es user ni assistant; contenido ausente, no textual o de más de 10000 caracteres; último mensaje que no es del usuario o de más de 4000 caracteres.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/auth/register": {
             "post": {
                 "tags": [
@@ -10497,6 +10574,44 @@
                 },
                 "type": "object"
             },
+            "ChatRequest": {
+                "title": "Turno del asistente",
+                "description": "La conversación completa tal como la tiene el cliente: una lista de mensajes en orden cronológico, cada uno con su role (user o assistant) y su content. La memoria vive en el cliente: la API no guarda nada y en cada petición recibe el historial entero. EL ÚLTIMO MENSAJE ES LA PREGUNTA DEL TURNO: debe ser role user, con texto (se recorta con trim) y de 1 a 4000 caracteres; los anteriores se pasan al modelo como contexto, sin filtrar. Máximo 50 mensajes por petición y 10000 caracteres por mensaje de historial.",
+                "required": [
+                    "messages"
+                ],
+                "properties": {
+                    "messages": {
+                        "description": "Historial en orden cronológico, terminando en el mensaje del usuario a responder. Entre 1 y 50 mensajes.",
+                        "type": "array",
+                        "items": {
+                            "required": [
+                                "role",
+                                "content"
+                            ],
+                            "properties": {
+                                "role": {
+                                    "type": "string",
+                                    "example": "user",
+                                    "enum": [
+                                        "user",
+                                        "assistant"
+                                    ]
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "example": "¿Cuántos viajes hay en ruta ahora?",
+                                    "maxLength": 10000
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "maxItems": 50,
+                        "minItems": 1
+                    }
+                },
+                "type": "object"
+            },
             "ConfirmAccountRequest": {
                 "title": "Confirmación de cuenta",
                 "description": "Correo de la cuenta y código de confirmación de 6 dígitos.",
@@ -15247,6 +15362,10 @@
         {
             "name": "Accessories",
             "description": "Inventario nacional de accesorios: llantas, gatos hidráulicos, juegos de cadenas y demás material suelto. El accesorio NO pertenece a ninguna empresa transportista NI está asignado a ningún vehículo —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId ni vehicleId. Los cinco endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. ATENCIÓN — UNA FILA ES UNA UNIDAD FÍSICA: no hay campo quantity; dos llantas iguales son DOS registros con DOS códigos distintos, y contar existencias es contar filas. ATENCIÓN — currentValue ES DERIVADO Y DE SOLO SALIDA: no hay columna, ni job, ni caché; se recalcula en cada lectura con depreciación LINEAL (años = purchaseDate.diffInDays(hoy) / 365; depreciado = price * (annualDepreciation / 100) * años; currentValue = round(max(0, price - depreciado), 2)), así que el mismo accesorio devuelve un valor distinto cada día sin que nadie escriba en la tabla y NO se puede filtrar ni ordenar por él. Reglas que atraviesan el dominio: el name se guarda normalizado y EN MAYÚSCULAS con los espacios internos colapsados, mientras que el code se guarda en mayúsculas pero SIN colapsarlos —\"A 100\" y \"A100\" son códigos distintos—; ambos son únicos a nivel global y sus duplicados salen por 422 desde el FormRequest (sin la asimetría 422/400 de Locations), aunque el service repite esos mismos mensajes como 400 para las llamadas directas; la unicidad del code es CIEGA AL STATUS, de modo que un accesorio dado de baja NO libera su código, al contrario que la placa de un vehículo; el status es un ENUM DE TRES VALORES (active, inactive, under_repair) y NO un booleano, no se acepta en el alta y se mueve libremente por el PATCH, que es la única vía —NO existe /toggle-status—; y el DELETE es una BAJA LÓGICA que solo pone status en \"inactive\", con la fila viva y todavía visible en el listado. La salida va en camelCase, con price, annualDepreciation y currentValue como CADENAS de dos decimales (GTQ por convención), purchaseDate en d-m-Y y createdAt en d-m-Y h:i:s A, NUNCA ISO 8601; el recurso no expone updatedAt y registeredBy es el NOMBRE del usuario, no su id."
+        },
+        {
+            "name": "Assistant",
+            "description": "Asistente conversacional del tablero: UN endpoint, POST /api/assistant/chat, que responde en lenguaje natural preguntas sobre viajes, flota y gastos de mantenimiento consultando los mismos datos de /api/dashboard, /api/trips, /api/vehicles y /api/vehicle-expenses. El modelo NUNCA toca la base: llama a trece herramientas que envuelven los services con el usuario autenticado —once de consulta (trips_summary, trips_in_route, vehicle_expenses_summary, fleet, trips, trip, trip_fuels, trip_expenses, trip_timeouts, vehicle, vehicle_expenses) y dos que generan reportes (export_trips, export_vehicle_expenses)—, así que el ámbito por rol es EXACTAMENTE el de cada endpoint: administrator y manager ven todas las empresas; carrier, solo la suya, y cualquier carrierId que el modelo intente mandar se ignora.\n\nREPORTES EXCEL — cuando el usuario pide explícitamente un archivo («genérame un reporte de Excel de los viajes terminados»), el modelo llama a export_trips o export_vehicle_expenses con los mismos filtros de trips / vehicle_expenses. La API genera el .xlsx en el servidor, lo sube al bucket bajo reports/{uuid}.xlsx con URL pública permanente (mismo mecanismo que las facturas y los documentos del piloto) y la herramienta devuelve {fileName, url, rows, total, truncated} (+ totalAmount en gastos). Esa salida viaja en el part tool-output-available (output es un string JSON: hay que parsearlo) y el modelo la cita como enlace Markdown en el texto. Tope de 5000 filas por archivo: si el filtro supera el tope, truncated es true y el archivo trae solo las primeras. El nombre real del objeto es el uuid; fileName es solo para mostrar. No hay purga de reportes ni endpoint de descarga propio.\n\nPERMISOS — mismos middlewares que el tablero: role:administrator,manager,carrier + carrier.required. pilot recibe 403; un carrier sin empresa, 403.\n\nLA RESPUESTA NO ES EL SOBRE JSON HABITUAL: es un stream Server-Sent Events con el protocolo UI Message Stream del Vercel AI SDK (cabeceras Content-Type: text/event-stream y x-vercel-ai-ui-message-stream: v1, líneas data: {...} terminadas en data: [DONE]), pensado para consumirse con useChat + DefaultChatTransport en React. Los parts posibles son start, start-step, text-start/text-delta/text-end, tool-input-available, tool-output-available, finish-step, finish y error.\n\nMEMORIA EN EL CLIENTE — la API no guarda la conversación: en cada petición el cliente manda la lista completa de mensajes (role user/assistant + content) en orden cronológico, el último es la pregunta del turno y los anteriores se pasan al modelo como contexto. Nada se persiste; si el cliente pierde la lista, el asistente no la recuerda.\n\nERRORES — todo lo que puede fallar con un código (401, 403, 422) falla ANTES de abrir el stream y sale con el sobre JSON de siempre. Una vez abierto el stream, un fallo del proveedor de IA llega DENTRO del stream como un part {\"type\":\"error\"} con 200, nunca como 5xx."
         },
         {
             "name": "Auth",

@@ -17,6 +17,7 @@
         "laravel/reverb": "^1.11",
         "laravel/tinker": "^3.0",
         "league/flysystem-aws-s3-v3": "^3.35",
+        "openspout/openspout": "^5.11",
         "php-open-source-saver/jwt-auth": "^2.9",
         "resend/resend-laravel": "^1.4"
     },

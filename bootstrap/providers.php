@@ -3,6 +3,7 @@
 use App\Providers\Accessory\AccessoryProvider;
 use App\Providers\AccessoryCharacteristic\AccessoryCharacteristicProvider;
 use App\Providers\AppServiceProvider;
+use App\Providers\Assistant\AssistantProvider;
 use App\Providers\Auth\AuthProvider;
 use App\Providers\Carrier\CarrierProvider;
 use App\Providers\Client\ClientProvider;
@@ -14,6 +15,7 @@ use App\Providers\Location\LocationProvider;
 use App\Providers\Pilot\PilotProvider;
 use App\Providers\Place\PlaceProvider;
 use App\Providers\Product\ProductProvider;
+use App\Providers\Report\ReportProvider;
 use App\Providers\ShippingLine\ShippingLineProvider;
 use App\Providers\Storage\StorageProvider;
 use App\Providers\Trip\TripProvider;
@@ -29,6 +31,7 @@ return [
     AccessoryProvider::class,
     AccessoryCharacteristicProvider::class,
     AppServiceProvider::class,
+    AssistantProvider::class,
     AuthProvider::class,
     CarrierProvider::class,
     ClientProvider::class,
@@ -40,6 +43,7 @@ return [
     PilotProvider::class,
     PlaceProvider::class,
     ProductProvider::class,
+    ReportProvider::class,
     ShippingLineProvider::class,
     StorageProvider::class,
     TripProvider::class,

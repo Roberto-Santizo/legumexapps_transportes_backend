@@ -12,6 +12,7 @@
 
 require __DIR__.'/accessories.php';
 require __DIR__.'/accessory_characteristics.php';
+require __DIR__.'/assistant.php';
 require __DIR__.'/auth.php';
 require __DIR__.'/carriers.php';
 require __DIR__.'/clients.php';

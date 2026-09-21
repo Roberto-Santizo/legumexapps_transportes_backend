@@ -6,6 +6,7 @@ use App\Enums\VehicleExpenseCategory;
 use App\Enums\VehicleExpenseNature;
 use App\Enums\VehicleStatus;
 use App\Errors\ForbiddenError;
+use App\Errors\NotFoundError;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use App\Models\Carrier;
 use App\Models\Client;
@@ -397,4 +398,44 @@ it('rechaza con ForbiddenError a un transportista sin empresa en los cuatro mét
         ->and(fn () => dashboardService()->getTripsInRoute($carrier, []))->toThrow(ForbiddenError::class)
         ->and(fn () => dashboardService()->getVehicleExpensesSummary($carrier, []))->toThrow(ForbiddenError::class)
         ->and(fn () => dashboardService()->getVehicles($carrier, []))->toThrow(ForbiddenError::class);
+});
+
+/*
+|--------------------------------------------------------------------------
+| getVehicle
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve un vehículo con su viaje en curso colgado como atributo transitorio', function () {
+    $carrier = Carrier::factory()->create();
+    $vehicle = Vehicle::factory()->create(['carrier_id' => $carrier->id, 'status' => VehicleStatus::Inactive]);
+    $trip = dashboardTripOf($carrier, ['vehicle_id' => $vehicle->id, 'status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+    $idle = Vehicle::factory()->create(['carrier_id' => $carrier->id]);
+
+    $found = dashboardService()->getVehicle(dashboardAdmin(), $vehicle->id);
+
+    expect($found->is($vehicle))->toBeTrue()
+        ->and($found->getAttribute('currentTrip')?->id)->toBe($trip->id)
+        ->and($found->relationLoaded('carrier'))->toBeTrue()
+        ->and(dashboardService()->getVehicle(dashboardAdmin(), $idle->id)->getAttribute('currentTrip'))->toBeNull();
+});
+
+it('rechaza el vehículo inexistente con NotFoundError', function () {
+    expect(fn () => dashboardService()->getVehicle(dashboardAdmin(), 999999))
+        ->toThrow(NotFoundError::class, 'El vehículo no existe');
+});
+
+it('acota getVehicle a la empresa del transportista y deja al manager sin ámbito', function () {
+    $mine = Carrier::factory()->create();
+    $other = Carrier::factory()->create();
+    $foreign = Vehicle::factory()->create(['carrier_id' => $other->id]);
+    $own = Vehicle::factory()->create(['carrier_id' => $mine->id]);
+
+    $owner = dashboardOwnerOf($mine);
+    $manager = User::factory()->create(['role' => UserRole::Manager]);
+
+    expect(dashboardService()->getVehicle($owner, $own->id)->is($own))->toBeTrue()
+        ->and(fn () => dashboardService()->getVehicle($owner, $foreign->id))->toThrow(ForbiddenError::class, 'No puedes acceder a un vehículo que no pertenece a tu empresa transportista')
+        ->and(dashboardService()->getVehicle($manager, $foreign->id)->is($foreign))->toBeTrue()
+        ->and(fn () => dashboardService()->getVehicle(User::factory()->create(['role' => UserRole::Carrier]), $own->id))->toThrow(ForbiddenError::class, 'No perteneces a ninguna empresa transportista');
 });

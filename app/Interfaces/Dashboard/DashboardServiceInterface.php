@@ -2,6 +2,8 @@
 
 namespace App\Interfaces\Dashboard;
 
+use App\Errors\ForbiddenError;
+use App\Errors\NotFoundError;
 use App\Models\Trip;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -94,4 +96,17 @@ interface DashboardServiceInterface
      * @return Collection<int, Vehicle>|LengthAwarePaginator<int, Vehicle>
      */
     public function getVehicles(User $user, array $filters): Collection|LengthAwarePaginator;
+
+    /**
+     * Return one vehicle of the fleet, within the dashboard scope, carrying its current
+     * `in_route` trip (or null) as a transient attribute like `getVehicles()` does.
+     *
+     * Same scope as the rest of the dashboard —not the one of `VehicleService`, which
+     * leaves the `manager` out—: `administrator` and `manager` reach every company's
+     * vehicle, a `carrier` only its own. The status of the vehicle does not matter.
+     *
+     * @throws NotFoundError when the vehicle does not exist
+     * @throws ForbiddenError when a carrier reaches a vehicle of another company, or has no company
+     */
+    public function getVehicle(User $user, int $id): Vehicle;
 }
