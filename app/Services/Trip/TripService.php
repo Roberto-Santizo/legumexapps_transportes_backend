@@ -23,6 +23,7 @@ use App\Models\TripTimeout;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Place\PolylineEncoder;
+use App\Services\TripTimeout\DistanceCalculator;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -473,10 +474,21 @@ class TripService implements TripServiceInterface
             throw new BadRequestError('El viaje no ha sido iniciado');
         }
 
+        /**
+         * The trail is read **once** and feeds both the polyline and the distance: it is
+         * the heaviest query of this route, and reading it twice would double it. The
+         * hours use the very same `now()` that lands in `end_date`, so the two never
+         * disagree by the milliseconds between two calls.
+         */
+        $points = $this->traveledPoints($trip);
+        $endDate = now();
+
         $trip->update([
-            'end_date' => now(),
+            'end_date' => $endDate,
             'status' => TripStatus::Finished,
-            'traveled_polyline' => $this->encodeTraveledRoute($trip),
+            'traveled_polyline' => $this->encodeTraveledRoute($points),
+            'traveled_kilometers' => $this->sumTraveledKilometers($points),
+            'traveled_hours' => round($trip->start_date->diffInSeconds($endDate) / 3600, 2),
         ]);
 
         $this->closeOpenTimeout($trip);
@@ -485,7 +497,7 @@ class TripService implements TripServiceInterface
     }
 
     /**
-     * Encode the whole trail of `trip_positions` into the provider's polyline format.
+     * Load the whole trail of `trip_positions` as `[lat, lng]` pairs, in trail order.
      *
      * Read through `TripPosition::query()` directly and **not** through a `positions()`
      * relation on `Trip`: SPEC 26 refused to create it —the same way `Vehicle` never got
@@ -495,20 +507,19 @@ class TripService implements TripServiceInterface
      * about three thousand rows, and hydrating full models for that would be waste.
      *
      * The points go in `recorded_at asc, id asc`, the same order `GET /{trip}/positions`
-     * lists them, untouched: no collapsing of repeated points and no simplification. Every
-     * call re-encodes the trail from scratch, so a second finish —after an administrator
-     * moved the trip back to `in_route`— overwrites the column with the complete trail.
+     * lists them, untouched: no collapsing of repeated points and no simplification. The
+     * eight decimals of the table are kept —the distance is summed from these, not from
+     * the five-decimal polyline that comes out of them— and the list is loaded a single
+     * time per finish to feed both encodeTraveledRoute() and sumTraveledKilometers().
      *
-     * Runs outside any transaction on purpose: the result goes into the same single
+     * Runs outside any transaction on purpose: the results go into the same single
      * `update()` as `end_date` and `status`, which is already atomic on its own.
      *
-     * Returns `null` when the trip has no positions: the encoder is a pure function of
-     * the format and answers `''` for zero points; «no trail» meaning `null` is this
-     * domain's call.
+     * @return list<array{0: float, 1: float}>
      */
-    private function encodeTraveledRoute(Trip $trip): ?string
+    private function traveledPoints(Trip $trip): array
     {
-        $points = TripPosition::query()
+        return TripPosition::query()
             ->where('trip_id', $trip->id)
             ->orderBy('recorded_at')
             ->orderBy('id')
@@ -518,10 +529,55 @@ class TripService implements TripServiceInterface
                 (float) $position->longitude,
             ])
             ->all();
+    }
 
+    /**
+     * Encode the trail into the provider's polyline format.
+     *
+     * Every finish re-encodes the trail from scratch, so a second finish —after an
+     * administrator moved the trip back to `in_route`— overwrites the column with the
+     * complete trail.
+     *
+     * Returns `null` when the trip has no positions: the encoder is a pure function of
+     * the format and answers `''` for zero points; «no trail» meaning `null` is this
+     * domain's call.
+     *
+     * @param  list<array{0: float, 1: float}>  $points
+     */
+    private function encodeTraveledRoute(array $points): ?string
+    {
         $encoded = PolylineEncoder::encode($points);
 
         return $encoded !== '' ? $encoded : null;
+    }
+
+    /**
+     * Sum the trail into the real distance of the trip, in kilometres with two decimals.
+     *
+     * Haversine between every consecutive pair through the same DistanceCalculator the
+     * stops of SPEC 27 use, and **raw**: no `MOVEMENT_THRESHOLD_METERS` filter, no outlier
+     * rejection, no simplification. The figure is faithful to the trail exactly like the
+     * polyline is —GPS jitter of a parked truck inflates it, and that is declared as raw
+     * data, not fixed here; applying the threshold is a one line change in another spec.
+     *
+     * Zero or one point is `0.0`, never `null`: unlike `traveled_polyline`, `null` keeps a
+     * single meaning in these columns («not finished yet, or finished before SPEC 32»),
+     * because zero is a legitimate distance while an empty string is not a polyline.
+     *
+     * @param  list<array{0: float, 1: float}>  $points
+     */
+    private function sumTraveledKilometers(array $points): float
+    {
+        $meters = 0.0;
+
+        for ($i = 1, $count = count($points); $i < $count; $i++) {
+            $meters += DistanceCalculator::metersBetween(
+                $points[$i - 1][0], $points[$i - 1][1],
+                $points[$i][0], $points[$i][1],
+            );
+        }
+
+        return round($meters / 1000, 2);
     }
 
     /**
