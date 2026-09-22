@@ -421,6 +421,7 @@ Un solo endpoint, `POST /api/assistant/chat`, con los mismos middlewares que `/a
 - Specs en `specs/NN-slug.md`; `/spec-impl` crea la rama `spec-NN-slug` automáticamente (`specs/.spec-config.yml`).
 - La última entrega de `/spec-impl` es el resumen de integración para el frontend en `references/<dominio>-api.md`, con `references/zones-api.md` como plantilla. Lo recuerdan los hooks de `.claude/settings.json` (`.claude/hooks/spec-impl-reference*.sh`): uno inyecta el contrato al lanzar el comando y el otro bloquea una vez si la spec ya quedó `Implementado` y el documento no existe. `references/` está gitignoreado.
 - Scaffolding de un CRUD completo: skill `new-feature` (genera todas las capas y las cablea). Después dispara los agentes `feature-tests` y `endpoint-docs`.
+- Para **un solo** endpoint, no una feature entera: skills `test-endpoint` (los casos Pest de ese endpoint, apilados sobre el archivo de test que ya exista) y `document-endpoint` (sus atributos OpenAPI y regenerar `api-docs.json`). Los agentes `feature-tests` y `endpoint-docs` cubren el CRUD recién scaffoldeado; estas dos skills, lo que llega después.
 - Tras tocar PHP: `vendor/bin/pint --dirty --format agent`.
 
 <laravel-boost-guidelines>
