@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Place\PolylineDecoder;
 use App\Services\Place\PolylineEncoder;
+use App\Services\TripTimeout\DistanceCalculator;
 use Carbon\CarbonInterface;
 use Database\Factories\TripFactory;
 use Illuminate\Support\Facades\DB;
@@ -245,12 +246,13 @@ function tripPayload(array $overrides = []): array
 }
 
 /**
- * The 40 keys `TripResource` promises, in the order the resource declares them.
+ * The 42 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
  * its name —the vehicle adds a third key, `vehicleImage`—, `points` is derived from
  * `polyline` on every read and, since SPEC 28, `traveledPoints` from `traveledPolyline`.
- * SPEC 30 slid `estimatedKilometers` and `estimatedHours` between `points` and the real route.
+ * SPEC 30 slid `estimatedKilometers` and `estimatedHours` between `points` and the real route,
+ * and SPEC 32 closed the mirror with `traveledKilometers` and `traveledHours` right after it.
  *
  * @return array<int, string>
  */
@@ -264,7 +266,8 @@ function tripResourceKeys(): array
         'locationId', 'locationName',
         'destination', 'container', 'transport',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
-        'polyline', 'points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'observations',
+        'polyline', 'points', 'estimatedKilometers', 'estimatedHours',
+        'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations',
         'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
         'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
@@ -274,7 +277,7 @@ function tripResourceKeys(): array
 }
 
 /**
- * The 17 keys `TripListResource` promises, in the order the resource declares them.
+ * The 19 keys `TripListResource` promises, in the order the resource declares them.
  *
  * El listado es una vista de tabla: no trae los ids de las relaciones, ni `clientName`,
  * ni `destination`, ni `transport`, ni `polyline`, ni `points`, ni las tres marcas de
@@ -290,6 +293,7 @@ function tripListResourceKeys(): array
         'container',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
         'estimatedKilometers', 'estimatedHours',
+        'traveledKilometers', 'traveledHours',
         'observations',
         'pilotName', 'vehiclePlate', 'registeredByName',
     ];
@@ -2065,7 +2069,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 17 claves en el listado y las 40 del detalle, y no las confunde', function () {
+it('devuelve 19 claves en el listado y las 42 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -2073,8 +2077,8 @@ it('devuelve 17 claves en el listado y las 40 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(40)
-        ->and(tripListResourceKeys())->toHaveCount(17)
+    expect(tripResourceKeys())->toHaveCount(42)
+        ->and(tripListResourceKeys())->toHaveCount(19)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripResourceKeys());
 });
@@ -2957,8 +2961,8 @@ it('coloca las dos claves del recorrido justo después de las estimaciones de SP
 
     $indexOfPoints = array_search('points', $keys, true);
 
-    expect(array_slice($keys, $indexOfPoints, 6))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'observations'])
-        ->and($keys)->toHaveCount(40);
+    expect(array_slice($keys, $indexOfPoints, 8))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations'])
+        ->and($keys)->toHaveCount(42);
 });
 
 it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
@@ -3103,7 +3107,7 @@ it('trae las dos estimaciones entre endDate y observations en cada elemento del 
             ->and($keys[10])->toBe('endDate')
             ->and($keys[11])->toBe('estimatedKilometers')
             ->and($keys[12])->toBe('estimatedHours')
-            ->and($keys[13])->toBe('observations')
+            ->and($keys[15])->toBe('observations')
             ->and($item['estimatedKilometers'])->toMatch('/^\d+\.\d{2}$/')
             ->and($item['estimatedHours'])->toMatch('/^\d+\.\d{2}$/');
     }
@@ -3363,7 +3367,7 @@ it('suma en totalExpensesAmount solo los viáticos confirmados del detalle', fun
         ->assertJsonPath('data.totalExpensesAmount', '425.00');
 });
 
-it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el listado en 17 claves', function () {
+it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el listado en 19 claves', function () {
     $team = tripTeam();
     $trip = tripAssignedTo($team);
 
@@ -3373,10 +3377,226 @@ it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el list
     $indexOfFuel = array_search('totalFuelGallons', $keys, true);
 
     expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'createdAt'])
-        ->and($keys)->toHaveCount(40);
+        ->and($keys)->toHaveCount(42);
 
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
 
     expect($delListado)->not->toHaveKey('totalExpensesAmount')
-        ->and(array_keys($delListado))->toHaveCount(17);
+        ->and(array_keys($delListado))->toHaveCount(19);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 32 — Distancia y tiempo reales del viaje
+|--------------------------------------------------------------------------
+|
+| /finish calcula traveled_kilometers (suma Haversine en crudo del rastro) y
+| traveled_hours (end_date − start_date) en el mismo update() que end_date, status y
+| traveled_polyline. Salen como cadena de dos decimales en el detalle (claves 25 y 26) y
+| en el listado (claves 14 y 15); null hasta que el viaje termina, "0.00" si terminó sin
+| puntos. Ningún body las acepta.
+|
+*/
+
+/**
+ * La distancia esperada del rastro de tripTraveledPoints(), en kilómetros con dos decimales.
+ */
+function tripTraveledKilometers(): string
+{
+    $points = tripTraveledPoints();
+    $meters = 0.0;
+
+    for ($i = 1; $i < count($points); $i++) {
+        $meters += DistanceCalculator::metersBetween($points[$i - 1][0], $points[$i - 1][1], $points[$i][0], $points[$i][1]);
+    }
+
+    return number_format($meters / 1000, 2, '.', '');
+}
+
+it('persiste y devuelve al cerrar la distancia real como suma Haversine del rastro y las horas reales del viaje', function () {
+    $this->travelTo(now()->setTime(14, 0));
+
+    $team = tripTeam();
+    /** 2 h 06 min → 2.10 horas decimales. */
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(2)->subMinutes(6)]);
+
+    tripSeedTrail($trip, tripTraveledPoints());
+
+    $response = asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")
+        ->assertOk()
+        ->assertJsonPath('data.traveledKilometers', tripTraveledKilometers())
+        ->assertJsonPath('data.traveledHours', '2.10');
+
+    expect($trip->fresh()->traveled_kilometers)->toBe(tripTraveledKilometers())
+        ->and($trip->fresh()->traveled_hours)->toBe('2.10')
+        ->and((float) tripTraveledKilometers())->toBeGreaterThan(80.0)
+        ->and($response->json('data.traveledKilometers'))->toMatch('/^\d+\.\d{2}$/')
+        ->and($response->json('data.traveledHours'))->toMatch('/^\d+\.\d{2}$/');
+});
+
+it('persiste "0.00" y no null en traveledKilometers al cerrar sin puntos o con un solo punto', function (array $points) {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(3)]);
+
+    tripSeedTrail($trip, $points);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")
+        ->assertOk()
+        ->assertJsonPath('data.traveledKilometers', '0.00')
+        ->assertJsonPath('data.traveledHours', '3.00');
+
+    expect($trip->fresh()->traveled_kilometers)->toBe('0.00');
+})->with([
+    'sin puntos' => [[]],
+    'un solo punto' => [[[14.6248, -90.5152]]],
+]);
+
+it('coloca traveledKilometers y traveledHours justo después de traveledPoints y antes de observations en el detalle', function () {
+    $trip = Trip::factory()->finished()->create();
+
+    $keys = array_keys(asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data'));
+
+    expect($keys)->toBe(tripResourceKeys())
+        ->and($keys[23])->toBe('traveledPoints')
+        ->and($keys[24])->toBe('traveledKilometers')
+        ->and($keys[25])->toBe('traveledHours')
+        ->and($keys[26])->toBe('observations')
+        ->and($keys)->toHaveCount(42);
+});
+
+it('devuelve null en las dos métricas reales de un viaje pending o in_route, presentes y no ausentes', function (TripStatus $status) {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, [
+        'status' => $status,
+        'start_date' => $status === TripStatus::InRoute ? now()->subHour() : null,
+    ]);
+    tripSeedTrail($trip, tripTraveledPoints());
+
+    $response = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk();
+
+    expect($response->json('data'))->toHaveKeys(['traveledKilometers', 'traveledHours'])
+        ->and($response->json('data.traveledKilometers'))->toBeNull()
+        ->and($response->json('data.traveledHours'))->toBeNull();
+})->with([
+    'pending' => TripStatus::Pending,
+    'in_route con rastro reportado' => TripStatus::InRoute,
+]);
+
+it('trae las dos métricas reales entre estimatedHours y observations en cada elemento del listado', function () {
+    $team = tripTeam();
+    tripAssignedTo($team, [
+        'status' => TripStatus::Finished,
+        'start_date' => now()->subHours(3),
+        'end_date' => now(),
+        'traveled_kilometers' => 111.4,
+        'traveled_hours' => 2.1,
+    ]);
+    Trip::factory()->create();
+
+    $admin = userWithRole(UserRole::Administrator);
+    $listado = asUser($admin)->getJson('/api/trips')->assertOk();
+
+    expect($listado->json('data'))->toHaveCount(2);
+
+    foreach ($listado->json('data') as $item) {
+        $keys = array_keys($item);
+
+        expect($keys)->toBe(tripListResourceKeys())
+            ->and($keys[12])->toBe('estimatedHours')
+            ->and($keys[13])->toBe('traveledKilometers')
+            ->and($keys[14])->toBe('traveledHours')
+            ->and($keys[15])->toBe('observations')
+            ->and($keys)->toHaveCount(19);
+    }
+
+    $finalizado = collect($listado->json('data'))->firstWhere('status', 'finished');
+    $pendiente = collect($listado->json('data'))->firstWhere('status', 'pending');
+
+    expect($finalizado['traveledKilometers'])->toBe('111.40')
+        ->and($finalizado['traveledHours'])->toBe('2.10')
+        ->and($pendiente['traveledKilometers'])->toBeNull()
+        ->and($pendiente['traveledHours'])->toBeNull();
+
+    $paginado = asUser($admin)->getJson('/api/trips?limit=1')->assertOk();
+
+    expect(array_keys($paginado->json('data.0')))->toBe(tripListResourceKeys());
+});
+
+it('trae las dos métricas reales en null en el viaje en curso, que por definición no ha terminado', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+
+    $response = asUser($team['pilot'])->getJson('/api/trips/current')
+        ->assertOk()
+        ->assertJsonPath('data.id', $trip->id)
+        ->assertJsonPath('data.traveledKilometers', null)
+        ->assertJsonPath('data.traveledHours', null);
+
+    expect(array_keys($response->json('data')))->toBe(tripListResourceKeys());
+});
+
+it('devuelve null en las dos métricas reales de un viaje finalizado antes de SPEC 32', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, [
+        'status' => TripStatus::Finished,
+        'start_date' => now()->subHours(3),
+        'end_date' => now(),
+        'traveled_kilometers' => null,
+        'traveled_hours' => null,
+    ]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'finished')
+        ->assertJsonPath('data.traveledKilometers', null)
+        ->assertJsonPath('data.traveledHours', null);
+});
+
+it('ignora en silencio traveledKilometers y traveledHours en el POST, el PATCH general, /assignment y /start', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $team = tripTeam();
+    $intruso = [
+        'traveledKilometers' => 999.99, 'traveled_kilometers' => 999.99,
+        'traveledHours' => 99.99, 'traveled_hours' => 99.99,
+    ];
+
+    $nuevo = asUser($admin)->postJson('/api/trips', tripPayload($intruso))
+        ->assertCreated()
+        ->assertJsonPath('data.traveledKilometers', null)
+        ->assertJsonPath('data.traveledHours', null);
+    $id = $nuevo->json('data.id');
+
+    asUser($admin)->patchJson("/api/trips/{$id}", ['order' => 'ord-2026-9999', ...$intruso])
+        ->assertOk()
+        ->assertJsonPath('data.traveledKilometers', null)
+        ->assertJsonPath('data.traveledHours', null);
+
+    asUser($team['owner'])->patchJson("/api/trips/{$id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 50,
+        'fuelType' => 'diesel',
+        ...$intruso,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.traveledKilometers', null);
+
+    tripFuelConfirmed($id);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$id}/start", $intruso)
+        ->assertOk()
+        ->assertJsonPath('data.traveledKilometers', null)
+        ->assertJsonPath('data.traveledHours', null);
+
+    $this->assertDatabaseHas('trips', ['id' => $id, 'traveled_kilometers' => null, 'traveled_hours' => null]);
+});
+
+it('deja el TripInRouteResource del tablero sin las dos métricas reales', function () {
+    $team = tripTeam();
+    tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHour()]);
+
+    $response = asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route')->assertOk();
+
+    expect($response->json('data'))->toHaveCount(1)
+        ->and($response->json('data.0'))->not->toHaveKeys(['traveledKilometers', 'traveledHours']);
 });

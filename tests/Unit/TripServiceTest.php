@@ -23,9 +23,11 @@ use App\Models\Vehicle;
 use App\Services\Place\PolylineDecoder;
 use App\Services\Place\PolylineEncoder;
 use App\Services\Trip\TripService;
+use App\Services\TripTimeout\DistanceCalculator;
 use Database\Factories\TripFactory;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 function tripService(): TripServiceInterface
@@ -99,16 +101,29 @@ it('declara los nueve métodos del contrato', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28 y las estimaciones de SPEC 30', function () {
+it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30 y las métricas reales de SPEC 32', function () {
     expect(Schema::hasTable('trips'))->toBeTrue()
         ->and(Schema::getColumnListing('trips'))->toEqualCanonicalizing([
             'id', 'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
             'destination', 'container', 'transport',
             'recolection_date', 'ship_date', 'start_date', 'end_date',
-            'polyline', 'estimated_kilometers', 'estimated_hours', 'traveled_polyline', 'observations', 'status',
+            'polyline', 'estimated_kilometers', 'estimated_hours',
+            'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
             'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by',
             'created_at', 'updated_at', 'deleted_at',
         ]);
+});
+
+it('deja las métricas reales en null por defecto y solo el estado finished de la factory las rellena', function () {
+    $pendiente = Trip::factory()->create();
+    $finalizado = Trip::factory()->finished()->create();
+
+    expect($pendiente->traveled_kilometers)->toBeNull()
+        ->and($pendiente->traveled_hours)->toBeNull()
+        ->and((float) $finalizado->fresh()->traveled_kilometers)->toBeGreaterThan(0)
+        ->and((float) $finalizado->fresh()->traveled_hours)->toBeGreaterThan(0)
+        ->and($finalizado->fresh()->traveled_kilometers)->toMatch('/^\d+\.\d{2}$/')
+        ->and($finalizado->fresh()->traveled_hours)->toMatch('/^\d+\.\d{2}$/');
 });
 
 it('declara exactamente tres estados y ningún label', function () {
@@ -1142,6 +1157,141 @@ it('no escribe traveled_polyline desde update', function () {
 
     expect($editado->traveled_polyline)->toBeNull()
         ->and($trip->fresh()->traveled_polyline)->toBeNull();
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 32 — Distancia y tiempo reales del viaje
+|--------------------------------------------------------------------------
+*/
+
+it('suma la distancia Haversine de los segmentos consecutivos del rastro en kilómetros con dos decimales', function () {
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team);
+    /** Ciudad de Guatemala → Escuintla → Puerto Quetzal: tres puntos, dos segmentos. */
+    $points = [[14.6248, -90.5152], [14.3050, -90.7850], [13.9276, -90.7853]];
+
+    tripServiceSeedTrail($trip, $points);
+
+    $finalizado = tripService()->finish($team['pilot'], $trip->id);
+
+    $esperado = DistanceCalculator::metersBetween(14.6248, -90.5152, 14.3050, -90.7850)
+        + DistanceCalculator::metersBetween(14.3050, -90.7850, 13.9276, -90.7853);
+
+    expect($finalizado->fresh()->traveled_kilometers)->toBe(number_format($esperado / 1000, 2, '.', ''))
+        /** Orden de magnitud: unos 90 km, no la distancia directa entre extremos. */
+        ->and((float) $finalizado->fresh()->traveled_kilometers)->toBeGreaterThan(85.0)
+        ->and((float) $finalizado->fresh()->traveled_kilometers)->toBeLessThan(95.0);
+});
+
+it('suma el rastro en crudo, sin descartar los segmentos por debajo del umbral de movimiento', function () {
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team);
+    /** Un punto repetido (0 m) y un salto de ~3 m: menos del umbral de 5 m de las paradas. */
+    $points = [[14.6248, -90.5152], [14.6248, -90.5152], [14.62482, -90.5152], [14.7248, -90.5152]];
+
+    tripServiceSeedTrail($trip, $points);
+
+    $finalizado = tripService()->finish($team['pilot'], $trip->id);
+
+    $esperado = DistanceCalculator::metersBetween(14.6248, -90.5152, 14.62482, -90.5152)
+        + DistanceCalculator::metersBetween(14.62482, -90.5152, 14.7248, -90.5152);
+
+    expect($finalizado->fresh()->traveled_kilometers)->toBe(number_format($esperado / 1000, 2, '.', ''));
+});
+
+it('persiste 0.00 y no null en traveled_kilometers al cerrar un viaje sin puntos o con uno solo', function (array $points) {
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team);
+
+    tripServiceSeedTrail($trip, $points);
+
+    $finalizado = tripService()->finish($team['pilot'], $trip->id);
+
+    expect($finalizado->fresh()->traveled_kilometers)->toBe('0.00')
+        ->and($finalizado->fresh()->traveled_hours)->not->toBeNull();
+})->with([
+    'sin puntos' => [[]],
+    'un solo punto' => [[[14.6248, -90.5152]]],
+]);
+
+it('calcula traveled_hours como end_date menos start_date en horas decimales', function () {
+    $this->travelTo(now()->setTime(10, 0));
+
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team, ['start_date' => now()->subHours(2)->subMinutes(30)]);
+
+    $finalizado = tripService()->finish($team['pilot'], $trip->id);
+
+    expect($finalizado->fresh()->traveled_hours)->toBe('2.50')
+        ->and($finalizado->fresh()->end_date->equalTo(now()))->toBeTrue();
+});
+
+it('redondea traveled_hours a dos decimales', function () {
+    $this->travelTo(now()->setTime(10, 0));
+
+    $team = tripServiceTeam();
+    /** 1 h 20 min = 1.3333… h → 1.33 */
+    $trip = tripServiceDriving($team, ['start_date' => now()->subHours(1)->subMinutes(20)]);
+
+    $finalizado = tripService()->finish($team['pilot'], $trip->id);
+
+    expect($finalizado->fresh()->traveled_hours)->toBe('1.33');
+});
+
+it('ejecuta una sola consulta a trip_positions por finish', function () {
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team);
+    tripServiceSeedTrail($trip, [[14.6248, -90.5152], [14.6231, -90.5148], [13.9276, -90.7853]]);
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    tripService()->finish($team['pilot'], $trip->id);
+
+    $consultas = collect(DB::getQueryLog())
+        ->filter(fn (array $query): bool => str_contains($query['query'], 'trip_positions'));
+
+    DB::disableQueryLog();
+
+    expect($consultas)->toHaveCount(1);
+});
+
+it('recalcula y sobrescribe las dos métricas en un segundo finish', function () {
+    $this->travelTo(now()->setTime(8, 0));
+
+    $team = tripServiceTeam();
+    $trip = tripServiceDriving($team, ['start_date' => now()->subHour()]);
+    tripServiceSeedTrail($trip, [[14.6248, -90.5152], [14.6231, -90.5148]]);
+
+    $primero = tripService()->finish($team['pilot'], $trip->id)->fresh();
+
+    /** El hueco de SPEC 24: el administrador devuelve el viaje a in_route sin limpiar nada. */
+    Trip::query()->whereKey($trip->id)->update(['status' => TripStatus::InRoute, 'end_date' => null]);
+    $this->travelTo(now()->addHours(3));
+    tripServiceSeedTrail($trip, [[13.9276, -90.7853]]);
+
+    $segundo = tripService()->finish($team['pilot'], $trip->id)->fresh();
+
+    expect($primero->traveled_hours)->toBe('1.00')
+        ->and($segundo->traveled_hours)->toBe('4.00')
+        ->and((float) $segundo->traveled_kilometers)->toBeGreaterThan((float) $primero->traveled_kilometers);
+});
+
+it('no escribe traveled_kilometers ni traveled_hours desde update', function () {
+    $trip = Trip::factory()->create();
+
+    $editado = tripService()->update($trip->id, [
+        'traveledKilometers' => 111.4,
+        'traveled_kilometers' => 111.4,
+        'traveledHours' => 2.1,
+        'traveled_hours' => 2.1,
+    ]);
+
+    expect($editado->traveled_kilometers)->toBeNull()
+        ->and($editado->traveled_hours)->toBeNull()
+        ->and($trip->fresh()->traveled_kilometers)->toBeNull()
+        ->and($trip->fresh()->traveled_hours)->toBeNull();
 });
 
 /*
