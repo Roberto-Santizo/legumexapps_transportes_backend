@@ -52,7 +52,7 @@ class TripCostController extends Controller
 
         NO HAY NI UN SOLO QUERY PARAM NI CUERPO: no hay limit, ni page, ni moneda, ni fecha de corte, ni bandera para incluir depreciación. Cualquier parámetro enviado SE IGNORA en silencio, nunca 422. La respuesta es un OBJETO y no un listado: sin total, sin currentPage y sin lastPage.
 
-        CÓMO LEER LA RESPUESTA, en siete claves: traveledHours sale UNA SOLA VEZ en la raíz porque es el mismo multiplicador de pilot y de vehicle; fuel.byType agrupa POR TIPO de combustible pero multiplica POR CARGA, así que dos cargas a ambos lados de un cambio de precio caen en un solo elemento con sus importes ya sumados; expenses.count es el ÚNICO entero de toda la respuesta y todo lo demás sale como CADENA de dos decimales; y totalCost es la suma EXACTA de los cuatro subtotales tal como salen, nunca el redondeo de una suma en crudo.
+        CÓMO LEER LA RESPUESTA, en ocho claves: traveledHours sale UNA SOLA VEZ en la raíz porque es el mismo multiplicador de pilot y de vehicle; fuel.byType agrupa POR TIPO de combustible pero multiplica POR CARGA, así que dos cargas a ambos lados de un cambio de precio caen en un solo elemento con sus importes ya sumados; expenses.count es el ÚNICO entero de toda la respuesta y todo lo demás sale como CADENA de dos decimales; y totalCost es la suma EXACTA de los cuatro subtotales tal como salen, nunca el redondeo de una suma en crudo.
 
         ATENCIÓN — UN TOTAL BAJO SUELE SER UN INSUMO QUE FALTA, NO UN VIAJE BARATO. Con traveledHours en null (viaje cerrado antes de SPEC 32) los DOS prorrateos salen en "0.00" aunque el salario y el seguro tengan valor; con pricePerGallon en null hay galones que no aportan importe porque la carga es anterior al primer precio capturado de su tipo. Los dos huecos se ven en la respuesta a propósito.
 
@@ -72,7 +72,7 @@ class TripCostController extends Controller
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Costo obtenido correctamente. Devuelve un OBJETO con las siete claves del desglose, sin metadatos de paginación. ATENCIÓN — un 200 NO garantiza que los cuatro componentes tengan valor: un insumo ausente sale en null con su subtotal en "0.00", porque el endpoint nunca falla por un dato de catálogo incompleto.',
+                description: 'Costo obtenido correctamente. Devuelve un OBJETO con las ocho claves del desglose, sin metadatos de paginación. ATENCIÓN — un 200 NO garantiza que los cuatro componentes tengan valor: un insumo ausente sale en null con su subtotal en "0.00", porque el endpoint nunca falla por un dato de catálogo incompleto.',
                 content: new OA\JsonContent(ref: '#/components/schemas/TripCostResponse'),
             ),
             new OA\Response(

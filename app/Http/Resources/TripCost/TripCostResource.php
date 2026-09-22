@@ -11,7 +11,7 @@ use OpenApi\Attributes as OA;
     schema: 'TripCost',
     title: 'Desglose del costo directo de un viaje finalizado',
     description: <<<'TEXT'
-    El costo en GTQ de un viaje ya cerrado, repartido en CUATRO COMPONENTES. SIETE CLAVES de primer nivel en camelCase y ninguna más, en este orden: tripId, order, traveledHours, fuel, expenses, pilot, vehicle y totalCost.
+    El costo en GTQ de un viaje ya cerrado, repartido en CUATRO COMPONENTES. OCHO CLAVES de primer nivel en camelCase y ninguna más, en este orden: tripId, order, traveledHours, fuel, expenses, pilot, vehicle y totalCost.
 
     ATENCIÓN — ES COSTO DIRECTO, NO «LO QUE COSTÓ EL VIAJE». Los cuatro componentes son los únicos que existen: combustible confirmado, viáticos confirmados, salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo, mantenimiento (los vehicle_expenses NO se imputan al viaje: la fecha no prueba a qué viaje pertenece un cambio de llantas), peajes, administración, ni ingreso o margen —freight_rates cotiza por libra y trips no guarda peso—. Etiquetar la cifra como «costo total del viaje» en la interfaz sería engañoso.
 

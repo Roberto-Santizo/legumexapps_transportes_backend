@@ -212,7 +212,7 @@ it('responde 403 y no 400 sobre un viaje en curso de otra empresa', function () 
 |--------------------------------------------------------------------------
 */
 
-it('devuelve las siete claves del desglose y la forma de los cuatro bloques', function () {
+it('devuelve las ocho claves del desglose y la forma de los cuatro bloques', function () {
     ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50]);
 
     seedTripCost($trip);

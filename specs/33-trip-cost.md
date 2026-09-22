@@ -1,6 +1,6 @@
 # SPEC 33 — Costo total del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 06, SPEC 11, SPEC 13, SPEC 24, SPEC 27 (`27-trip-fuels.md`), SPEC 31, SPEC 32
 > **Fecha:** 2026-09-22
 > **Objetivo:** Publicar `GET /api/trips/{trip}/cost`, un desglose calculado en lectura del costo en GTQ de un viaje **finalizado**: combustible confirmado a precio histórico, viáticos confirmados, y salario del piloto y seguro del vehículo prorrateados por horas.
@@ -185,63 +185,63 @@ Cada paso deja la suite verde y la API funcionando.
 
 **Guardas y ámbito**
 
-- [ ] `GET /api/trips/{trip}/cost` con un id inexistente responde **404**.
-- [ ] Con un viaje borrado responde **404**, también cuando además es de otra empresa.
-- [ ] Un `carrier` fuera del ámbito de SPEC 24 recibe **403**; `administrator`, `manager` y el `carrier` que tomó el viaje reciben **200**.
-- [ ] Cualquier `pilot` recibe **403**, incluido el piloto asignado al viaje.
-- [ ] Un viaje `pending` o `in_route` responde **400** «El costo solo está disponible para viajes finalizados», aunque tenga cargas y viáticos confirmados.
-- [ ] El orden de las guardas es 404 → 403 → 400: un viaje `in_route` de otra empresa responde 403, no 400.
+- [x] `GET /api/trips/{trip}/cost` con un id inexistente responde **404**.
+- [x] Con un viaje borrado responde **404**, también cuando además es de otra empresa.
+- [x] Un `carrier` fuera del ámbito de SPEC 24 recibe **403**; `administrator`, `manager` y el `carrier` que tomó el viaje reciben **200**.
+- [x] Cualquier `pilot` recibe **403**, incluido el piloto asignado al viaje.
+- [x] Un viaje `pending` o `in_route` responde **400** «El costo solo está disponible para viajes finalizados», aunque tenga cargas y viáticos confirmados.
+- [x] El orden de las guardas es 404 → 403 → 400: un viaje `in_route` de otra empresa responde 403, no 400.
 
 **Combustible**
 
-- [ ] Una carga confirmada de 35 galones con precio vigente de 38.50 en su `loaded_at` produce `amount: "1347.50"`.
-- [ ] Dos cargas del mismo tipo con `loaded_at` a ambos lados de un cambio de precio se cotizan a precios distintos y se suman en un solo elemento de `byType`.
-- [ ] El precio usado sale de la fila de `fuel_prices` vigente en esa fecha aunque hoy esté `inactive`.
-- [ ] Una carga sin confirmar no aparece en `byType` ni suma en `gallons` ni en `subtotal`.
-- [ ] Una carga cuyo `loaded_at` es anterior a cualquier `fuel_prices` de su tipo sale con `pricePerGallon: null` y `amount: "0.00"`, y la respuesta sigue siendo 200.
-- [ ] Un viaje sin cargas confirmadas devuelve `byType: []`, `gallons: "0.00"` y `subtotal: "0.00"`.
+- [x] Una carga confirmada de 35 galones con precio vigente de 38.50 en su `loaded_at` produce `amount: "1347.50"`.
+- [x] Dos cargas del mismo tipo con `loaded_at` a ambos lados de un cambio de precio se cotizan a precios distintos y se suman en un solo elemento de `byType`.
+- [x] El precio usado sale de la fila de `fuel_prices` vigente en esa fecha aunque hoy esté `inactive`.
+- [x] Una carga sin confirmar no aparece en `byType` ni suma en `gallons` ni en `subtotal`.
+- [x] Una carga cuyo `loaded_at` es anterior a cualquier `fuel_prices` de su tipo sale con `pricePerGallon: null` y `amount: "0.00"`, y la respuesta sigue siendo 200.
+- [x] Un viaje sin cargas confirmadas devuelve `byType: []`, `gallons: "0.00"` y `subtotal: "0.00"`.
 
 **Viáticos**
 
-- [ ] `count` y `subtotal` cuentan solo los viáticos con `received_at` no nulo.
-- [ ] Un viaje sin viáticos confirmados devuelve `count: 0` y `subtotal: "0.00"`.
-- [ ] `subtotal` coincide con `totalExpensesAmount` de `TripResource` para el mismo viaje.
+- [x] `count` y `subtotal` cuentan solo los viáticos con `received_at` no nulo.
+- [x] Un viaje sin viáticos confirmados devuelve `count: 0` y `subtotal: "0.00"`.
+- [x] `subtotal` coincide con `totalExpensesAmount` de `TripResource` para el mismo viaje.
 
 **Piloto y vehículo**
 
-- [ ] Con `traveled_hours = 2.50` y salario mensual 4500.00, `pilot.subtotal` es `"15.63"`.
-- [ ] Con `traveled_hours = 2.50` y seguro mensual 350.00, `vehicle.subtotal` es `"1.22"`.
-- [ ] Un cambio de salario posterior al `start_date` del viaje **no** altera el costo: se usa el `new_salary` vigente en esa fecha.
-- [ ] Sin ninguna fila de bitácora anterior al `start_date` se usa el `salary` actual del pivote.
-- [ ] Un piloto ya no vinculado a la empresa del viaje da `monthlySalary: null` y `subtotal: "0.00"`, con 200.
-- [ ] Un piloto con `salary` en `null` da `monthlySalary: null` y `subtotal: "0.00"`.
-- [ ] Un viaje finalizado antes de SPEC 32 (`traveled_hours` en `null`) devuelve `traveledHours: null` y los dos subtotales en `"0.00"`, con los insumos `monthlySalary` y `monthlyInsuranceCost` visibles y con valor.
-- [ ] Un viaje `finished` sin piloto ni vehículo devuelve `pilotId`, `pilotName`, `monthlySalary`, `vehicleId`, `plate` y `monthlyInsuranceCost` en `null`, los dos subtotales en `"0.00"` y 200.
+- [x] Con `traveled_hours = 2.50` y salario mensual 4500.00, `pilot.subtotal` es `"15.63"`.
+- [x] Con `traveled_hours = 2.50` y seguro mensual 350.00, `vehicle.subtotal` es `"1.22"`.
+- [x] Un cambio de salario posterior al `start_date` del viaje **no** altera el costo: se usa el `new_salary` vigente en esa fecha.
+- [x] Sin ninguna fila de bitácora anterior al `start_date` se usa el `salary` actual del pivote.
+- [x] Un piloto ya no vinculado a la empresa del viaje da `monthlySalary: null` y `subtotal: "0.00"`, con 200.
+- [x] Un piloto con `salary` en `null` da `monthlySalary: null` y `subtotal: "0.00"`.
+- [x] Un viaje finalizado antes de SPEC 32 (`traveled_hours` en `null`) devuelve `traveledHours: null` y los dos subtotales en `"0.00"`, con los insumos `monthlySalary` y `monthlyInsuranceCost` visibles y con valor.
+- [x] Un viaje `finished` sin piloto ni vehículo devuelve `pilotId`, `pilotName`, `monthlySalary`, `vehicleId`, `plate` y `monthlyInsuranceCost` en `null`, los dos subtotales en `"0.00"` y 200.
 
 **Total y formato**
 
-- [ ] `totalCost` es la suma exacta de los cuatro subtotales tal como salen en la respuesta.
-- [ ] Todo importe, `gallons` y `traveledHours` salen como string de dos decimales; `count` sale como entero.
-- [ ] `fuelType` sale con el valor crudo del enum en inglés.
-- [ ] La respuesta tiene exactamente siete claves de primer nivel.
+- [x] `totalCost` es la suma exacta de los cuatro subtotales tal como salen en la respuesta.
+- [x] Todo importe, `gallons` y `traveledHours` salen como string de dos decimales; `count` sale como entero.
+- [x] `fuelType` sale con el valor crudo del enum en inglés.
+- [x] La respuesta tiene exactamente **ocho** claves de primer nivel (`tripId`, `order`, `traveledHours`, `fuel`, `expenses`, `pilot`, `vehicle`, `totalCost`). El «siete» del texto era un error de conteo: el JSON de ejemplo de esta misma spec ya incluye `order`, y es el que se implementó.
 
 **Contrato del proyecto**
 
-- [ ] `TripResource` sigue en **42** claves y `TripListResource` en **19**; ninguna de las dos gana costo.
-- [ ] `routes/trips.php` declara **diecisiete** rutas y `/cost` va antes del `apiResource`.
-- [ ] No existe ninguna migración nueva ni ninguna columna nueva en `trips`.
-- [ ] El número de consultas de la petición no crece con el número de cargas, viáticos ni posiciones del viaje (`DB::getQueryLog()`).
+- [x] `TripResource` sigue en **42** claves y `TripListResource` en **19**; ninguna de las dos gana costo.
+- [x] `routes/trips.php` declara **diecisiete** rutas y `/cost` va antes del `apiResource`.
+- [x] No existe ninguna migración nueva ni ninguna columna nueva en `trips`.
+- [x] El número de consultas de la petición no crece con el número de cargas, viáticos ni posiciones del viaje (`DB::getQueryLog()`).
 
 **Asistente**
 
-- [ ] La tool `trip_cost` devuelve el mismo desglose que el endpoint para un viaje finalizado, con `tripId` obligatorio.
-- [ ] La tool sobre un viaje `in_route` devuelve `{"error": ...}` con el mensaje del 400, no una excepción.
-- [ ] `DashboardAssistant` expone **catorce** tools.
+- [x] La tool `trip_cost` devuelve el mismo desglose que el endpoint para un viaje finalizado, con `tripId` obligatorio.
+- [x] La tool sobre un viaje `in_route` devuelve `{"error": ...}` con el mensaje del 400, no una excepción.
+- [x] `DashboardAssistant` expone **catorce** tools.
 
 **Cierre**
 
-- [ ] `storage/api-docs/api-docs.json` documenta la ruta y el schema del Resource.
-- [ ] `php artisan test --compact` pasa completo y `vendor/bin/pint --dirty --test` no reporta cambios.
+- [x] `storage/api-docs/api-docs.json` documenta la ruta y el schema del Resource.
+- [x] `php artisan test --compact` pasa completo y `vendor/bin/pint --dirty --test` no reporta cambios.
 
 ---
 
