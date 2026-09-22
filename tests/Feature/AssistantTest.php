@@ -253,6 +253,34 @@ it('ejecuta las herramientas de un viaje concreto con el ámbito del usuario', f
         ->and($body)->not->toContain('\"polyline\"');
 });
 
+it('desglosa el costo de un viaje finalizado desde el chat', function () {
+    $trip = Trip::factory()->finished()->create(['traveled_hours' => 2.50]);
+
+    $body = chatAs(userWithRole(UserRole::Manager), '¿Cuánto costó el viaje?', [
+        new ToolCall('call-1', 'trip_cost', ['tripId' => $trip->id]),
+        'El costo directo fue de Q 0.00.',
+    ])->assertOk()->streamedContent();
+
+    expect($body)->toContain('"toolName":"trip_cost"')
+        ->and($body)->toContain('"type":"tool-output-available"')
+        ->and($body)->toContain('\"totalCost\"')
+        ->and($body)->toContain('\"traveledHours\":\"2.50\"');
+});
+
+it('relaya al modelo el error del costo de un viaje en curso', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    $body = chatAs(userWithRole(UserRole::Manager), '¿Cuánto lleva costando el viaje?', [
+        new ToolCall('call-1', 'trip_cost', ['tripId' => $trip->id]),
+        'Todavía no ha terminado.',
+    ])->assertOk()->streamedContent();
+
+    /** Sale como resultado de la tool, no como excepción: el modelo lo explica. */
+    expect($body)->toContain('"type":"tool-output-available"')
+        ->and($body)->toContain('El costo solo est')
+        ->and($body)->not->toContain('"type":"error"');
+});
+
 it('genera un reporte Excel desde el chat y emite su URL en el stream', function () {
     Trip::factory()->finished()->count(2)->create();
     Trip::factory()->create();
