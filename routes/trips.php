@@ -2,6 +2,7 @@
 
 use App\Enums\UserRole;
 use App\Http\Controllers\TripController;
+use App\Http\Controllers\TripCostController;
 use App\Http\Controllers\TripExpenseController;
 use App\Http\Controllers\TripFuelController;
 use App\Http\Controllers\TripPositionController;
@@ -107,6 +108,15 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
      */
     Route::get('/{trip}/timeouts', [TripTimeoutController::class, 'index'])
         ->name('timeouts.index');
+
+    /**
+     * El costo se lee como las paradas: jwt.auth a secas, el ámbito de SPEC 24 dentro
+     * del service y ningún pilot admitido, ni siquiera el asignado —el desglose revela
+     * su salario mensual—. No hay POST, ni PATCH, ni DELETE: el dominio solo lee y solo
+     * calcula, y nada de lo que devuelve está guardado en ninguna tabla.
+     */
+    Route::get('/{trip}/cost', [TripCostController::class, 'show'])
+        ->name('cost.show');
 
     /**
      * La lectura no lleva role: los cuatro roles listan y consultan, y lo que cada uno

@@ -8,6 +8,7 @@ use App\Ai\Tools\Dashboard\TripsSummaryTool;
 use App\Ai\Tools\Dashboard\VehicleExpensesSummaryTool;
 use App\Ai\Tools\Report\ExportTripsTool;
 use App\Ai\Tools\Report\ExportVehicleExpensesTool;
+use App\Ai\Tools\Trip\TripCostTool;
 use App\Ai\Tools\Trip\TripExpensesTool;
 use App\Ai\Tools\Trip\TripFuelsTool;
 use App\Ai\Tools\Trip\TripsTool;
@@ -18,6 +19,7 @@ use App\Ai\Tools\Vehicle\VehicleTool;
 use App\Interfaces\Dashboard\DashboardServiceInterface;
 use App\Interfaces\Report\ReportServiceInterface;
 use App\Interfaces\Trip\TripServiceInterface;
+use App\Interfaces\TripCost\TripCostServiceInterface;
 use App\Interfaces\TripExpense\TripExpenseServiceInterface;
 use App\Interfaces\TripFuel\TripFuelServiceInterface;
 use App\Interfaces\TripTimeout\TripTimeoutServiceInterface;
@@ -39,8 +41,8 @@ use Laravel\Ai\Providers\Tools\ProviderTool;
 /**
  * The assistant behind `POST /api/assistant/chat`.
  *
- * Thirteen tools: eleven wrap a read method of a service contract —the four
- * dashboard aggregates, five over trips and two over vehicles— and two export a
+ * Fourteen tools: twelve wrap a read method of a service contract —the four
+ * dashboard aggregates, six over trips and two over vehicles— and two export a
  * listing to a spreadsheet in the bucket and hand back its URL. None of them writes
  * in the database. The memory lives in the client: the previous turns arrive in the
  * request and reach the model through `Conversational::messages()`, before the
@@ -120,7 +122,7 @@ class DashboardAssistant implements Agent, Conversational, HasTools
                 - Moneda: quetzales (GTQ). Distancias en kilómetros, combustible en galones.
 
                 ## Herramientas
-                Tienes trece herramientas en cuatro grupos: once consultan datos y dos generan archivos Excel. Ninguna modifica datos. Nunca inventes cifras: toda cantidad, nombre o fecha que menciones debe salir de una llamada.
+                Tienes catorce herramientas en cuatro grupos: doce consultan datos y dos generan archivos Excel. Ninguna modifica datos. Nunca inventes cifras: toda cantidad, nombre o fecha que menciones debe salir de una llamada.
 
                 Tablero (agregados):
                 1. trips_summary(carrierId?, dateFrom?, dateTo?) — agregados de viajes: total, sin asignar, desglose por estado, empresa, cliente, naviera, puerto y mes. El rango de fechas corta sobre la fecha de recolección.
@@ -134,19 +136,20 @@ class DashboardAssistant implements Agent, Conversational, HasTools
                 7. trip_fuels(tripId, limit?) — las cargas de combustible del viaje, confirmadas o no, y el total confirmado.
                 8. trip_expenses(tripId, limit?) — los viáticos del viaje, confirmados o no, y el total confirmado.
                 9. trip_timeouts(tripId, limit?) — las paradas detectadas en el viaje, con su duración.
+                10. trip_cost(tripId) — el costo directo de un viaje FINALIZADO, desglosado en combustible, viáticos, salario del piloto y seguro del vehículo, con su total. Solo viajes finalizados.
 
                 Vehículos (uno en concreto):
-                10. vehicle(vehicleId? | plate?) — la ficha de un vehículo por id o por placa, con precio de compra, seguro mensual y su viaje en ruta si lo tiene.
-                11. vehicle_expenses(vehicleId, category?, nature?, dateFrom?, dateTo?, isInvoiced?, limit?) — los gastos de mantenimiento de un vehículo, uno a uno, con su total.
+                11. vehicle(vehicleId? | plate?) — la ficha de un vehículo por id o por placa, con precio de compra, seguro mensual y su viaje en ruta si lo tiene.
+                12. vehicle_expenses(vehicleId, category?, nature?, dateFrom?, dateTo?, isInvoiced?, limit?) — los gastos de mantenimiento de un vehículo, uno a uno, con su total.
 
                 Reportes (archivos Excel):
-                12. export_trips(status?, clientId?, shippingLineId?, locationId?, pilotId?, vehicleId?, dateFrom?, dateTo?, search?) — genera un .xlsx con los viajes que cumplen los filtros (mismos filtros y ámbito que trips, sin limit) y devuelve fileName, url, rows, total y truncated.
-                13. export_vehicle_expenses(vehicleId, category?, nature?, dateFrom?, dateTo?, isInvoiced?) — genera un .xlsx con los gastos de mantenimiento de un vehículo (mismos filtros que vehicle_expenses, sin limit) y devuelve fileName, url, rows, total, totalAmount y truncated.
+                13. export_trips(status?, clientId?, shippingLineId?, locationId?, pilotId?, vehicleId?, dateFrom?, dateTo?, search?) — genera un .xlsx con los viajes que cumplen los filtros (mismos filtros y ámbito que trips, sin limit) y devuelve fileName, url, rows, total y truncated.
+                14. export_vehicle_expenses(vehicleId, category?, nature?, dateFrom?, dateTo?, isInvoiced?) — genera un .xlsx con los gastos de mantenimiento de un vehículo (mismos filtros que vehicle_expenses, sin limit) y devuelve fileName, url, rows, total, totalAmount y truncated.
 
                 Reglas de uso:
                 - Fechas siempre en formato YYYY-MM-DD. Convierte expresiones relativas («este mes», «la semana pasada», «agosto») usando la fecha actual antes de llamar. Sin fechas, las herramientas agregan todo el histórico: si la pregunta implica un periodo, envíalo.
                 - Si la pregunta abarca varios bloques (viajes y gastos), llama a las herramientas necesarias; puedes hacerlo en paralelo.
-                - Para «el viaje de la orden X» o «el contenedor Y», llama a trips con search y luego a trip, trip_fuels, trip_expenses o trip_timeouts con el id que obtuviste. Si trips devuelve más de un viaje que encaja, pregunta cuál antes de seguir. Si el usuario ya te da el id, úsalo directamente.
+                - Para «el viaje de la orden X» o «el contenedor Y», llama a trips con search y luego a trip, trip_fuels, trip_expenses, trip_timeouts o trip_cost con el id que obtuviste. Si trips devuelve más de un viaje que encaja, pregunta cuál antes de seguir. Si el usuario ya te da el id, úsalo directamente.
                 - Para un vehículo, llama a vehicle con la placa que te den; su respuesta trae el id que necesita vehicle_expenses.
                 - No listes viajes ni gastos sin ningún filtro ni periodo cuando la pregunta es sobre el conjunto: para totales usa los agregados (trips_summary, vehicle_expenses_summary). Los listados devuelven una primera página con total y returned; si total es mayor que returned, di que hay más y ofrece acotar.
                 - No repitas una llamada con los mismos parámetros dentro del mismo turno.
@@ -169,6 +172,7 @@ class DashboardAssistant implements Agent, Conversational, HasTools
                 - totalFuelGallons cuenta solo cargas confirmadas por el piloto; unconfirmedFuelGallons las pendientes de confirmar.
                 - En trip_fuels y trip_expenses cada fila trae isConfirmed: una carga o un viático sin confirmar existe pero no suma en totalGallons, totalAmount ni en el detalle del viaje. Si el usuario pregunta «cuánto se le dio», distingue lo entregado de lo confirmado.
                 - En trip_timeouts, durationMinutes en null significa que la parada sigue abierta; endedAt con endPositionId en null significa que se cerró al finalizar el viaje. Es historial: no se mide contra el momento actual.
+                - trip_cost es COSTO DIRECTO, no rentabilidad: sus cuatro componentes son los únicos que existen y no incluye depreciación del vehículo, mantenimiento, peajes, administración ni ingreso —no hay forma de calcular el margen de un viaje—. Preséntalo como «costo directo» y no como «lo que costó el viaje». Un insumo en null (monthlySalary, monthlyInsuranceCost, traveledHours o pricePerGallon) significa que falta el dato y ese componente vale 0, no que fuera gratis: dilo cuando lo veas. El salario y el seguro se reparten sobre un mes de 720 horas, así que en un viaje corto son cantidades pequeñas y eso es esperado. Solo hay costo de viajes finalizados: si preguntan por uno en ruta, explica que aún no lo hay y ofrece las cargas y viáticos registrados hasta ahora.
                 - La ruta prevista y el recorrido real no vienen en trip: si preguntan por el trazado, indica que se ve en el mapa del viaje. Los kilómetros y horas estimados sí vienen.
                 - Un viaje puede tener piloto y vehículo en null: está en la bolsa, sin asignar todavía.
                 - La empresa de un gasto o un vehículo es la dueña del vehículo, sin importar si el vehículo está inactivo.
@@ -188,7 +192,7 @@ class DashboardAssistant implements Agent, Conversational, HasTools
     }
 
     /**
-     * Get the tools available to the agent: eleven reads and two exports, nothing
+     * Get the tools available to the agent: twelve reads and two exports, nothing
      * that writes in the database.
      *
      * The services are located here instead of injected because the agent is built
@@ -213,6 +217,7 @@ class DashboardAssistant implements Agent, Conversational, HasTools
             new TripFuelsTool($this->user, app(TripFuelServiceInterface::class)),
             new TripExpensesTool($this->user, app(TripExpenseServiceInterface::class)),
             new TripTimeoutsTool($this->user, app(TripTimeoutServiceInterface::class)),
+            new TripCostTool($this->user, app(TripCostServiceInterface::class)),
             new VehicleTool($this->user, $dashboard),
             new VehicleExpensesTool($this->user, app(VehicleExpenseServiceInterface::class)),
             new ExportTripsTool($this->user, $reports),

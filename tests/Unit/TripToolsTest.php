@@ -1,18 +1,23 @@
 <?php
 
 use App\Ai\Tools\AssistantTool;
+use App\Ai\Tools\Trip\TripCostTool;
 use App\Ai\Tools\Trip\TripExpensesTool;
 use App\Ai\Tools\Trip\TripFuelsTool;
 use App\Ai\Tools\Trip\TripsTool;
 use App\Ai\Tools\Trip\TripTimeoutsTool;
 use App\Ai\Tools\Trip\TripTool;
+use App\Enums\FuelType;
 use App\Enums\TripStatus;
 use App\Enums\UserRole;
 use App\Interfaces\Trip\TripServiceInterface;
+use App\Interfaces\TripCost\TripCostServiceInterface;
 use App\Interfaces\TripExpense\TripExpenseServiceInterface;
 use App\Interfaces\TripFuel\TripFuelServiceInterface;
 use App\Interfaces\TripTimeout\TripTimeoutServiceInterface;
 use App\Models\Carrier;
+use App\Models\CarrierPilot;
+use App\Models\FuelPrice;
 use App\Models\Trip;
 use App\Models\TripExpense;
 use App\Models\TripFuel;
@@ -33,6 +38,7 @@ function tripTool(string $tool, User $user): AssistantTool
         TripFuelsTool::class => new $tool($user, app(TripFuelServiceInterface::class)),
         TripExpensesTool::class => new $tool($user, app(TripExpenseServiceInterface::class)),
         TripTimeoutsTool::class => new $tool($user, app(TripTimeoutServiceInterface::class)),
+        TripCostTool::class => new $tool($user, app(TripCostServiceInterface::class)),
     };
 }
 
@@ -85,7 +91,15 @@ it('exige tripId en las herramientas de un viaje concreto y nada más', function
     TripFuelsTool::class,
     TripExpensesTool::class,
     TripTimeoutsTool::class,
+    TripCostTool::class,
 ]);
+
+it('no ofrece limit en el costo, que no es un listado', function () {
+    $factory = new JsonSchemaTypeFactory;
+    $schema = $factory->object(tripTool(TripCostTool::class, tripToolAdmin())->schema($factory))->toArray();
+
+    expect($schema['properties'])->toBe(['tripId' => $schema['properties']['tripId']]);
+});
 
 it('no obliga a ningún argumento en la búsqueda de viajes', function () {
     $factory = new JsonSchemaTypeFactory;
@@ -103,6 +117,7 @@ it('relaya al modelo la falta de tripId como error de validación', function (st
     TripFuelsTool::class,
     TripExpensesTool::class,
     TripTimeoutsTool::class,
+    TripCostTool::class,
 ]);
 
 /*
@@ -243,4 +258,80 @@ it('devuelve como error las paradas de un viaje ajeno', function () {
     $result = callTripTool(tripTool(TripTimeoutsTool::class, $owner), ['tripId' => $foreign->id]);
 
     expect($result)->toHaveKey('error');
+});
+
+/*
+|--------------------------------------------------------------------------
+| trip_cost
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve el mismo desglose que el endpoint para un viaje finalizado', function () {
+    $carrier = Carrier::factory()->create();
+    $trip = tripToolTripOf($carrier, [
+        'status' => TripStatus::Finished,
+        'start_date' => now()->subHours(3),
+        'end_date' => now(),
+        'traveled_hours' => 2.50,
+    ]);
+
+    FuelPrice::factory()->create([
+        'fuel_type' => FuelType::Diesel,
+        'price' => 38.50,
+        'created_at' => '2026-01-01 08:00:00',
+    ]);
+    TripFuel::factory()->create([
+        'trip_id' => $trip->id,
+        'gallons' => 35,
+        'fuel_type' => FuelType::Diesel,
+        'loaded_at' => '2026-02-10 09:00:00',
+        'confirmed_by' => $trip->pilot_id,
+    ]);
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 450]);
+    CarrierPilot::query()->where('user_id', '=', $trip->pilot_id)->update(['salary' => 4500.00]);
+    $trip->vehicle->update(['monthly_insurance_cost' => 350.00]);
+
+    $result = callTripTool(tripTool(TripCostTool::class, tripToolAdmin()), ['tripId' => $trip->id]);
+
+    expect(array_keys($result))
+        ->toBe(['tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'pilot', 'vehicle', 'totalCost'])
+        ->and($result['fuel']['subtotal'])->toBe('1347.50')
+        ->and($result['expenses']['subtotal'])->toBe('450.00')
+        ->and($result['pilot']['subtotal'])->toBe('15.63')
+        ->and($result['vehicle']['subtotal'])->toBe('1.22')
+        ->and($result['totalCost'])->toBe('1814.35');
+});
+
+it('devuelve el 400 del viaje en curso como error y no como excepción', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    $result = callTripTool(tripTool(TripCostTool::class, tripToolAdmin()), ['tripId' => $trip->id]);
+
+    expect($result)->toBe(['error' => 'El costo solo está disponible para viajes finalizados']);
+});
+
+it('devuelve como error el costo de un viaje inexistente y el del viaje ajeno', function () {
+    $foreign = tripToolTripOf(Carrier::factory()->create(), [
+        'status' => TripStatus::Finished,
+        'traveled_hours' => 1.00,
+    ]);
+    $owner = User::query()->findOrFail(Carrier::factory()->create()->user_id);
+
+    $missing = callTripTool(tripTool(TripCostTool::class, tripToolAdmin()), ['tripId' => 999999]);
+    $forbidden = callTripTool(tripTool(TripCostTool::class, $owner), ['tripId' => $foreign->id]);
+
+    expect($missing['error'])->toBe('El viaje no existe')
+        ->and($forbidden['error'])->toBe('No puedes acceder a un viaje que no pertenece a tu empresa transportista');
+});
+
+it('veta al piloto también desde la herramienta, no solo en el middleware del chat', function () {
+    $trip = tripToolTripOf(Carrier::factory()->create(), [
+        'status' => TripStatus::Finished,
+        'traveled_hours' => 1.00,
+    ]);
+    $pilot = User::query()->findOrFail($trip->pilot_id);
+
+    $result = callTripTool(tripTool(TripCostTool::class, $pilot), ['tripId' => $trip->id]);
+
+    expect($result)->toBe(['error' => 'No tienes permisos para consultar el costo de un viaje']);
 });
