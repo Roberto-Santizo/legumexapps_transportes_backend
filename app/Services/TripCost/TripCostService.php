@@ -10,6 +10,7 @@ use App\Interfaces\Trip\TripServiceInterface;
 use App\Interfaces\TripCost\TripCostServiceInterface;
 use App\Models\FuelPrice;
 use App\Models\Trip;
+use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\User;
 use Override;
@@ -43,7 +44,7 @@ class TripCostService implements TripCostServiceInterface
         $traveledHours = $trip->traveled_hours === null ? null : (float) $trip->traveled_hours;
 
         $fuel = $this->resolveFuel($trip);
-        $expenses = ['count' => 0, 'subtotal' => 0.0];
+        $expenses = $this->resolveExpenses($trip);
         $pilot = ['monthlySalary' => null, 'subtotal' => 0.0];
         $vehicle = ['monthlyInsuranceCost' => null, 'subtotal' => 0.0];
 
@@ -143,6 +144,32 @@ class TripCostService implements TripCostServiceInterface
             'byType' => $byType,
             /** Suma de importes ya redondeados, como el total suma los subtotales ya redondeados. */
             'subtotal' => round($subtotal, 2),
+        ];
+    }
+
+    /**
+     * Add up the **confirmed** travel allowances of the trip, in one aggregate query.
+     *
+     * Only the confirmed ones count —`received_at IS NOT NULL`—, the same criterion as
+     * `totalExpensesAmount` in `TripResource`, so the two numbers always agree for the
+     * same trip: what has not been handed over yet has not been spent yet.
+     *
+     * One query whatever the number of rows: the count and the sum travel together and
+     * nothing is hydrated into a model, because no allowance is painted here.
+     *
+     * @return array{count: int, subtotal: float}
+     */
+    private function resolveExpenses(Trip $trip): array
+    {
+        $aggregate = TripExpense::query()
+            ->where('trip_id', '=', $trip->id)
+            ->whereNotNull('received_at')
+            ->selectRaw('count(*) as rows_count, coalesce(sum(amount), 0) as rows_amount')
+            ->first();
+
+        return [
+            'count' => (int) ($aggregate?->rows_count ?? 0),
+            'subtotal' => round((float) ($aggregate?->rows_amount ?? 0), 2),
         ];
     }
 

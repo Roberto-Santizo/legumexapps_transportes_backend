@@ -9,6 +9,7 @@ use App\Interfaces\TripCost\TripCostServiceInterface;
 use App\Models\Carrier;
 use App\Models\FuelPrice;
 use App\Models\Trip;
+use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -298,3 +299,38 @@ function tripCostLoad(Trip $trip, float $gallons, FuelType $type, string $loaded
         'confirmed_by' => $trip->pilot_id,
     ]);
 }
+
+/*
+|--------------------------------------------------------------------------
+| Viáticos
+|--------------------------------------------------------------------------
+*/
+
+it('suma y cuenta solo los viáticos confirmados', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 300]);
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 150]);
+    TripExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 999]);
+
+    expect(tripCostService()->getTripCost($owner, $trip->id)['expenses'])
+        ->toBe(['count' => 2, 'subtotal' => 450.0]);
+});
+
+it('devuelve el bloque de viáticos en cero cuando no hay ninguno confirmado', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    expect(tripCostService()->getTripCost($owner, $trip->id)['expenses'])
+        ->toBe(['count' => 0, 'subtotal' => 0.0]);
+});
+
+it('coincide con el totalExpensesAmount que pinta TripResource', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 725.50]);
+    TripExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 100]);
+
+    $cost = tripCostService()->getTripCost($owner, $trip->id);
+
+    expect($cost['expenses']['subtotal'])->toBe((float) $cost['trip']->total_expenses_amount);
+});
