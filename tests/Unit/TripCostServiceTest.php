@@ -7,6 +7,8 @@ use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
 use App\Interfaces\TripCost\TripCostServiceInterface;
 use App\Models\Carrier;
+use App\Models\CarrierPilot;
+use App\Models\CarrierPilotSalaryHistory;
 use App\Models\FuelPrice;
 use App\Models\Trip;
 use App\Models\TripExpense;
@@ -334,3 +336,152 @@ it('coincide con el totalExpensesAmount que pinta TripResource', function () {
 
     expect($cost['expenses']['subtotal'])->toBe((float) $cost['trip']->total_expenses_amount);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Piloto y vehículo
+|--------------------------------------------------------------------------
+*/
+
+it('prorratea el salario y el seguro sobre un mes de 720 horas', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', ['traveled_hours' => 2.50]);
+
+    tripCostSalary($trip, 4500.00);
+    $trip->vehicle->update(['monthly_insurance_cost' => 350.00]);
+
+    $cost = tripCostService()->getTripCost($owner, $trip->id);
+
+    /** 4500 / 720 × 2.5 = 15.625 → 15.63 y 350 / 720 × 2.5 = 1.2152… → 1.22 */
+    expect($cost['pilot'])->toBe(['monthlySalary' => 4500.00, 'subtotal' => 15.63])
+        ->and($cost['vehicle'])->toBe(['monthlyInsuranceCost' => 350.00, 'subtotal' => 1.22]);
+});
+
+it('usa el salario vigente al arrancar el viaje y no el posterior', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', [
+        'traveled_hours' => 2.50,
+        'start_date' => '2026-03-01 06:00:00',
+    ]);
+
+    $pivot = tripCostSalary($trip, 6000.00);
+
+    /** El sueldo que regía el día del viaje… */
+    CarrierPilotSalaryHistory::factory()->create([
+        'carrier_pilot_id' => $pivot->id,
+        'new_salary' => 4500.00,
+        'created_at' => '2026-02-01 08:00:00',
+    ]);
+
+    /** …y un aumento posterior, que no puede mover un costo ya cerrado. */
+    CarrierPilotSalaryHistory::factory()->create([
+        'carrier_pilot_id' => $pivot->id,
+        'new_salary' => 6000.00,
+        'created_at' => '2026-05-01 08:00:00',
+    ]);
+
+    expect(tripCostService()->getTripCost($owner, $trip->id)['pilot'])
+        ->toBe(['monthlySalary' => 4500.00, 'subtotal' => 15.63]);
+});
+
+it('cae al salario actual del pivote cuando no hay bitácora anterior al viaje', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', [
+        'traveled_hours' => 2.50,
+        'start_date' => '2026-03-01 06:00:00',
+    ]);
+
+    $pivot = tripCostSalary($trip, 4500.00);
+
+    /** Toda la bitácora es posterior al viaje: ninguna fila cumple. */
+    CarrierPilotSalaryHistory::factory()->create([
+        'carrier_pilot_id' => $pivot->id,
+        'new_salary' => 9000.00,
+        'created_at' => '2026-06-01 08:00:00',
+    ]);
+
+    expect(tripCostService()->getTripCost($owner, $trip->id)['pilot']['monthlySalary'])->toBe(4500.00);
+});
+
+it('deja el salario en null cuando el piloto ya no está vinculado a la empresa del viaje', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', ['traveled_hours' => 2.50]);
+
+    tripCostSalary($trip, 4500.00);
+    CarrierPilot::query()->where('user_id', $trip->pilot_id)->delete();
+
+    expect(tripCostService()->getTripCost($owner, $trip->id)['pilot'])
+        ->toBe(['monthlySalary' => null, 'subtotal' => 0.0]);
+});
+
+it('deja el salario en null cuando el pivote todavía no tiene sueldo asignado', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', ['traveled_hours' => 2.50]);
+
+    tripCostSalary($trip, null);
+
+    expect(tripCostService()->getTripCost($owner, $trip->id)['pilot'])
+        ->toBe(['monthlySalary' => null, 'subtotal' => 0.0]);
+});
+
+it('deja los dos prorrateos en cero cuando el viaje se cerró antes de SPEC 32', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', ['traveled_hours' => null]);
+
+    tripCostSalary($trip, 4500.00);
+    $trip->vehicle->update(['monthly_insurance_cost' => 350.00]);
+
+    $cost = tripCostService()->getTripCost($owner, $trip->id);
+
+    /** Los insumos siguen a la vista: lo que falta son las horas, no el sueldo. */
+    expect($cost['traveledHours'])->toBeNull()
+        ->and($cost['pilot'])->toBe(['monthlySalary' => 4500.00, 'subtotal' => 0.0])
+        ->and($cost['vehicle'])->toBe(['monthlyInsuranceCost' => 350.00, 'subtotal' => 0.0]);
+});
+
+it('deja los dos bloques en null cuando el viaje finalizado no tiene tripulación', function () {
+    ['trip' => $trip] = tripCostScene('finished', ['traveled_hours' => 2.50]);
+
+    /** Solo alcanzable por el PATCH del administrador, el hueco declarado de SPEC 24. */
+    $trip->update(['pilot_id' => null, 'vehicle_id' => null]);
+
+    $cost = tripCostService()->getTripCost(tripCostUser(UserRole::Administrator), $trip->id);
+
+    expect($cost['pilot'])->toBe(['monthlySalary' => null, 'subtotal' => 0.0])
+        ->and($cost['vehicle'])->toBe(['monthlyInsuranceCost' => null, 'subtotal' => 0.0]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Total
+|--------------------------------------------------------------------------
+*/
+
+it('suma los cuatro subtotales ya redondeados', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', ['traveled_hours' => 2.50]);
+
+    tripCostPrice(FuelType::Diesel, 38.50, '2026-01-01 08:00:00');
+    tripCostLoad($trip, 35, FuelType::Diesel, '2026-02-10 09:00:00');
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 450]);
+    tripCostSalary($trip, 4500.00);
+    $trip->vehicle->update(['monthly_insurance_cost' => 350.00]);
+
+    $cost = tripCostService()->getTripCost($owner, $trip->id);
+
+    /** 1347.50 + 450.00 + 15.63 + 1.22 = 1814.35 */
+    expect($cost['totalCost'])->toBe(1814.35)
+        ->and($cost['totalCost'])->toBe(round(
+            $cost['fuel']['subtotal'] + $cost['expenses']['subtotal']
+            + $cost['pilot']['subtotal'] + $cost['vehicle']['subtotal'],
+            2
+        ));
+});
+
+/**
+ * Give the trip's pilot a monthly salary on the pivot of the company that took it.
+ */
+function tripCostSalary(Trip $trip, ?float $salary): CarrierPilot
+{
+    $pivot = CarrierPilot::query()
+        ->where('carrier_id', '=', User::findOrFail($trip->assigned_by)->currentCarrier()->id)
+        ->where('user_id', '=', $trip->pilot_id)
+        ->firstOrFail();
+
+    $pivot->update(['salary' => $salary]);
+
+    return $pivot;
+}

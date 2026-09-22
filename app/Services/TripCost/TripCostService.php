@@ -8,6 +8,8 @@ use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Interfaces\Trip\TripServiceInterface;
 use App\Interfaces\TripCost\TripCostServiceInterface;
+use App\Models\CarrierPilot;
+use App\Models\CarrierPilotSalaryHistory;
 use App\Models\FuelPrice;
 use App\Models\Trip;
 use App\Models\TripExpense;
@@ -45,8 +47,8 @@ class TripCostService implements TripCostServiceInterface
 
         $fuel = $this->resolveFuel($trip);
         $expenses = $this->resolveExpenses($trip);
-        $pilot = ['monthlySalary' => null, 'subtotal' => 0.0];
-        $vehicle = ['monthlyInsuranceCost' => null, 'subtotal' => 0.0];
+        $pilot = $this->resolvePilot($trip, $traveledHours);
+        $vehicle = $this->resolveVehicle($trip, $traveledHours);
 
         return [
             'trip' => $trip,
@@ -226,6 +228,115 @@ class TripCostService implements TripCostServiceInterface
         }
 
         return $resolved;
+    }
+
+    /**
+     * Prorate the pilot's monthly salary over the hours the trip really took.
+     *
+     * @return array{monthlySalary: float|null, subtotal: float}
+     */
+    private function resolvePilot(Trip $trip, ?float $traveledHours): array
+    {
+        $monthlySalary = $this->resolveMonthlySalary($trip);
+
+        return [
+            'monthlySalary' => $monthlySalary,
+            'subtotal' => $this->prorate($monthlySalary, $traveledHours),
+        ];
+    }
+
+    /**
+     * Prorate the vehicle's monthly insurance over the hours the trip really took.
+     *
+     * The vehicle travels already eager loaded with the trip, so this costs no query of
+     * its own, and a `finished` trip with no vehicle —only reachable through the
+     * administrator's general PATCH, the declared hole of SPEC 24— answers `null`.
+     *
+     * @return array{monthlyInsuranceCost: float|null, subtotal: float}
+     */
+    private function resolveVehicle(Trip $trip, ?float $traveledHours): array
+    {
+        $insurance = $trip->vehicle?->monthly_insurance_cost;
+        $monthlyInsuranceCost = $insurance === null ? null : (float) $insurance;
+
+        return [
+            'monthlyInsuranceCost' => $monthlyInsuranceCost,
+            'subtotal' => $this->prorate($monthlyInsuranceCost, $traveledHours),
+        ];
+    }
+
+    /**
+     * Share one monthly amount out over the hours the trip really took.
+     *
+     * The month is 720 hours, whole and flat: this domain models no working shift, so a
+     * trip driven at dawn cannot cost three times the same trip driven at noon.
+     *
+     * A missing input is worth `0.00` and never an error —no salary captured, no
+     * insurance, or a trip closed before SPEC 32 with its `traveled_hours` still null—:
+     * the breakdown shows the hole as a `null` input while the subtotal stays at zero.
+     */
+    private function prorate(?float $monthlyAmount, ?float $traveledHours): float
+    {
+        if ($monthlyAmount === null || $traveledHours === null) {
+            return 0.0;
+        }
+
+        return round($monthlyAmount / self::MONTHLY_HOURS * $traveledHours, 2);
+    }
+
+    /**
+     * Resolve the monthly salary the pilot of this trip earned **when it started**.
+     *
+     * Same criterion as the fuel: if an input keeps a history, the history is what
+     * answers. A raise granted after the trip does not move a cost that is already
+     * closed.
+     *
+     * Three steps and a fallback. The pivot is the `carrier_pilots` row joining the
+     * trip's pilot with the company of `assigned_by` —resolved through
+     * `User::currentCarrier()`, the single source of truth of SPEC 03—; the log is the
+     * `new_salary` of the most recent `carrier_pilot_salary_histories` row of that pivot
+     * captured at or before `start_date`, ordered by `id desc` as SPEC 11 does so two
+     * changes of the same second do not tie; and without any qualifying row, the pivot's
+     * current `salary`. That fallback is deliberate: the `previous_salary` of the oldest
+     * row is more literal but is usually null, and would leave every trip before the
+     * first raise at `0.00`.
+     *
+     * Answers `null` —never an error— when the trip carries no pilot, when the pilot is
+     * no longer linked to that company (rebuilding the historical link would need a log
+     * of joins and leaves that `carrier_pilots` does not keep) or when the salary was
+     * never assigned.
+     */
+    private function resolveMonthlySalary(Trip $trip): ?float
+    {
+        $carrier = $trip->pilot_id === null ? null : $trip->assignedBy?->currentCarrier();
+
+        if ($carrier === null) {
+            return null;
+        }
+
+        $pivot = CarrierPilot::query()
+            ->where('carrier_id', '=', $carrier->id)
+            ->where('user_id', '=', $trip->pilot_id)
+            ->first();
+
+        if ($pivot === null) {
+            return null;
+        }
+
+        if ($trip->start_date !== null) {
+            $history = CarrierPilotSalaryHistory::query()
+                ->where('carrier_pilot_id', '=', $pivot->id)
+                ->where('created_at', '<=', $trip->start_date)
+                ->orderByDesc('id')
+                ->first();
+
+            if ($history !== null) {
+                return (float) $history->new_salary;
+            }
+        }
+
+        /** `null` significa «sin asignar», no «gana cero»: se propaga tal cual. */
+        return $pivot->salary === null ? null : (float) $pivot->salary;
     }
 
     /**
