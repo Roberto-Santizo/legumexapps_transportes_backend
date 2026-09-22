@@ -1,12 +1,15 @@
 <?php
 
+use App\Enums\FuelType;
 use App\Enums\UserRole;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
 use App\Interfaces\TripCost\TripCostServiceInterface;
 use App\Models\Carrier;
+use App\Models\FuelPrice;
 use App\Models\Trip;
+use App\Models\TripFuel;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\TripCost\TripCostService;
@@ -151,3 +154,147 @@ it('lee traveledHours de la columna y lo deja en null en un viaje cerrado antes 
 
     expect(tripCostService()->getTripCost($owner, $trip->id)['traveledHours'])->toBeNull();
 });
+
+/*
+|--------------------------------------------------------------------------
+| Combustible
+|--------------------------------------------------------------------------
+*/
+
+it('cotiza una carga confirmada al precio vigente en su loaded_at', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    tripCostPrice(FuelType::Diesel, 38.50, '2026-01-01 08:00:00');
+    tripCostLoad($trip, 35, FuelType::Diesel, '2026-02-10 09:00:00');
+
+    $fuel = tripCostService()->getTripCost($owner, $trip->id)['fuel'];
+
+    expect($fuel['gallons'])->toBe(35.0)
+        ->and($fuel['byType'])->toHaveCount(1)
+        ->and($fuel['byType'][0])->toBe([
+            'fuelType' => 'diesel',
+            'gallons' => 35.0,
+            'pricePerGallon' => 38.50,
+            'amount' => 1347.50,
+        ])
+        ->and($fuel['subtotal'])->toBe(1347.50);
+});
+
+it('cotiza dos cargas del mismo tipo a precios distintos y las suma en un solo elemento', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    tripCostPrice(FuelType::Diesel, 30.00, '2026-01-01 08:00:00');
+    tripCostPrice(FuelType::Diesel, 40.00, '2026-02-01 08:00:00');
+
+    tripCostLoad($trip, 10, FuelType::Diesel, '2026-01-15 09:00:00');
+    tripCostLoad($trip, 10, FuelType::Diesel, '2026-02-15 09:00:00');
+
+    $fuel = tripCostService()->getTripCost($owner, $trip->id)['fuel'];
+
+    /** 10 × 30 + 10 × 40 = 700, un solo bloque de 20 galones. */
+    expect($fuel['byType'])->toHaveCount(1)
+        ->and($fuel['byType'][0]['gallons'])->toBe(20.0)
+        ->and($fuel['byType'][0]['amount'])->toBe(700.0)
+        ->and($fuel['subtotal'])->toBe(700.0);
+});
+
+it('usa el precio vigente en esa fecha aunque hoy esté inactivo', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    FuelPrice::factory()->inactive()->create([
+        'fuel_type' => FuelType::Regular,
+        'price' => 25.00,
+        'created_at' => '2026-01-01 08:00:00',
+    ]);
+    tripCostPrice(FuelType::Regular, 99.00, '2026-03-01 08:00:00');
+
+    tripCostLoad($trip, 4, FuelType::Regular, '2026-01-20 09:00:00');
+
+    $fuel = tripCostService()->getTripCost($owner, $trip->id)['fuel'];
+
+    expect($fuel['byType'][0]['pricePerGallon'])->toBe(25.00)
+        ->and($fuel['subtotal'])->toBe(100.0);
+});
+
+it('ignora las cargas sin confirmar', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    tripCostPrice(FuelType::Diesel, 38.50, '2026-01-01 08:00:00');
+    TripFuel::factory()->create([
+        'trip_id' => $trip->id,
+        'gallons' => 50,
+        'fuel_type' => FuelType::Diesel,
+    ]);
+
+    $fuel = tripCostService()->getTripCost($owner, $trip->id)['fuel'];
+
+    expect($fuel['gallons'])->toBe(0.0)
+        ->and($fuel['byType'])->toBe([])
+        ->and($fuel['subtotal'])->toBe(0.0);
+});
+
+it('devuelve el bloque en cero cuando el viaje no tiene cargas', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    $fuel = tripCostService()->getTripCost($owner, $trip->id)['fuel'];
+
+    expect($fuel)->toBe(['gallons' => 0.0, 'byType' => [], 'subtotal' => 0.0]);
+});
+
+it('deja el precio en null cuando la carga es anterior a cualquier precio capturado de su tipo', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    tripCostPrice(FuelType::Diesel, 38.50, '2026-05-01 08:00:00');
+    tripCostLoad($trip, 12, FuelType::Diesel, '2026-01-10 09:00:00');
+
+    $fuel = tripCostService()->getTripCost($owner, $trip->id)['fuel'];
+
+    /** Los galones sí suman: un bloque con galones y sin importe es la señal visible. */
+    expect($fuel['byType'][0]['pricePerGallon'])->toBeNull()
+        ->and($fuel['byType'][0]['gallons'])->toBe(12.0)
+        ->and($fuel['byType'][0]['amount'])->toBe(0.0)
+        ->and($fuel['subtotal'])->toBe(0.0);
+});
+
+it('no mezcla los precios de dos tipos de combustible distintos', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    tripCostPrice(FuelType::Diesel, 38.50, '2026-01-01 08:00:00');
+    tripCostPrice(FuelType::Regular, 30.00, '2026-01-01 08:00:00');
+
+    tripCostLoad($trip, 10, FuelType::Diesel, '2026-02-01 09:00:00');
+    tripCostLoad($trip, 10, FuelType::Regular, '2026-02-01 09:00:00');
+
+    $fuel = tripCostService()->getTripCost($owner, $trip->id)['fuel'];
+
+    expect($fuel['byType'])->toHaveCount(2)
+        ->and(collect($fuel['byType'])->pluck('amount', 'fuelType')->all())
+        ->toBe(['diesel' => 385.0, 'regular' => 300.0])
+        ->and($fuel['subtotal'])->toBe(685.0);
+});
+
+/**
+ * Capture a fuel price for the given type at a known moment.
+ */
+function tripCostPrice(FuelType $type, float $price, string $capturedAt): FuelPrice
+{
+    return FuelPrice::factory()->create([
+        'fuel_type' => $type,
+        'price' => $price,
+        'created_at' => $capturedAt,
+    ]);
+}
+
+/**
+ * Register one already confirmed fuel load on the trip, loaded at a known moment.
+ */
+function tripCostLoad(Trip $trip, float $gallons, FuelType $type, string $loadedAt): TripFuel
+{
+    return TripFuel::factory()->create([
+        'trip_id' => $trip->id,
+        'gallons' => $gallons,
+        'fuel_type' => $type,
+        'loaded_at' => $loadedAt,
+        'confirmed_by' => $trip->pilot_id,
+    ]);
+}

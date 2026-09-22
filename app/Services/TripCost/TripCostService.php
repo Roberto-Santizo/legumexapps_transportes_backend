@@ -8,7 +8,9 @@ use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Interfaces\Trip\TripServiceInterface;
 use App\Interfaces\TripCost\TripCostServiceInterface;
+use App\Models\FuelPrice;
 use App\Models\Trip;
+use App\Models\TripFuel;
 use App\Models\User;
 use Override;
 
@@ -40,7 +42,7 @@ class TripCostService implements TripCostServiceInterface
 
         $traveledHours = $trip->traveled_hours === null ? null : (float) $trip->traveled_hours;
 
-        $fuel = ['gallons' => 0.0, 'byType' => [], 'subtotal' => 0.0];
+        $fuel = $this->resolveFuel($trip);
         $expenses = ['count' => 0, 'subtotal' => 0.0];
         $pilot = ['monthlySalary' => null, 'subtotal' => 0.0];
         $vehicle = ['monthlyInsuranceCost' => null, 'subtotal' => 0.0];
@@ -58,6 +60,145 @@ class TripCostService implements TripCostServiceInterface
              */
             'totalCost' => round($fuel['subtotal'] + $expenses['subtotal'] + $pilot['subtotal'] + $vehicle['subtotal'], 2),
         ];
+    }
+
+    /**
+     * Price every **confirmed** fuel load of the trip at the price in force on its date.
+     *
+     * Only confirmed loads are quoted —the same criterion as `totalFuelGallons`, so the
+     * cost never contradicts `TripResource`— and a confirmed load always carries its
+     * `loaded_at`, so there is no such thing as a load with no date to look a price up
+     * for. An unconfirmed one neither adds gallons nor shows up in the breakdown.
+     *
+     * Two queries at most, whatever the number of loads: one for the loads and one for
+     * every price of the types actually present. The pairing of each `loaded_at` with
+     * its price happens **in PHP**, never as a subquery per load, which on the table
+     * that can grow the most would be a textbook N+1.
+     *
+     * @return array{gallons: float, byType: list<array{fuelType: string, gallons: float, pricePerGallon: float|null, amount: float}>, subtotal: float}
+     */
+    private function resolveFuel(Trip $trip): array
+    {
+        $loads = TripFuel::query()
+            ->select(['gallons', 'fuel_type', 'loaded_at'])
+            ->where('trip_id', '=', $trip->id)
+            ->whereNotNull('loaded_at')
+            ->orderBy('id')
+            ->get();
+
+        if ($loads->isEmpty()) {
+            return ['gallons' => 0.0, 'byType' => [], 'subtotal' => 0.0];
+        }
+
+        $prices = $this->pricesByType($loads->pluck('fuel_type.value')->unique()->values()->all());
+
+        /**
+         * Se agrupa por tipo pero se multiplica por carga: dos cargas del mismo tipo a
+         * ambos lados de un cambio de precio se cotizan a precios distintos y caen en un
+         * solo elemento de byType con sus importes ya sumados.
+         */
+        $groups = [];
+
+        foreach ($loads as $load) {
+            $type = $load->fuel_type->value;
+            $gallons = (float) $load->gallons;
+            $price = $this->priceAt($prices[$type] ?? [], $load->loaded_at->getTimestamp());
+
+            $groups[$type] ??= ['gallons' => 0.0, 'pricedGallons' => 0.0, 'amount' => 0.0];
+            $groups[$type]['gallons'] += $gallons;
+
+            /** Sin precio capturado para esa fecha la carga aporta 0.00, pero sus galones sí suman. */
+            if ($price !== null) {
+                $groups[$type]['pricedGallons'] += $gallons;
+                $groups[$type]['amount'] += $gallons * $price;
+            }
+        }
+
+        $byType = [];
+        $subtotal = 0.0;
+        $gallons = 0.0;
+
+        foreach ($groups as $type => $group) {
+            $amount = round($group['amount'], 2);
+
+            $byType[] = [
+                'fuelType' => $type,
+                'gallons' => round($group['gallons'], 2),
+                /**
+                 * El precio medio ponderado de las cargas que SÍ resolvieron precio, para que
+                 * galones por precio siga cuadrando con el importe. Con un único precio vigente
+                 * es exactamente ese precio; con ninguna carga cotizada es null, que es la señal
+                 * de que al tipo le falta historial de precios para esas fechas.
+                 */
+                'pricePerGallon' => $group['pricedGallons'] > 0.0 ? round($amount / $group['pricedGallons'], 2) : null,
+                'amount' => $amount,
+            ];
+
+            $gallons += $group['gallons'];
+            $subtotal += $amount;
+        }
+
+        return [
+            'gallons' => round($gallons, 2),
+            'byType' => $byType,
+            /** Suma de importes ya redondeados, como el total suma los subtotales ya redondeados. */
+            'subtotal' => round($subtotal, 2),
+        ];
+    }
+
+    /**
+     * Load every captured price of the given fuel types, oldest first, in one query.
+     *
+     * The `status` of the row is deliberately ignored: an `inactive` row is precisely
+     * the price that was in force back then, and filtering by `active` would quote every
+     * date at today's price.
+     *
+     * @param  list<string>  $types
+     * @return array<string, list<array{at: int, price: float}>>
+     */
+    private function pricesByType(array $types): array
+    {
+        $prices = [];
+
+        FuelPrice::query()
+            ->select(['fuel_type', 'price', 'created_at', 'id'])
+            ->whereIn('fuel_type', $types)
+            ->orderBy('created_at')
+            /** Desempate entre dos capturas del mismo segundo, como la bitácora de SPEC 11. */
+            ->orderBy('id')
+            ->get()
+            ->each(function (FuelPrice $price) use (&$prices): void {
+                $prices[$price->fuel_type->value][] = [
+                    'at' => $price->created_at->getTimestamp(),
+                    'price' => (float) $price->price,
+                ];
+            });
+
+        return $prices;
+    }
+
+    /**
+     * Pick the last price captured at or before the given moment.
+     *
+     * `fuel_prices.created_at` is when the administrator **captured** the price and not
+     * when it started ruling —SPEC 06 published no validity column—, so a load made
+     * before the first capture of its type has no price at all and answers `null`.
+     *
+     * @param  list<array{at: int, price: float}>  $prices  Ascending by capture moment.
+     */
+    private function priceAt(array $prices, int $moment): ?float
+    {
+        $resolved = null;
+
+        foreach ($prices as $price) {
+            if ($price['at'] > $moment) {
+                break;
+            }
+
+            $resolved = $price['price'];
+        }
+
+        return $resolved;
     }
 
     /**
