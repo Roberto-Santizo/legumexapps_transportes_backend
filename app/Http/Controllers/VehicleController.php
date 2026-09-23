@@ -23,9 +23,9 @@ class VehicleController extends Controller
         operationId: 'indexVehicles',
         summary: 'Listar vehículos',
         description: <<<'TEXT'
-        Devuelve los vehículos visibles para el usuario autenticado. Pueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required; el administrator está exento del segundo).
+        Devuelve los vehículos visibles para el usuario autenticado. Pueden llamarlo los roles carrier, administrator, manager y export (middlewares role:carrier,administrator,manager,export y carrier.required; los tres últimos están exentos del segundo).
 
-        El ámbito lo fija el rol, no la petición: un carrier recibe únicamente los vehículos de su empresa y nunca los de otra; un administrator recibe los de todas las empresas.
+        El ámbito lo fija el rol, no la petición: un carrier recibe únicamente los vehículos de su empresa y nunca los de otra; administrator, manager y export reciben los de todas las empresas.
 
         ATENCIÓN — el listado devuelve por defecto TODOS los estados, incluidos los inactive (los desactivados con DELETE) y los under_repair. Un cliente que pinte "mis vehículos" sin filtrar mostrará vehículos dados de baja como si estuvieran operativos: filtrar es responsabilidad del consumidor, y para eso está el parámetro status.
 
@@ -45,7 +45,7 @@ class VehicleController extends Controller
             ),
             new OA\Parameter(
                 name: 'carrierId',
-                description: 'Filtra por empresa transportista. ATENCIÓN: solo lo aplica el rol administrator. En un carrier se ignora en silencio —no devuelve 403 ni 422—, porque su ámbito ya está fijado por su empresa: seguirá recibiendo solo los suyos aunque envíe el id de otra empresa. Un valor no numérico se ignora igualmente.',
+                description: 'Filtra por empresa transportista. ATENCIÓN: solo lo aplican administrator, manager y export. En un carrier se ignora en silencio —no devuelve 403 ni 422—, porque su ámbito ya está fijado por su empresa: seguirá recibiendo solo los suyos aunque envíe el id de otra empresa. Un valor no numérico se ignora igualmente.',
                 in: 'query',
                 required: false,
                 schema: new OA\Schema(type: 'integer', example: 1),
@@ -120,11 +120,11 @@ class VehicleController extends Controller
     #[OA\Post(
         path: '/api/vehicles',
         operationId: 'storeVehicle',
-        summary: 'Registrar un vehículo en la empresa propia',
+        summary: 'Registrar un vehículo en la empresa propia, o en la que elija un administrador',
         description: <<<'TEXT'
-        Registra un vehículo en la empresa del usuario autenticado, que debe tener rol carrier (middlewares role:carrier y carrier.required). Un administrator recibe 403: supervisa y corrige el inventario, pero el alta la hace quien es dueño de él.
+        Registra un vehículo. Pueden llamarlo carrier y administrator (middlewares role:carrier,administrator y carrier.required). Un carrier lo registra en su propia empresa; un administrator no pertenece a ninguna y manda carrier_id en el cuerpo (obligatorio para él, 422 si falta o no existe). manager, export, pilot, user y shipment reciben 403.
 
-        La empresa no se envía en el cuerpo: se resuelve desde el usuario autenticado, por eso un carrier sin empresa queda cortado por carrier.required antes de llegar al servicio. El status tampoco se envía: el vehículo nace siempre en active y mandarlo no cambia nada.
+        Un carrier no envía la empresa —si manda carrier_id se descarta sin validar—: se resuelve desde el usuario autenticado, por eso un carrier sin empresa queda cortado por carrier.required antes de llegar al servicio. El status tampoco se envía: el vehículo nace siempre en active y mandarlo no cambia nada.
 
         La placa se normaliza a mayúsculas antes de validarla y de persistirla (p123abc se guarda como P123ABC). Su unicidad es condicional y se comprueba en el servicio, no en base de datos: hay conflicto —400— si existe cualquier vehículo, de la propia empresa o de otra, con esa misma placa y un status distinto de inactive. Un vehículo under_repair también bloquea la placa; solo el desactivado la libera, y entonces el alta devuelve 201 y quedan dos filas con la misma placa sin vínculo entre ellas.
 
@@ -166,7 +166,7 @@ class VehicleController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es carrier —un administrator, un pilot o un manager caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso) o es un carrier que todavía no ha registrado su empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso)',
+                description: 'El rol del usuario autenticado no es carrier ni administrator —manager, export, pilot, user y shipment caen aquí— (mensaje del middleware role: No tienes permisos para acceder a este recurso) o es un carrier que todavía no ha registrado su empresa (mensaje del middleware carrier.required: Debes estar vinculado a un transportista para acceder a este recurso)',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -192,9 +192,9 @@ class VehicleController extends Controller
         operationId: 'showVehicle',
         summary: 'Obtener un vehículo por id',
         description: <<<'TEXT'
-        Devuelve un vehículo concreto, con carrierName incluido. Pueden llamarlo los roles carrier y administrator (middlewares role:carrier,administrator y carrier.required; el administrator está exento del segundo).
+        Devuelve un vehículo concreto, con carrierName incluido. Pueden llamarlo los roles carrier, administrator, manager y export (middlewares role:carrier,administrator,manager,export y carrier.required; los tres últimos están exentos del segundo).
 
-        El ámbito se comprueba en el servicio: un carrier solo alcanza los vehículos de su propia empresa y recibe 403 si pide uno ajeno; un administrator obtiene el de cualquier empresa. Se responde 403 y no 404 en ese caso, de forma coherente con el resto del proyecto: se acepta revelar que el id existe a cambio de un mensaje honesto.
+        El ámbito se comprueba en el servicio: un carrier solo alcanza los vehículos de su propia empresa y recibe 403 si pide uno ajeno; administrator, manager y export obtienen el de cualquier empresa. Se responde 403 y no 404 en ese caso, de forma coherente con el resto del proyecto: se acepta revelar que el id existe a cambio de un mensaje honesto.
 
         Un vehículo desactivado (status inactive) se sigue obteniendo con normalidad: la fila nunca se borra.
         TEXT,

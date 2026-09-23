@@ -23,7 +23,7 @@ class LocationController extends Controller
         operationId: 'indexLocations',
         summary: 'Listar destinos',
         description: <<<'TEXT'
-        Devuelve los destinos con sus coordenadas y el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque el destino es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
+        Devuelve los destinos con sus coordenadas y el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa, porque el destino es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
 
         ATENCIÓN — el listado devuelve por defecto ACTIVOS E INACTIVOS mezclados. La baja de un destino es lógica, así que lo dado de baja sigue apareciendo aquí con status false; para quedarse solo con lo cotizable hay que enviar status=true. Es intencionado: una pantalla de administración necesita ver lo que dio de baja para poder reactivarlo.
 
@@ -110,7 +110,7 @@ class LocationController extends Controller
         operationId: 'storeLocation',
         summary: 'Registrar un destino',
         description: <<<'TEXT'
-        Da de alta un destino nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer los destinos. No lleva carrier.required, porque el destino no pertenece a ninguna empresa.
+        Da de alta un destino nacional. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403, aunque los tres sí puedan leer los destinos. No lleva carrier.required, porque el destino no pertenece a ninguna empresa.
 
         El cuerpo acepta name, description, type, googlePlaceId, latitude y longitude; obligatorios todos menos description. ATENCIÓN — CAMBIO INCOMPATIBLE desde SPEC 21: el alta pasó de CUATRO a CINCO campos obligatorios al sumar type, y no hay periodo de gracia; un cliente que siga mandando los cuatro de antes recibe 422 con "El tipo de destino es obligatorio". El default destination de la columna existe para las filas ya migradas, no para que el alta pueda omitirlo. El status NO se envía —el destino nace siempre activo— y el registeredBy tampoco: se toma del usuario autenticado y se devuelve resuelto en registeredByName. Mandar cualquiera de los dos en el cuerpo no tiene efecto.
 
@@ -153,7 +153,7 @@ class LocationController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer los destinos—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí, aunque los tres sí puedan leer los destinos—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -181,7 +181,7 @@ class LocationController extends Controller
         description: <<<'TEXT'
         Devuelve un destino concreto, activo o dado de baja, con sus coordenadas y el nombre del administrador que lo capturó.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
 
         Un destino con status false se obtiene con toda normalidad: la baja es lógica y no oculta la fila en ninguna lectura. El campo status es lo que distingue si se puede cotizar.
 
@@ -239,7 +239,7 @@ class LocationController extends Controller
         operationId: 'updateLocation',
         summary: 'Actualizar un destino',
         description: <<<'TEXT'
-        Modifica el nombre, la descripción, el tipo, el lugar de Google, las coordenadas, el estado o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
+        Modifica el nombre, la descripción, el tipo, el lugar de Google, las coordenadas, el estado o cualquier combinación de ellos. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
 
         Todos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda description no altera el nombre, el lugar ni las coordenadas. Un CUERPO VACÍO responde 200 como no-op, devolviendo el destino sin cambios, en vez de 422.
 
@@ -295,7 +295,7 @@ class LocationController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -326,7 +326,7 @@ class LocationController extends Controller
         operationId: 'toggleStatusLocation',
         summary: 'Invertir el estado de un destino',
         description: <<<'TEXT'
-        Invierte el status actual del destino: true pasa a false y false pasa a true. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.
+        Invierte el status actual del destino: true pasa a false y false pasa a true. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403.
 
         NO LLEVA CUERPO. Enviarlo no cambia nada: la operación no recibe datos porque el nuevo estado se deduce del actual. Es lo que necesita el interruptor de una tabla de administración, que no tiene por qué saber el estado en el que está la fila. El nombre, la descripción, el lugar de Google y las coordenadas no se tocan.
 
@@ -367,7 +367,7 @@ class LocationController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -395,7 +395,7 @@ class LocationController extends Controller
         description: <<<'TEXT'
         ATENCIÓN — este DELETE NO BORRA NADA: es una BAJA LÓGICA que se limita a poner status en false. La fila sigue existiendo en la base, GET /api/locations/{location} la sigue devolviendo con 200 y sigue apareciendo en GET /api/locations sin filtros —para excluirla hay que pedir status=true—. Es lo contrario del DELETE de FuelPrices, que borra de verdad, y del de FreightRates, que es un soft delete no idempotente. El motivo es que un destino referenciado por tarifas y por viajes históricos no debe poder desaparecer; la propia clave foránea de freight_rates.location_id está declarada SIN cascade justamente para frenar un borrado real.
 
-        Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.
+        Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403.
 
         Es IDEMPOTENTE: repetir la llamada sobre un destino ya dado de baja responde 200 LAS DOS VECES y lo deja igual, no 400 ni 404. Dar de baja algo que ya lo está no es un error del cliente, porque el resultado que pidió ya se cumple.
 
@@ -434,7 +434,7 @@ class LocationController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(

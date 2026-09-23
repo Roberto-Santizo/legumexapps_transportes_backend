@@ -739,9 +739,9 @@ it('no dispara N+1 al listar puntos de partida de muchos registradores', functio
     $sobrePuntos = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "departure_points"'));
     $sobreUsuarios = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "users"'));
 
-    /** Una consulta por el listado y otra por la relación: la del usuario autenticado es aparte. */
+    /** Una consulta por el listado y otra por la relación; el usuario autenticado cuenta dos: jwt.auth y el role: de la lectura. */
     expect($sobrePuntos)->toHaveCount(1)
-        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(2);
+        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(3);
 });
 
 /*

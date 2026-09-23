@@ -27,16 +27,18 @@ function tripExpenseEndpoints(): array
 }
 
 /**
- * The three roles `role:carrier` keeps out of the registering endpoint.
+ * The roles `role:carrier,administrator` keeps out of the registering endpoint.
  *
  * @return array<string, UserRole>
  */
 function tripExpenseNonCarrierRoles(): array
 {
     return [
-        'administrator' => UserRole::Administrator,
         'manager' => UserRole::Manager,
         'pilot' => UserRole::Pilot,
+        'export' => UserRole::Export,
+        'user' => UserRole::User,
+        'shipment' => UserRole::Shipment,
     ];
 }
 
@@ -710,4 +712,30 @@ it('no borra ningún viático al dar de baja el viaje', function () {
 
     expect(Trip::withTrashed()->findOrFail($trip->id)->trashed())->toBeTrue()
         ->and(TripExpense::where('trip_id', $trip->id)->count())->toBe(2);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Administrador: registra en cualquier viaje asignado
+|--------------------------------------------------------------------------
+*/
+
+it('deja al administrador registrar un viático en un viaje asignado por cualquier empresa', function () {
+    ['trip' => $trip] = tripExpenseScene();
+    $administrator = userWithRole(UserRole::Administrator);
+
+    asUser($administrator)->postJson("/api/trips/{$trip->id}/expenses", tripExpensePayload())
+        ->assertCreated();
+
+    expect(TripExpense::where('trip_id', $trip->id)->where('registered_by', $administrator->id)->count())->toBe(1);
+});
+
+it('responde 400 al administrador que registra un viático en un viaje sin asignar', function () {
+    $trip = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->postJson("/api/trips/{$trip->id}/expenses", tripExpensePayload())
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'El viaje aún no fue asignado');
+
+    expect(TripExpense::count())->toBe(0);
 });

@@ -73,7 +73,7 @@ it('deja fuera del canal al piloto incluso sobre un viaje que no existe', functi
 |--------------------------------------------------------------------------
 */
 
-it('admite en el canal al administrador y al gerente sobre cualquier viaje', function (UserRole $role, string $estado) {
+it('admite en el canal a los roles sin ámbito de empresa sobre cualquier viaje', function (UserRole $role, string $estado) {
     $trip = $estado === 'pending'
         ? Trip::factory()->create()
         : Trip::factory()->{$estado}()->create();
@@ -82,6 +82,9 @@ it('admite en el canal al administrador y al gerente sobre cualquier viaje', fun
 })->with([
     'administrador' => UserRole::Administrator,
     'gerente' => UserRole::Manager,
+    'export' => UserRole::Export,
+    'user' => UserRole::User,
+    'shipment' => UserRole::Shipment,
 ])->with([
     'pendiente' => 'pending',
     'asignado' => 'assigned',

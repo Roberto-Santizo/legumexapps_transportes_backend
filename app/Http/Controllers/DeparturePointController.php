@@ -23,7 +23,7 @@ class DeparturePointController extends Controller
         operationId: 'indexDeparturePoints',
         summary: 'Listar puntos de partida',
         description: <<<'TEXT'
-        Devuelve los puntos de partida con sus coordenadas y el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque el punto de partida es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
+        Devuelve los puntos de partida con sus coordenadas y el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa, porque el punto de partida es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
 
         ATENCIÓN — NO ES GET /api/locations. Los dos listados devuelven las mismas diez claves por elemento, así que llamar al equivocado responde 200 con datos del otro catálogo y nadie avisa. Aquí salen los ORÍGENES; los destinos están en /api/locations, en otra tabla y con otra secuencia de id.
 
@@ -105,7 +105,7 @@ class DeparturePointController extends Controller
         operationId: 'storeDeparturePoint',
         summary: 'Registrar un punto de partida',
         description: <<<'TEXT'
-        Da de alta un punto de partida nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer los puntos de partida. No lleva carrier.required, porque el punto no pertenece a ninguna empresa.
+        Da de alta un punto de partida nacional. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403, aunque los tres sí puedan leer los puntos de partida. No lleva carrier.required, porque el punto no pertenece a ninguna empresa.
 
         ATENCIÓN — NO ES POST /api/locations. El cuerpo de las dos altas es IDÉNTICO campo por campo, así que equivocarse de endpoint NO produce ningún error: crea la fila en la tabla equivocada y responde 201. Aquí se dan de alta ORÍGENES; los DESTINOS van en /api/locations.
 
@@ -152,7 +152,7 @@ class DeparturePointController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer los puntos de partida—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí, aunque los tres sí puedan leer los puntos de partida—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -180,7 +180,7 @@ class DeparturePointController extends Controller
         description: <<<'TEXT'
         Devuelve un punto de partida concreto, activo o dado de baja, con sus coordenadas y el nombre del administrador que lo capturó.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
 
         ATENCIÓN — EL id NO ES INTERCAMBIABLE CON EL DE UN Location. departure_points y locations son tablas distintas con secuencias distintas, y las dos respuestas tienen exactamente la misma forma: pedir aquí un id de destino no da 404 si esa fila existe también aquí, devuelve 200 con OTRO registro. El error no se detecta solo; hay que asegurarse de llamar al endpoint correcto.
 
@@ -240,7 +240,7 @@ class DeparturePointController extends Controller
         operationId: 'updateDeparturePoint',
         summary: 'Actualizar un punto de partida',
         description: <<<'TEXT'
-        Modifica el nombre, la descripción, el lugar de Google, las coordenadas, el estado o cualquier combinación de ellos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
+        Modifica el nombre, la descripción, el lugar de Google, las coordenadas, el estado o cualquier combinación de ellos. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
 
         Todos los campos son opcionales y solo se toca lo que venga: un PATCH que solo manda description no altera el nombre, el lugar ni las coordenadas. Un CUERPO VACÍO responde 200 como no-op, devolviendo el punto de partida sin cambios, en vez de 422.
 
@@ -296,7 +296,7 @@ class DeparturePointController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -327,7 +327,7 @@ class DeparturePointController extends Controller
         operationId: 'toggleStatusDeparturePoint',
         summary: 'Invertir el estado de un punto de partida',
         description: <<<'TEXT'
-        Invierte el status actual del punto de partida: true pasa a false y false pasa a true. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.
+        Invierte el status actual del punto de partida: true pasa a false y false pasa a true. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403.
 
         NO LLEVA CUERPO. Enviarlo no cambia nada: la operación no recibe datos porque el nuevo estado se deduce del actual. Es lo que necesita el interruptor de una tabla de administración, que no tiene por qué saber el estado en el que está la fila. El nombre, la descripción, el lugar de Google y las coordenadas no se tocan.
 
@@ -368,7 +368,7 @@ class DeparturePointController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -396,7 +396,7 @@ class DeparturePointController extends Controller
         description: <<<'TEXT'
         ATENCIÓN — este DELETE NO BORRA NADA: es una BAJA LÓGICA que se limita a poner status en false. La fila sigue existiendo en la base, GET /api/departure-points/{departurePoint} la sigue devolviendo con 200 y sigue apareciendo en GET /api/departure-points sin filtros —para excluirla hay que pedir status=true—. Es lo contrario del DELETE de FuelPrices, que borra de verdad, y del de FreightRates, que es un soft delete no idempotente. El motivo es que un punto de partida citado en viajes históricos no debe poder desaparecer.
 
-        Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.
+        Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403.
 
         Es IDEMPOTENTE: repetir la llamada sobre un punto de partida ya dado de baja responde 200 LAS DOS VECES y lo deja igual, no 400 ni 404. Dar de baja algo que ya lo está no es un error del cliente, porque el resultado que pidió ya se cumple.
 
@@ -435,7 +435,7 @@ class DeparturePointController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(

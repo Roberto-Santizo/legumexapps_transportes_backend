@@ -3,6 +3,7 @@
 namespace App\Services\TripExpense;
 
 use App\Enums\TripStatus;
+use App\Enums\UserRole;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
@@ -41,8 +42,14 @@ class TripExpenseService implements TripExpenseServiceInterface
          * El ámbito de SPEC 24 no se reescribe: getTripById() ya lanza 404 fuera del
          * alcance de quien pregunta y 403 fuera de su empresa. Como con las cargas de
          * SPEC 27, NO hay una regla extra contra el piloto: el asignado lee los viáticos
-         * de su propio viaje, porque el dato es sobre él.
+         * de su propio viaje, porque el dato es sobre él. Shipment sí se veta: su rol no
+         * ve nada que sea dinero, y la ruta ya lo deja fuera; esto cubre a quien llegue
+         * al service sin pasar por ella.
          */
+        if ($user->role === UserRole::Shipment) {
+            throw new ForbiddenError('No tienes permisos para consultar los viáticos de un viaje');
+        }
+
         $trip = $this->tripService->getTripById($user, $tripId);
 
         $query = TripExpense::query()
@@ -175,6 +182,18 @@ class TripExpenseService implements TripExpenseServiceInterface
      */
     private function ensureCarrierTookTheTrip(User $user, Trip $trip): void
     {
+        /**
+         * El administrador no pertenece a ninguna empresa y registra en cualquier viaje,
+         * pero solo en uno ya asignado: sin piloto la fila nacería imposible de confirmar.
+         */
+        if ($user->role === UserRole::Administrator) {
+            if ($trip->pilot_id === null) {
+                throw new BadRequestError('El viaje aún no fue asignado');
+            }
+
+            return;
+        }
+
         $carrier = $user->currentCarrier();
 
         if ($carrier === null) {

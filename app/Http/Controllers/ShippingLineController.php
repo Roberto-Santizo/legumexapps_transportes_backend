@@ -23,7 +23,7 @@ class ShippingLineController extends Controller
         operationId: 'indexShippingLines',
         summary: 'Listar navieras',
         description: <<<'TEXT'
-        Devuelve las navieras del catálogo nacional con el nombre de quien las capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque la naviera es un dato de Legumex y no está acotada por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
+        Devuelve las navieras del catálogo nacional con el nombre de quien las capturó. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa, porque la naviera es un dato de Legumex y no está acotada por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
 
         ATENCIÓN — LAS NAVIERAS BORRADAS NO APARECEN NUNCA Y NO HAY FORMA DE VERLAS. Aquí no funciona la costumbre de los otros catálogos, donde lo dado de baja sigue en el listado con status false y se filtra con status=true: este listado excluye siempre las filas borradas y NO EXISTE NINGÚN PARÁMETRO —ni status, ni withTrashed, ni onlyTrashed— que las devuelva. Una naviera que desapareció del listado está borrada, y solo se recupera desde la base de datos. El total de la paginación tampoco las cuenta.
 
@@ -96,7 +96,7 @@ class ShippingLineController extends Controller
         operationId: 'storeShippingLine',
         summary: 'Registrar una naviera',
         description: <<<'TEXT'
-        Da de alta una naviera nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer las navieras. No lleva carrier.required, porque la naviera no pertenece a ninguna empresa.
+        Da de alta una naviera nacional. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403, aunque los tres sí puedan leer las navieras. No lleva carrier.required, porque la naviera no pertenece a ninguna empresa.
 
         El cuerpo acepta UN SOLO CAMPO, name, y es obligatorio. No hay sigla, ni contacto, ni teléfono, ni correo, ni país, ni web, ni notas, ni logo, ni status: es el alta más pequeña del proyecto. El registeredBy no se envía —se toma del usuario autenticado y se devuelve resuelto en registeredByName— y mandarlo en el cuerpo no tiene efecto.
 
@@ -139,7 +139,7 @@ class ShippingLineController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer las navieras—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí, aunque los tres sí puedan leer las navieras—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -167,7 +167,7 @@ class ShippingLineController extends Controller
         description: <<<'TEXT'
         Devuelve una naviera concreta con el nombre del administrador que la capturó.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
 
         ATENCIÓN — UNA NAVIERA BORRADA RESPONDE 404 CON EL MISMO MENSAJE QUE UN id INEXISTENTE, y es deliberado: quien lee no distingue «ya no está» de «nunca existió», porque distinguirlo revelaría qué ids llegaron a existir. La única operación que sí los diferencia es la escritura, que responde 400 «La naviera ya fue eliminada» sobre una fila borrada. Es lo contrario de Departure Points o Locations, donde una fila dada de baja se sigue consultando con 200.
 
@@ -227,7 +227,7 @@ class ShippingLineController extends Controller
         operationId: 'updateShippingLine',
         summary: 'Actualizar una naviera',
         description: <<<'TEXT'
-        Corrige el nombre de una naviera, que es lo único que hay que corregir. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
+        Corrige el nombre de una naviera, que es lo único que hay que corregir. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
 
         El único campo es opcional y solo se toca lo que venga. Un CUERPO VACÍO responde 200 como no-op, devolviendo la naviera sin cambios, en vez de 422. Opcional no es vaciable: enviar el campo vacío —o de solo espacios— es 422, y no acepta null.
 
@@ -281,7 +281,7 @@ class ShippingLineController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -314,7 +314,7 @@ class ShippingLineController extends Controller
         description: <<<'TEXT'
         ATENCIÓN — ESTE DELETE BORRA DE VERDAD, Y ES LA OPERACIÓN MÁS PELIGROSA DEL DOMINIO. No se parece al DELETE de Products, Locations, Zones o Departure Points, que solo ponen un status booleano en false y dejan la fila listándose y reactivable. Aquí es un soft delete real: la naviera DESAPARECE de GET /api/shipping-lines y de GET /api/shipping-lines/{shippingLine} —que pasa a responder 404—, NO hay ningún filtro que la devuelva, NO existe endpoint /restore y NO HAY FORMA DE RECUPERARLA POR LA API. Deshacerlo exige tocar la base de datos.
 
-        Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.
+        Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403.
 
         ATENCIÓN — EL BORRADO NO LIBERA EL NOMBRE. El índice único sigue ocupado por la fila borrada para siempre, así que después de este DELETE NADIE PUEDE DAR DE ALTA OTRA NAVIERA CON ESE NOMBRE: el alta responde 400 «Ya existe una naviera con ese nombre, que puede haber sido eliminada» contra una fila que ya no se ve por ninguna vía. Es lo contrario de la placa de un Vehicle, que un vehículo inactivo sí libera, y aquí pesa más que en Clients: el nombre es el ÚNICO campo del dominio, así que no queda ningún otro identificador con el que volver a crearla. Borrar para volver a crear con los mismos datos NO FUNCIONA.
 
@@ -360,7 +360,7 @@ class ShippingLineController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(

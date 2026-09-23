@@ -7,8 +7,9 @@ use Illuminate\Support\Facades\Route;
 $administrator = UserRole::Administrator->value;
 $carrier = UserRole::Carrier->value;
 $pilot = UserRole::Pilot->value;
+$manager = UserRole::Manager->value;
 
-Route::prefix('carriers')->name('carriers.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $pilot): void {
+Route::prefix('carriers')->name('carriers.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $pilot, $manager): void {
     Route::post('/join', [CarrierController::class, 'join'])
         ->middleware("role:{$pilot}")
         ->name('join');
@@ -24,9 +25,9 @@ Route::prefix('carriers')->name('carriers.')->middleware('jwt.auth')->group(func
     Route::apiResource('/', CarrierController::class)
         ->parameters(['' => 'carrier'])
         ->only(['index', 'store', 'show', 'update', 'destroy'])
-        ->middlewareFor('index', ["role:{$administrator}", 'carrier.required'])
+        ->middlewareFor('index', ["role:{$administrator},{$manager}", 'carrier.required'])
         ->middlewareFor('store', ["role:{$carrier}"])
-        ->middlewareFor('show', ["role:{$administrator}", 'carrier.required'])
+        ->middlewareFor('show', ["role:{$administrator},{$manager}", 'carrier.required'])
         ->middlewareFor('update', ["role:{$carrier},{$administrator}", 'carrier.required'])
         ->middlewareFor('destroy', ["role:{$administrator}", 'carrier.required']);
 });

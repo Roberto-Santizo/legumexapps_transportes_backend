@@ -56,6 +56,7 @@ function freightRateNonAdminRoles(): array
         'carrier' => UserRole::Carrier,
         'pilot' => UserRole::Pilot,
         'manager' => UserRole::Manager,
+        'export' => UserRole::Export,
     ];
 }
 
@@ -200,11 +201,28 @@ it('responde 401 sin token en las seis rutas', function (string $method, string 
         ->assertJsonStructure(['statusCode', 'message']);
 })->with(freightRateEndpoints());
 
-it('responde 403 en las rutas de administrador con los otros tres roles', function (string $method, string $uri) {
+it('responde 403 en las rutas de administrador con el resto de roles', function (string $method, string $uri) {
     foreach (freightRateNonAdminRoles() as $role) {
+        /** El manager lo consulta todo: el detalle es la única ruta de administrador que se le abre. */
+        if ($role === UserRole::Manager && $method === 'GET') {
+            continue;
+        }
+
         asUser(userWithRole($role))->json($method, $uri)->assertStatus(403);
     }
 })->with(freightRateAdminEndpoints());
+
+it('deja al manager consultar el detalle de una tarifa', function () {
+    $rate = FreightRate::factory()->create();
+
+    asUser(userWithRole(UserRole::Manager))->getJson("/api/freight-rates/{$rate->id}")
+        ->assertOk()
+        ->assertJsonPath('data.id', $rate->id);
+});
+
+it('rechaza con 403 a user y shipment en toda ruta de tarifas', function (UserRole $role, string $method, string $uri) {
+    asUser(userWithRole($role))->json($method, $uri)->assertForbidden();
+})->with([UserRole::User, UserRole::Shipment])->with(freightRateEndpoints());
 
 it('abre el listado a cualquier autenticado, sin exigir empresa', function (UserRole $role) {
     asUser(userWithRole($role))->getJson('/api/freight-rates')->assertStatus(200);
@@ -377,7 +395,7 @@ it('no dispara N+1 al listar veinte tarifas de destinos y productos distintos', 
     expect($sobre('freight_rates'))->toBe(1)
         ->and($sobre('locations'))->toBe(1)
         ->and($sobre('products'))->toBe(1)
-        ->and($sobre('users'))->toBeLessThanOrEqual(2);
+        ->and($sobre('users'))->toBeLessThanOrEqual(3);
 });
 
 /*

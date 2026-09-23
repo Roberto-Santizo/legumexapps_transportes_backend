@@ -23,7 +23,7 @@ class ClientController extends Controller
         operationId: 'indexClients',
         summary: 'Listar clientes',
         description: <<<'TEXT'
-        Devuelve los clientes del catálogo nacional con el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque el cliente es un dato de Legumex y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
+        Devuelve los clientes del catálogo nacional con el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa, porque el cliente es un dato de Legumex y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
 
         ATENCIÓN — LOS CLIENTES BORRADOS NO APARECEN NUNCA Y NO HAY FORMA DE VERLOS. Aquí no funciona la costumbre de los otros catálogos, donde lo dado de baja sigue en el listado con status false y se filtra con status=true: este listado excluye siempre las filas borradas y NO EXISTE NINGÚN PARÁMETRO —ni status, ni withTrashed, ni onlyTrashed— que las devuelva. Un cliente que desapareció del listado está borrado, y solo se recupera desde la base de datos. El total de la paginación tampoco los cuenta.
 
@@ -96,7 +96,7 @@ class ClientController extends Controller
         operationId: 'storeClient',
         summary: 'Registrar un cliente',
         description: <<<'TEXT'
-        Da de alta un cliente nacional. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer los clientes. No lleva carrier.required, porque el cliente no pertenece a ninguna empresa.
+        Da de alta un cliente nacional. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403, aunque los tres sí puedan leer los clientes. No lleva carrier.required, porque el cliente no pertenece a ninguna empresa.
 
         El cuerpo acepta SOLO DOS CAMPOS, code y name, y los dos son obligatorios. No hay dirección, NIT, teléfono, contacto ni status: es el alta más pequeña del proyecto. El registeredBy no se envía —se toma del usuario autenticado y se devuelve resuelto en registeredByName— y mandarlo en el cuerpo no tiene efecto.
 
@@ -139,7 +139,7 @@ class ClientController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer los clientes—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí, aunque los tres sí puedan leer los clientes—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -167,7 +167,7 @@ class ClientController extends Controller
         description: <<<'TEXT'
         Devuelve un cliente concreto con el nombre del administrador que lo capturó.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
 
         ATENCIÓN — UN CLIENTE BORRADO RESPONDE 404 CON EL MISMO MENSAJE QUE UN id INEXISTENTE, y es deliberado: quien lee no distingue «ya no está» de «nunca existió», porque distinguirlo revelaría qué ids llegaron a existir. La única operación que sí los diferencia es la escritura, que responde 400 «El cliente ya fue eliminado» sobre una fila borrada. Es lo contrario de Departure Points o Locations, donde una fila dada de baja se sigue consultando con 200.
 
@@ -227,7 +227,7 @@ class ClientController extends Controller
         operationId: 'updateClient',
         summary: 'Actualizar un cliente',
         description: <<<'TEXT'
-        Corrige el código, el nombre o los dos. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
+        Corrige el código, el nombre o los dos. Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo.
 
         Los dos campos son opcionales y solo se toca lo que venga: un PATCH que solo manda name no altera el código. Un CUERPO VACÍO responde 200 como no-op, devolviendo el cliente sin cambios, en vez de 422. Opcional no es vaciable: enviar un campo vacío —o de solo espacios— es 422, y ninguno acepta null.
 
@@ -281,7 +281,7 @@ class ClientController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -314,7 +314,7 @@ class ClientController extends Controller
         description: <<<'TEXT'
         ATENCIÓN — ESTE DELETE BORRA DE VERDAD, Y ES LA OPERACIÓN MÁS PELIGROSA DEL DOMINIO. No se parece al DELETE de Products, Locations, Zones o Departure Points, que solo ponen un status booleano en false y dejan la fila listándose y reactivable. Aquí es un soft delete real: el cliente DESAPARECE de GET /api/clients y de GET /api/clients/{client} —que pasa a responder 404—, NO hay ningún filtro que lo devuelva, NO existe endpoint /restore y NO HAY FORMA DE RECUPERARLO POR LA API. Deshacerlo exige tocar la base de datos.
 
-        Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.
+        Lo pueden llamar administrator y export (middleware role:administrator,export): un carrier, un pilot, un manager, un user o un shipment reciben 403.
 
         ATENCIÓN — EL BORRADO NO LIBERA NI EL CÓDIGO NI EL NOMBRE. Los dos índices únicos siguen ocupados por la fila borrada para siempre, así que después de este DELETE NADIE PUEDE DAR DE ALTA OTRO CLIENTE CON ESE CÓDIGO O ESE NOMBRE: el alta responde 400 «Ya existe un cliente con ese código, que puede haber sido eliminado» contra una fila que ya no se ve por ninguna vía. Es lo contrario de la placa de un Vehicle, que un vehículo inactivo sí libera. Borrar para volver a crear con los mismos datos NO FUNCIONA.
 
@@ -360,7 +360,7 @@ class ClientController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —un carrier, un pilot, un manager, un user o un shipment caen aquí—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(

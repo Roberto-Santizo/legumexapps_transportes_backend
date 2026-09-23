@@ -7,8 +7,9 @@ use Illuminate\Support\Facades\Route;
 $administrator = UserRole::Administrator->value;
 $carrier = UserRole::Carrier->value;
 $manager = UserRole::Manager->value;
+$export = UserRole::Export->value;
 
-Route::prefix('pilots')->name('pilots.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $manager): void {
+Route::prefix('pilots')->name('pilots.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $manager, $export): void {
     /** Las rutas fijas van antes del apiResource: si no, las captura el comodín {pilot}. */
     Route::patch('/{pilot}/salary', [PilotController::class, 'updateSalary'])
         ->middleware(["role:{$carrier},{$administrator}", 'carrier.required'])
@@ -22,5 +23,5 @@ Route::prefix('pilots')->name('pilots.')->middleware('jwt.auth')->group(function
     Route::apiResource('/', PilotController::class)
         ->parameters(['' => 'pilot'])
         ->only(['index'])
-        ->middlewareFor('index', ["role:{$carrier},{$administrator},{$manager}", 'carrier.required']);
+        ->middlewareFor('index', ["role:{$carrier},{$administrator},{$manager},{$export}", 'carrier.required']);
 });

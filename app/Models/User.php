@@ -8,6 +8,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -83,6 +84,18 @@ class User extends Authenticatable implements JWTSubject
     public function pilotDocument(): HasOne
     {
         return $this->hasOne(PilotDocument::class);
+    }
+
+    /**
+     * The FCM tokens of this user's devices (SPEC 34).
+     *
+     * Kept for the future push-sending spec: no Resource and no JWT claim exposes them.
+     *
+     * @return HasMany<UserDeviceToken, $this>
+     */
+    public function deviceTokens(): HasMany
+    {
+        return $this->hasMany(UserDeviceToken::class);
     }
 
     /**

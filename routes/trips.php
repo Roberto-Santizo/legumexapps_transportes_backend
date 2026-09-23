@@ -12,8 +12,12 @@ use Illuminate\Support\Facades\Route;
 $administrator = UserRole::Administrator->value;
 $carrier = UserRole::Carrier->value;
 $pilot = UserRole::Pilot->value;
+$export = UserRole::Export->value;
 
-Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $pilot): void {
+/** Todo rol salvo shipment: lo que lleva dinero —viáticos y costo— queda fuera de su vista. */
+$exceptShipment = UserRole::allExcept(UserRole::Shipment);
+
+Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $pilot, $export, $exceptShipment): void {
     /**
      * Las cuatro rutas fijas van antes del apiResource: si no, las captura el comodín
      * {trip} y `/assignment` se resolvería como el detalle de un viaje llamado así.
@@ -76,12 +80,12 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
      * el id de la carga ya identifica el viaje.
      *
      * Registrar es del transportista que tomó el viaje —la empresa lo comprueba el
-     * service, no el middleware—; leer no lleva role: porque lo decide el ámbito de
+     * service, no el middleware— o del administrador; leer no lleva role: porque lo decide el ámbito de
      * SPEC 24 dentro del service, y aquí, a diferencia del rastro, el piloto asignado SÍ
      * entra: el dato es suyo. Ninguna de las dos lleva carrier.required.
      */
     Route::post('/{trip}/fuels', [TripFuelController::class, 'store'])
-        ->middleware(["role:{$carrier}"])
+        ->middleware(["role:{$carrier},{$administrator}"])
         ->name('fuels.store');
 
     Route::get('/{trip}/fuels', [TripFuelController::class, 'index'])
@@ -90,14 +94,16 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
     /**
      * Los viáticos son el calco de las cargas de combustible: mismas dos rutas
      * anidadas, mismos roles y misma confirmación fuera del viaje, en
-     * routes/trip-expenses.php. Registrar es del transportista que tomó el viaje;
-     * leer lo decide el ámbito de SPEC 24 en el service, con el piloto asignado dentro.
+     * routes/trip-expenses.php. Registrar es del transportista que tomó el viaje o del
+     * administrador; leer lo decide el ámbito de SPEC 24 en el service, con el piloto
+     * asignado dentro y shipment fuera: un viático es dinero.
      */
     Route::post('/{trip}/expenses', [TripExpenseController::class, 'store'])
-        ->middleware(["role:{$carrier}"])
+        ->middleware(["role:{$carrier},{$administrator}"])
         ->name('expenses.store');
 
     Route::get('/{trip}/expenses', [TripExpenseController::class, 'index'])
+        ->middleware(["role:{$exceptShipment}"])
         ->name('expenses.index');
 
     /**
@@ -110,23 +116,25 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
         ->name('timeouts.index');
 
     /**
-     * El costo se lee como las paradas: jwt.auth a secas, el ámbito de SPEC 24 dentro
-     * del service y ningún pilot admitido, ni siquiera el asignado —el desglose revela
-     * su salario mensual—. No hay POST, ni PATCH, ni DELETE: el dominio solo lee y solo
+     * El costo se lee como las paradas: el ámbito de SPEC 24 dentro del service y
+     * ningún pilot admitido, ni siquiera el asignado —el desglose revela su salario
+     * mensual—. Shipment tampoco entra: su rol no ve nada que sea dinero. No hay POST, ni PATCH, ni DELETE: el dominio solo lee y solo
      * calcula, y nada de lo que devuelve está guardado en ninguna tabla.
      */
     Route::get('/{trip}/cost', [TripCostController::class, 'show'])
+        ->middleware(["role:{$exceptShipment}"])
         ->name('cost.show');
 
     /**
-     * La lectura no lleva role: los cuatro roles listan y consultan, y lo que cada uno
+     * La lectura no lleva role: todos los roles listan y consultan, y lo que cada uno
      * alcanza lo decide el ámbito dentro del service, no el middleware. La escritura
-     * general es solo del administrador.
+     * general es del administrador y de export; ninguno de los dos toca la tripulación,
+     * que el PATCH general ignora.
      */
     Route::apiResource('/', TripController::class)
         ->parameters(['' => 'trip'])
         ->only(['index', 'store', 'show', 'update', 'destroy'])
-        ->middlewareFor('store', ["role:{$administrator}"])
-        ->middlewareFor('update', ["role:{$administrator}"])
-        ->middlewareFor('destroy', ["role:{$administrator}"]);
+        ->middlewareFor('store', ["role:{$administrator},{$export}"])
+        ->middlewareFor('update', ["role:{$administrator},{$export}"])
+        ->middlewareFor('destroy', ["role:{$administrator},{$export}"]);
 });

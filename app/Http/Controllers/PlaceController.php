@@ -23,7 +23,7 @@ class PlaceController extends Controller
         operationId: 'indexPlaces',
         summary: 'Buscar direcciones por texto',
         description: <<<'TEXT'
-        Devuelve hasta 10 direcciones que coinciden con el texto buscado, cada una con su id y su dirección formateada. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa registrada, porque ninguna ruta de este dominio lleva role: ni carrier.required.
+        Devuelve hasta 10 direcciones que coinciden con el texto buscado, cada una con su id y su dirección formateada. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa registrada, porque ninguna ruta de este dominio lleva role: ni carrier.required.
 
         PRIMER PASO DE UN FLUJO DE DOS LLAMADAS. Este listado NO TRAE COORDENADAS a propósito: se muestra al usuario, se elige una dirección y con su id se llama a GET /api/places/{place}, que sí las devuelve. Resolver la posición de los diez resultados factura un nivel más caro por nueve posiciones que nadie va a usar. El cliente es responsable de guardar el id elegido entre una llamada y la otra.
 
@@ -91,7 +91,7 @@ class PlaceController extends Controller
         operationId: 'showPlace',
         summary: 'Obtener una dirección con sus coordenadas',
         description: <<<'TEXT'
-        Devuelve la dirección de un place id concreto junto con su latitude y su longitude. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa registrada. No hay ámbito por empresa ni recurso ajeno, así que en este endpoint NO existe el 403.
+        Devuelve la dirección de un place id concreto junto con su latitude y su longitude. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa registrada. No hay ámbito por empresa ni recurso ajeno, así que en este endpoint NO existe el 403.
 
         SEGUNDO PASO DEL FLUJO DE DOS LLAMADAS. El {place} de la ruta es el id que devolvió GET /api/places?search=: no se puede construir, ni adivinar, ni derivar de la dirección escrita. Sin haber buscado antes no hay nada válido que poner aquí.
 
@@ -166,7 +166,7 @@ class PlaceController extends Controller
         operationId: 'directionsPlaces',
         summary: 'Calcular la ruta por carretera hacia un destino',
         description: <<<'TEXT'
-        Devuelve la ruta POR CARRETERA desde un punto suelto (lat, lng) hasta un destino ya registrado en POST /api/locations, con su distancia en kilómetros, su duración estimada y la línea del trayecto. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa registrada, porque ninguna ruta de este dominio lleva role: ni carrier.required. No hay ámbito por empresa, así que en este endpoint NO existe el 403.
+        Devuelve la ruta POR CARRETERA desde un punto suelto (lat, lng) hasta un destino ya registrado en POST /api/locations, con su distancia en kilómetros, su duración estimada y la línea del trayecto. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa registrada, porque ninguna ruta de este dominio lleva role: ni carrier.required. No hay ámbito por empresa, así que en este endpoint NO existe el 403.
 
         ATENCIÓN — ESTE ENDPOINT NO COTIZA. No toca freight_rates, no lee el precio vigente del combustible, no devuelve ningún importe y no crea ningún viaje ni ninguna carga: la respuesta no trae pricePerPound, ni total, ni pounds. Para cotizar está GET /api/freight-rates/quote, que es OTRA LLAMADA y la hace el cliente, no esta API. La distancia devuelta tampoco influye en la tarifa: el precio depende del destino elegido, no de los kilómetros.
 

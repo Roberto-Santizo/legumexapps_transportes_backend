@@ -3,6 +3,7 @@
 namespace App\Services\TripFuel;
 
 use App\Enums\TripStatus;
+use App\Enums\UserRole;
 use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
@@ -179,6 +180,18 @@ class TripFuelService implements TripFuelServiceInterface
      */
     private function ensureCarrierTookTheTrip(User $user, Trip $trip): void
     {
+        /**
+         * El administrador no pertenece a ninguna empresa y registra en cualquier viaje,
+         * pero solo en uno ya asignado: sin piloto la fila nacería imposible de confirmar.
+         */
+        if ($user->role === UserRole::Administrator) {
+            if ($trip->pilot_id === null) {
+                throw new BadRequestError('El viaje aún no fue asignado');
+            }
+
+            return;
+        }
+
         $carrier = $user->currentCarrier();
 
         if ($carrier === null) {

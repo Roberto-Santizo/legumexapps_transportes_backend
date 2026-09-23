@@ -353,7 +353,8 @@ class TripCostService implements TripCostServiceInterface
      */
     private function resolveCostableTrip(User $user, int $tripId): Trip
     {
-        if ($user->role === UserRole::Pilot) {
+        /** Shipment tampoco: su rol no ve nada que sea dinero. */
+        if (in_array($user->role, [UserRole::Pilot, UserRole::Shipment], true)) {
             throw new ForbiddenError('No tienes permisos para consultar el costo de un viaje');
         }
 

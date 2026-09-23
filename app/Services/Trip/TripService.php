@@ -86,6 +86,14 @@ class TripService implements TripServiceInterface
     private const DATE_FORMAT = 'Y-m-d';
 
     /**
+     * Roles that reach every trip, with no company scope at all.
+     *
+     * Everybody but the two roles tied to a company: a pilot only reaches his own trips,
+     * a carrier the pool plus whatever its company took.
+     */
+    private const UNSCOPED_ROLES = [UserRole::Administrator, UserRole::Manager, UserRole::Export, UserRole::User, UserRole::Shipment];
+
+    /**
      * The four catalog foreign keys, revalidated on every write, mapped to their column.
      *
      * The body speaks camelCase and the table snake_case, so every write goes through one
@@ -792,8 +800,7 @@ class TripService implements TripServiceInterface
      * Refuse a reader that falls outside the trip's scope.
      *
      * The matrix the whole domain turns on, and the object counterpart of the scope the
-     * listing applies as a SQL condition: an administrator and a manager reach every
-     * trip; a pilot reaches only his own, never the pool; anybody else reaches the pool
+     * listing applies as a SQL condition: every unscoped role reaches every trip; a pilot reaches only his own, never the pool; anybody else reaches the pool
      * of untaken trips plus whatever their own company assigned.
      *
      * It answers 403 and not 404 on purpose: the scope hides rows from a listing, it
@@ -803,7 +810,7 @@ class TripService implements TripServiceInterface
      */
     private function ensureUserCanSeeTrip(User $user, Trip $trip): void
     {
-        if (in_array($user->role, [UserRole::Administrator, UserRole::Manager], true)) {
+        if (in_array($user->role, self::UNSCOPED_ROLES, true)) {
             return;
         }
 
@@ -833,7 +840,7 @@ class TripService implements TripServiceInterface
      * Narrow a listing query down to what the given user is allowed to see.
      *
      * The SQL counterpart of ensureUserCanSeeTrip(), and the same matrix: an
-     * administrator and a manager get no condition at all; a pilot gets his own trips,
+     * unscoped role gets no condition at all; a pilot gets his own trips,
      * with the pool deliberately left out —he does not pick trips, they are handed to
      * him—; anybody else gets the pool **or** whatever their own company assigned.
      *
@@ -845,7 +852,7 @@ class TripService implements TripServiceInterface
      */
     private function applyScope(Builder $query, User $user): void
     {
-        if (in_array($user->role, [UserRole::Administrator, UserRole::Manager], true)) {
+        if (in_array($user->role, self::UNSCOPED_ROLES, true)) {
             return;
         }
 

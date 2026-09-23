@@ -23,7 +23,7 @@ class FreightRateController extends Controller
         operationId: 'indexFreightRates',
         summary: 'Listar tarifas de flete',
         description: <<<'TEXT'
-        Devuelve la tabla de precios completa: todas las tarifas vivas, con su destino y su producto ya resueltos por nombre. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque la tarifa es un dato nacional y no está acotada por transportista. Todos ven exactamente las mismas filas.
+        Devuelve la tabla de precios completa: todas las tarifas vivas, con su destino y su producto ya resueltos por nombre. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa, porque la tarifa es un dato nacional y no está acotada por transportista. Todos ven exactamente las mismas filas.
 
         ATENCIÓN — ESTE LISTADO NO PAGINA NUNCA, al contrario que Carriers, Vehicles, FuelPrices, Products, Zones y Locations. No existe el parámetro limit, no hay PaginatedResource y el sobre NO trae total, currentPage ni lastPage: enviar limit=10 devuelve igualmente la colección entera y no produce error. Es deliberado: la tabla de tarifas se lee como una tabla de precios completa, no como un histórico que se navega.
 
@@ -84,7 +84,7 @@ class FreightRateController extends Controller
         description: <<<'TEXT'
         Responde "cuánto cuesta la libra hasta este destino" y, si se envían las libras, cuánto cuesta el flete completo. Es el endpoint que debe usar cualquier pantalla que cotice: evita listar la tabla de precios y elegir la banda a mano.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. La ruta está declarada ANTES del recurso, así que /quote nunca se confunde con el id de una tarifa.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa. La ruta está declarada ANTES del recurso, así que /quote nunca se confunde con el id de una tarifa.
 
         NO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, el número de filas de freight_rates no cambia y la respuesta no es una reserva ni bloquea el precio.
 
