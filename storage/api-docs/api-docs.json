@@ -3490,6 +3490,171 @@
                 ]
             }
         },
+        "/api/device-tokens": {
+            "post": {
+                "tags": [
+                    "Device Tokens"
+                ],
+                "summary": "Registrar el token FCM del dispositivo",
+                "description": "Registra el token FCM del dispositivo a nombre del usuario autenticado. ES IDEMPOTENTE y el código depende de quién tenga ya el token:\n\n1) Nadie lo tiene → crea la fila y responde 201 «Token de dispositivo registrado correctamente».\n2) Ya es del usuario autenticado → actualiza platform y lastSeenAt y responde 200 «Token de dispositivo actualizado correctamente». No crea una segunda fila.\n3) Es de OTRO usuario → lo REASIGNA al autenticado y responde 200 con el mismo mensaje. El usuario anterior deja de estar ligado a ese teléfono.\n\nEl móvil puede llamarlo en cada arranque o cada vez que FCM rote el token: repetirlo no duplica nada.",
+                "operationId": "storeDeviceToken",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreDeviceTokenRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Token nuevo registrado a nombre del usuario autenticado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Token de dispositivo registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/DeviceToken"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "200": {
+                        "description": "El token ya existía (propio o de otro usuario): se refrescó o se reasignó al autenticado.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Token de dispositivo actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/DeviceToken"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "token o platform ausentes o inválidos, con el formato propio de Laravel {message, errors}. Mensajes literales: El token de dispositivo es obligatorio / El token de dispositivo debe ser un texto / El token de dispositivo no puede superar los 512 caracteres / El token de dispositivo no puede contener espacios / La plataforma es obligatoria / La plataforma seleccionada no es válida.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/device-tokens/{token}": {
+            "delete": {
+                "tags": [
+                    "Device Tokens"
+                ],
+                "summary": "Retirar el token FCM del dispositivo",
+                "description": "Borra FÍSICAMENTE uno de los tokens del usuario autenticado y devuelve la fila borrada. Es lo que el móvil debe llamar al cerrar sesión.\n\nATENCIÓN — {token} ES EL TOKEN FCM, NO EL id DE LA FILA, y debe ir codificado con encodeURIComponent.\n\nATENCIÓN — 404 TANTO SI NO EXISTE COMO SI ES DE OTRO USUARIO, con el mismo mensaje, para no revelar a quién pertenece. El token ajeno no se toca.",
+                "operationId": "destroyDeviceToken",
+                "parameters": [
+                    {
+                        "name": "token",
+                        "in": "path",
+                        "description": "El token FCM del dispositivo, codificado con encodeURIComponent.",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "dXk3:APA91bHfake_token-123"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Token borrado. data es la fila tal como estaba antes de borrarla.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Token de dispositivo eliminado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/DeviceToken"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El token no existe o es de otro usuario (indistinguibles a propósito). El mensaje devuelto es: El token de dispositivo no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/freight-rates": {
             "get": {
                 "tags": [
@@ -11033,6 +11198,33 @@
                 },
                 "type": "object"
             },
+            "StoreDeviceTokenRequest": {
+                "title": "Registro de un token de dispositivo",
+                "description": "Cuerpo JSON con el que el dispositivo registra su token FCM. EXACTAMENTE DOS CAMPOS —token y platform— Y LOS DOS SON OBLIGATORIOS.\n\nATENCIÓN — NO SE ACEPTA user_id: el dueño es siempre el usuario del JWT. Mandarlo se descarta en silencio.\n\nATENCIÓN — EL TOKEN SE GUARDA TAL CUAL: no se recorta ni se pasa a mayúsculas. Un espacio en cualquier posición es 422: se rechaza, no se arregla.",
+                "required": [
+                    "token",
+                    "platform"
+                ],
+                "properties": {
+                    "token": {
+                        "description": "Token FCM del dispositivo. OBLIGATORIO, texto, máximo 512 caracteres y sin espacios. Mensajes literales: El token de dispositivo es obligatorio / El token de dispositivo debe ser un texto / El token de dispositivo no puede superar los 512 caracteres / El token de dispositivo no puede contener espacios.",
+                        "type": "string",
+                        "pattern": "^\\S+$",
+                        "example": "dXk3:APA91bHfake_token-123",
+                        "maxLength": 512
+                    },
+                    "platform": {
+                        "description": "Plataforma del dispositivo. OBLIGATORIO, android o ios. Mensajes literales: La plataforma es obligatoria / La plataforma seleccionada no es válida.",
+                        "type": "string",
+                        "example": "android",
+                        "enum": [
+                            "android",
+                            "ios"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
             "StoreFreightRateRequest": {
                 "title": "Alta de tarifa de flete",
                 "description": "Cuerpo JSON para cotizar una banda nueva. Los cinco campos —locationId, productId, fuelType, fuelMin y pricePerPound— son OBLIGATORIOS; no hay ningún campo opcional.\n\nEl registeredBy NO SE ACEPTA por ningún nombre: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no tiene ningún efecto, ni siquiera un 422. Tampoco se acepta ningún precio de combustible vigente: la tarifa guarda un fuelMin, no una referencia a fuel_prices.\n\nLas claves del cuerpo van en camelCase; el service traduce a snake_case al persistir.\n\nATENCIÓN — 422 Y 400 SIGNIFICAN COSAS DISTINTAS. La regla exists solo comprueba que la fila ESTÉ, nunca que esté activa: un locationId o un productId inexistente es 422 (validación), mientras que un destino o un producto con status false es 400 (regla de negocio del service, con su propio mensaje: El destino seleccionado no está activo / El producto seleccionado no está activo). Repetir una banda ya cotizada también es 400, no 422: Ya existe una tarifa para ese destino, ese producto y ese combustible desde ese precio.\n\nLa unicidad mira SOLO las filas vivas: tras un DELETE, ese mismo fuelMin vuelve a estar libre y se puede cotizar otra vez con 201.",
@@ -13365,6 +13557,42 @@
                     }
                 ]
             },
+            "DeviceToken": {
+                "title": "Token de dispositivo",
+                "description": "Un token FCM (Android o iOS) de uno de los dispositivos del usuario autenticado. CINCO CLAVES en camelCase y ninguna más, en este orden: id, token, platform, lastSeenAt, createdAt.\n\nATENCIÓN — NO TRAE userId: el dueño es siempre quien hace la petición. Tampoco hay forma de listar los tokens propios: no existe GET /api/device-tokens.\n\nATENCIÓN — LAS FECHAS NO SON ISO 8601: usan el formato propio del proyecto d-m-Y h:i:s A y son la hora del servidor.\n\nTodavía NO SE ENVÍA NINGUNA NOTIFICACIÓN: el token se guarda para una spec futura de envío.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico de la fila (user_device_tokens.id). NO se usa en ninguna ruta: el DELETE va por el token, no por el id.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "token": {
+                        "description": "El token FCM tal cual se envió: sin normalizar, sensible a mayúsculas, hasta 512 caracteres y sin espacios. Único global.",
+                        "type": "string",
+                        "example": "dXk3:APA91bHfake_token-123"
+                    },
+                    "platform": {
+                        "description": "Plataforma del dispositivo, con el valor crudo del enum en inglés.",
+                        "type": "string",
+                        "example": "android",
+                        "enum": [
+                            "android",
+                            "ios"
+                        ]
+                    },
+                    "lastSeenAt": {
+                        "description": "Última vez que el dispositivo registró el token (hora del servidor en cada POST), formato d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "23-09-2026 10:15:02 AM"
+                    },
+                    "createdAt": {
+                        "description": "Fecha de creación de la fila, formato d-m-Y h:i:s A. Una reasignación a otro usuario NO la cambia.",
+                        "type": "string",
+                        "example": "23-09-2026 10:15:02 AM"
+                    }
+                },
+                "type": "object"
+            },
             "FreightQuote": {
                 "title": "Cotización de flete",
                 "description": "Respuesta de GET /api/freight-rates/quote: cuánto cuesta la libra hasta el destino consultado y, si se enviaron las libras, cuánto cuesta el flete completo.\n\nNO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, y llamarla mil veces deja freight_rates exactamente igual. No es una reserva, no es un pedido y no bloquea el precio: la misma consulta mañana puede devolver otro número si cambió el precio del combustible o si se cotizó una banda nueva.\n\nUNIDADES FIJAS DEL DOMINIO: currentFuelPrice y appliedFuelMin en QUETZALES (GTQ) POR GALÓN, pricePerPound en GTQ POR LIBRA con seis decimales, pounds en LIBRAS y total en GTQ con dos decimales. No hay moneda configurable, ni kilos, ni litros, ni impuestos.\n\nATENCIÓN — EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN. currentFuelPrice sale SIEMPRE del FuelPrice con status active de ese fuelType; cualquier precio que el cliente mande en la query se ignora por completo, por ningún nombre se acepta. No existe la simulación \"¿y si el diésel subiera a 45?\": si se aceptara, cada quien cotizaría al precio que le conviene.\n\nATENCIÓN — EL TOTAL AUTORITATIVO ES EL DE LA API. Recalcularlo en pantalla redondeando pricePerPound a dos decimales da 20 250.00 en vez de 20 435.40 para 45 000 libras: 185 quetzales de diferencia en un solo flete. La API multiplica con los seis decimales completos y redondea SOLO al final.\n\nEste recurso NO envuelve un modelo: junta la tarifa elegida con los tres datos que la hacen auditable —el precio de combustible vigente, la banda que se aplicó y el total—, que no viven en ninguna fila.\n\nEjemplo completo del dominio: 45 000 libras de brócoli con destino en la bodega central de Escuintla y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.",
@@ -15686,6 +15914,10 @@
         {
             "name": "Departure Points",
             "description": "Puntos de partida: los lugares desde los que ARRANCA un viaje —bodegas, fincas, centros de acopio—, anclados a un lugar real de Google por su googlePlaceId. El punto de partida NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los seis endpoints exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con \"El token de sesión no es válido o ha expirado\". El reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización, toggle de estado y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403 con \"No tienes permisos para acceder a este recurso\". ATENCIÓN — ESTE DOMINIO ES UNA COPIA DECLARADA DE Locations Y CONFUNDIRLOS ES EL RIESGO NÚMERO UNO: /api/departure-points y /api/locations devuelven LAS MISMAS DIEZ CLAVES con la misma forma y aceptan el MISMO cuerpo, así que llamar al catálogo equivocado NO FALLA —responde 200 o 201 con datos plausibles del otro dominio— y el error solo se ve cuando el usuario lee un nombre que no esperaba. Un punto de partida es DE DÓNDE SALE el viaje (tabla departure_points); un destino es A DÓNDE LLEGA (tabla locations). Los id de las dos tablas NO SON INTERCAMBIABLES: son secuencias distintas y no hay ninguna relación entre el id 3 de aquí y el id 3 de allá. NO HAY TARIFAS: a diferencia de un destino, un punto de partida no se cotiza, no tiene ningún FreightRate colgando, ninguna tabla lo referencia y GET /api/freight-rates/quote no lo recibe; por eso desactivarlo o darlo de baja NO BLOQUEA NADA en el resto de la API y no existe ningún 400 por \"punto inactivo\". Reglas que atraviesan el dominio: el name se guarda SIEMPRE normalizado y en MAYÚSCULAS, con unicidad insensible a mayúsculas PERO SOLO DENTRO DE ESTA TABLA —el mismo nombre y el mismo googlePlaceId pueden existir a la vez en locations y el alta responde 201 sin aviso—; el googlePlaceId se guarda TAL CUAL, es opaco y sensible a mayúsculas, y su duplicado se responde con 400 —no con 422 como el del name—, nombrando al punto que ya lo ocupa; la API NUNCA llama a Google, el front resuelve el lugar en GET /api/places y manda place id y coordenadas ya resueltos; latitude y longitude salen como CADENAS de ocho decimales, no como números; createdAt y updatedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601; y el status es un BOOLEANO cuya baja es LÓGICA e idempotente —DELETE pone status en false, la fila nunca desaparece—, igual que en Locations, Products y Zones y al contrario que el DELETE de FuelPrices, que borra de verdad."
+        },
+        {
+            "name": "Device Tokens",
+            "description": "Tokens FCM (Android e iOS) de los dispositivos del usuario, guardados para notificaciones push. DOS ENDPOINTS Y NINGUNO MÁS, los dos con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nSIN role: NI carrier.required: valen para los siete roles, y un carrier o un pilot sin empresa también pueden registrar su teléfono.\n\nATENCIÓN — TODAVÍA NO SE ENVÍA NINGUNA NOTIFICACIÓN. Este dominio solo guarda los tokens. No hay GET para listarlos ni endpoint de logout: al cerrar sesión el móvil debe llamar al DELETE."
         },
         {
             "name": "FreightRates",
