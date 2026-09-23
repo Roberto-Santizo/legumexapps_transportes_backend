@@ -121,15 +121,34 @@ it('rechaza con 403 a un piloto en cualquier endpoint de vehículos', function (
         ]);
 })->with(vehicleEndpoints());
 
-it('rechaza con 403 a un manager en cualquier endpoint de vehículos', function (string $method, string $uri) {
-    asUser(userWithRole(UserRole::Manager))->json($method, $uri)
+it('rechaza con 403 a manager y export al escribir vehículos', function (UserRole $role, string $method, string $uri) {
+    asUser(userWithRole($role))->json($method, $uri)
         ->assertForbidden()
         ->assertExactJson([
             'statusCode' => 403,
             'message' => 'No tienes permisos para acceder a este recurso',
             'data' => null,
         ]);
-})->with(vehicleEndpoints());
+})->with([UserRole::Manager, UserRole::Export])->with(array_diff_key(vehicleEndpoints(), array_flip(['index', 'show'])));
+
+it('rechaza con 403 a user y shipment en cualquier endpoint de vehículos', function (UserRole $role, string $method, string $uri) {
+    asUser(userWithRole($role))->json($method, $uri)
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No tienes permisos para acceder a este recurso');
+})->with([UserRole::User, UserRole::Shipment])->with(vehicleEndpoints());
+
+it('deja a manager y export consultar los vehículos de todas las empresas', function (UserRole $role) {
+    $vehicles = Vehicle::factory()->count(2)->create();
+    $reader = userWithRole($role);
+
+    asUser($reader)->getJson('/api/vehicles')
+        ->assertOk()
+        ->assertJsonCount(2, 'data');
+
+    asUser($reader)->getJson("/api/vehicles/{$vehicles[1]->id}")
+        ->assertOk()
+        ->assertJsonPath('data.id', $vehicles[1]->id);
+})->with([UserRole::Manager, UserRole::Export]);
 
 it('bloquea con carrier.required a un carrier sin empresa', function (string $method, string $uri) {
     asUser(userWithRole(UserRole::Carrier))->json($method, $uri)
@@ -149,19 +168,39 @@ it('deja pasar carrier.required a un administrador sin empresa', function () {
         ->assertJsonCount(2, 'data');
 });
 
-it('rechaza con 403 a un administrador que intenta registrar un vehículo', function () {
+it('deja al administrador registrar un vehículo en la empresa que elige', function () {
+    $carrier = Carrier::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))
+        ->post('/api/vehicles', validVehiclePayload(['carrier_id' => $carrier->id]))
+        ->assertCreated();
+
+    expect(Vehicle::sole()->carrier_id)->toBe($carrier->id);
+});
+
+it('exige carrier_id existente al administrador que registra un vehículo', function (array $overrides) {
     Carrier::factory()->create();
 
     asUser(userWithRole(UserRole::Administrator))
-        ->post('/api/vehicles', validVehiclePayload())
-        ->assertForbidden()
-        ->assertExactJson([
-            'statusCode' => 403,
-            'message' => 'No tienes permisos para acceder a este recurso',
-            'data' => null,
-        ]);
+        ->post('/api/vehicles', validVehiclePayload($overrides))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['carrier_id']);
 
     $this->assertDatabaseCount('vehicles', 0);
+})->with([
+    'sin carrier_id' => [[]],
+    'empresa inexistente' => [['carrier_id' => 999999]],
+]);
+
+it('ignora el carrier_id que manda un carrier y registra en su propia empresa', function () {
+    $own = Carrier::factory()->create();
+    $other = Carrier::factory()->create();
+
+    asUser($own->owner)
+        ->post('/api/vehicles', validVehiclePayload(['carrier_id' => $other->id]))
+        ->assertCreated();
+
+    expect(Vehicle::sole()->carrier_id)->toBe($own->id);
 });
 
 /*

@@ -30,7 +30,7 @@ class PilotService implements PilotServiceInterface
     /**
      * Roles that reach every company's pilots, with no scope of their own.
      */
-    private const UNSCOPED_ROLES = [UserRole::Administrator, UserRole::Manager];
+    private const UNSCOPED_ROLES = [UserRole::Administrator, UserRole::Manager, UserRole::Export];
 
     #[Override]
     public function getPilots(User $user, array $filters): LengthAwarePaginator|Collection

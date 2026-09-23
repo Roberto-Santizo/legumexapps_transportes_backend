@@ -24,7 +24,7 @@ class AccessoryCharacteristicController extends Controller
         operationId: 'indexAccessoryCharacteristics',
         summary: 'Listar las características de un accesorio',
         description: <<<'TEXT'
-        Devuelve las características de UN accesorio concreto, con el nombre de quien capturó cada una. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque las características cuelgan del inventario nacional y no están acotadas por transportista ni por vehículo. No hay ámbito por empresa: todos los usuarios ven exactamente las mismas filas.
+        Devuelve las características de UN accesorio concreto, con el nombre de quien capturó cada una. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa, porque las características cuelgan del inventario nacional y no están acotadas por transportista ni por vehículo. No hay ámbito por empresa: todos los usuarios ven exactamente las mismas filas.
 
         ATENCIÓN — accessoryId ES OBLIGATORIO. Sin él la petición NO devuelve las características de todo el inventario ni una lista vacía: devuelve 422. Y ese 422 NO usa el sobre habitual {statusCode, message, data}: al venir de un FormRequest sale con el formato de validación de Laravel {message, errors: {accessoryId: [...]}}, con el mensaje El accesorio es obligatorio dentro de errors.accessoryId. Un cliente que lea siempre response.statusCode o response.data en los errores se encontrará undefined justo en este caso. Un accessoryId que no sea entero da el mismo formato con el mensaje El accesorio debe ser un número entero.
 
@@ -190,7 +190,7 @@ class AccessoryCharacteristicController extends Controller
         operationId: 'showAccessoryCharacteristic',
         summary: 'Obtener una característica por id',
         description: <<<'TEXT'
-        Devuelve una característica concreta con el nombre de quien la capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa.
+        Devuelve una característica concreta con el nombre de quien la capturó. Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa.
 
         ATENCIÓN — el {accessoryCharacteristic} de la ruta es el id de la CARACTERÍSTICA (accessory_characteristics.id), NO el del accesorio. Pasar aquí el id de un accesorio devuelve otra fila o un 404, no las características de ese accesorio: para eso está GET /api/accessory-characteristics?accessoryId=.
 

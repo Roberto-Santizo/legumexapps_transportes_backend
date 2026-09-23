@@ -5,20 +5,24 @@ use App\Http\Controllers\ShippingLineController;
 use Illuminate\Support\Facades\Route;
 
 $administrator = UserRole::Administrator->value;
+$export = UserRole::Export->value;
 
-Route::prefix('shipping-lines')->name('shipping-lines.')->middleware('jwt.auth')->group(function () use ($administrator): void {
+/** Lectura para todo rol salvo user y shipment, que solo consultan viajes. */
+$readers = UserRole::allExcept(UserRole::User, UserRole::Shipment);
+
+Route::prefix('shipping-lines')->name('shipping-lines.')->middleware(['jwt.auth', "role:{$readers}"])->group(function () use ($administrator, $export): void {
     /**
      * Sin ninguna ruta fija antes del apiResource: este dominio no tiene ninguna.
      * No hay /toggle-status —una naviera no se pausa, se borra— ni /restore —un
      * borrado no se deshace por API—, así que el comodín {shippingLine} no captura nada.
      *
-     * La lectura no lleva role ni carrier.required: el catálogo es nacional y
-     * cualquier autenticado lo consulta.
+     * La lectura no lleva carrier.required: el catálogo es nacional y
+     * cualquier rol salvo user y shipment lo consulta.
      */
     Route::apiResource('/', ShippingLineController::class)
         ->parameters(['' => 'shippingLine'])
         ->only(['index', 'store', 'show', 'update', 'destroy'])
-        ->middlewareFor('store', ["role:{$administrator}"])
-        ->middlewareFor('update', ["role:{$administrator}"])
-        ->middlewareFor('destroy', ["role:{$administrator}"]);
+        ->middlewareFor('store', ["role:{$administrator},{$export}"])
+        ->middlewareFor('update', ["role:{$administrator},{$export}"])
+        ->middlewareFor('destroy', ["role:{$administrator},{$export}"]);
 });

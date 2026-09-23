@@ -102,7 +102,7 @@ it('rechaza con 401 cualquier endpoint de carriers sin token', function (string 
         ]);
 })->with(carrierEndpoints());
 
-it('rechaza con 403 a un manager en cualquier endpoint de carriers', function (string $method, string $uri) {
+it('rechaza con 403 a un manager en cualquier endpoint de carriers salvo la lectura', function (string $method, string $uri) {
     $manager = userWithRole(UserRole::Manager);
 
     asUser($manager)->json($method, $uri)
@@ -112,7 +112,15 @@ it('rechaza con 403 a un manager en cualquier endpoint de carriers', function (s
             'message' => 'No tienes permisos para acceder a este recurso',
             'data' => null,
         ]);
-})->with(carrierEndpoints());
+})->with(array_diff_key(carrierEndpoints(), array_flip(['index', 'show'])));
+
+it('deja al manager consultar el listado y el detalle de empresas', function () {
+    $carrier = Carrier::factory()->create();
+    $manager = userWithRole(UserRole::Manager);
+
+    asUser($manager)->getJson('/api/carriers')->assertOk()->assertJsonCount(1, 'data');
+    asUser($manager)->getJson("/api/carriers/{$carrier->id}")->assertOk()->assertJsonPath('data.id', $carrier->id);
+});
 
 it('rechaza con 403 a un piloto que intenta crear una empresa transportista', function () {
     $pilot = userWithRole(UserRole::Pilot);

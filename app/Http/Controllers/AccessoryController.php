@@ -23,7 +23,7 @@ class AccessoryController extends Controller
         operationId: 'indexAccessories',
         summary: 'Listar accesorios',
         description: <<<'TEXT'
-        Devuelve los accesorios del inventario nacional con su valor depreciado a día de hoy y el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque el accesorio es un dato nacional y no está acotado por transportista ni por vehículo. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
+        Devuelve los accesorios del inventario nacional con su valor depreciado a día de hoy y el nombre de quien los capturó. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa, porque el accesorio es un dato nacional y no está acotado por transportista ni por vehículo. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
 
         ATENCIÓN — el listado devuelve por defecto LOS TRES ESTADOS MEZCLADOS: active, inactive y under_repair. La baja de un accesorio es lógica, así que lo dado de baja SIGUE APARECIENDO aquí con status "inactive"; para quedarse solo con lo disponible hay que enviar status=active. Es intencionado: una pantalla de administración necesita ver lo que dio de baja para poder reactivarlo.
 
@@ -180,7 +180,7 @@ class AccessoryController extends Controller
         description: <<<'TEXT'
         Devuelve un accesorio concreto —en cualquiera de sus tres estados— con su valor depreciado a día de hoy y el nombre del administrador que lo capturó.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa ni por vehículo, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa. No hay ámbito por empresa ni por vehículo, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
 
         Un accesorio con status "inactive" o "under_repair" se obtiene con toda normalidad: la baja es lógica y no oculta la fila en ninguna lectura. El campo status es lo que distingue si está disponible.
 

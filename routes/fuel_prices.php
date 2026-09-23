@@ -6,7 +6,10 @@ use Illuminate\Support\Facades\Route;
 
 $administrator = UserRole::Administrator->value;
 
-Route::prefix('fuel-prices')->name('fuel-prices.')->middleware('jwt.auth')->group(function () use ($administrator): void {
+/** Lectura para todo rol salvo user y shipment, que solo consultan viajes. */
+$readers = UserRole::allExcept(UserRole::User, UserRole::Shipment);
+
+Route::prefix('fuel-prices')->name('fuel-prices.')->middleware(['jwt.auth', "role:{$readers}"])->group(function () use ($administrator): void {
     /** Antes del apiResource: si no, el comodín {fuelPrice} capturaría /current. */
     Route::get('/current', [FuelPriceController::class, 'current'])
         ->name('current');
@@ -15,7 +18,7 @@ Route::prefix('fuel-prices')->name('fuel-prices.')->middleware('jwt.auth')->grou
         ->middleware("role:{$administrator}")
         ->name('deactivate');
 
-    /** La lectura no lleva role ni carrier.required: el precio es un dato nacional que cualquier autenticado consulta. */
+    /** La lectura no lleva carrier.required: el precio es un dato nacional que cualquier rol salvo user y shipment consulta. */
     Route::apiResource('/', FuelPriceController::class)
         ->parameters(['' => 'fuelPrice'])
         ->only(['index', 'store', 'show', 'update', 'destroy'])

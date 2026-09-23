@@ -32,12 +32,13 @@ interface VehicleServiceInterface
     public function getVehicleById(User $user, int $id): Vehicle;
 
     /**
-     * Register a vehicle for the company of the given user.
+     * Register a vehicle for the company of the given user, or for `carrier_id` when
+     * the user is an administrator.
      *
-     * @param  array{plate: string, brand: string, model: string, year: int, capacity: float, type: string, condition: string, kilometers_per_gallon: float, purchase_price: float, monthly_insurance_cost: float, mileage: int, engine_number: string, image: UploadedFile}  $data
-     *                                                                                                                                                                                                                                                                               capacity travels in pounds; kilometers_per_gallon in km per gallon;
-     *                                                                                                                                                                                                                                                                               purchase_price in GTQ; monthly_insurance_cost in GTQ per month;
-     *                                                                                                                                                                                                                                                                               mileage in whole kilometers; engine_number is stored uppercased.
+     * @param  array{carrier_id?: int, plate: string, brand: string, model: string, year: int, capacity: float, type: string, condition: string, kilometers_per_gallon: float, purchase_price: float, monthly_insurance_cost: float, mileage: int, engine_number: string, image: UploadedFile}  $data
+     *                                                                                                                                                                                                                                                                                                 capacity travels in pounds; kilometers_per_gallon in km per gallon;
+     *                                                                                                                                                                                                                                                                                                 purchase_price in GTQ; monthly_insurance_cost in GTQ per month;
+     *                                                                                                                                                                                                                                                                                                 mileage in whole kilometers; engine_number is stored uppercased.
      */
     public function createVehicle(array $data, User $user): Vehicle;
 

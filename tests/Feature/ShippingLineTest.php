@@ -707,9 +707,9 @@ it('no dispara N+1 al listar navieras de muchos registradores', function () {
     $sobreNavieras = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "shipping_lines"'));
     $sobreUsuarios = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "users"'));
 
-    /** Una consulta por el listado y otra por la relación: la del usuario autenticado es aparte. */
+    /** Una consulta por el listado y otra por la relación; el usuario autenticado cuenta dos: jwt.auth y el role: de la lectura. */
     expect($sobreNavieras)->toHaveCount(1)
-        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(2);
+        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(3);
 });
 
 /*

@@ -36,6 +36,12 @@ class VehicleService implements VehicleServiceInterface
      */
     private const IMAGE_DIRECTORY = 'vehicles';
 
+    /**
+     * Roles that reach the vehicles of every company: the administrator, and the two
+     * roles that read everything without writing.
+     */
+    private const UNSCOPED_ROLES = [UserRole::Administrator, UserRole::Manager, UserRole::Export];
+
     public function __construct(
         private readonly ImageProcessorServiceInterface $imageProcessor,
         private readonly FileStorageServiceInterface $fileStorage,
@@ -98,11 +104,7 @@ class VehicleService implements VehicleServiceInterface
     #[Override]
     public function createVehicle(array $data, User $user): Vehicle
     {
-        $carrier = $user->currentCarrier();
-
-        if ($carrier === null) {
-            throw new ForbiddenError('Necesitas pertenecer a una empresa transportista para registrar un vehículo');
-        }
+        $carrierId = $this->resolveOwningCarrierId($data, $user);
 
         $plate = Str::upper($data['plate']);
 
@@ -110,7 +112,7 @@ class VehicleService implements VehicleServiceInterface
         $this->ensurePlateIsAvailable($plate);
 
         return Vehicle::create([
-            'carrier_id' => $carrier->id,
+            'carrier_id' => $carrierId,
             'plate' => $plate,
             'brand' => $data['brand'],
             'model' => $data['model'],
@@ -254,14 +256,41 @@ class VehicleService implements VehicleServiceInterface
     }
 
     /**
+     * Resolve the company a new vehicle is registered under.
+     *
+     * An administrator belongs to no company and picks it in the body; anybody else
+     * registers under their own, and a `carrier_id` they send is never read.
+     *
+     * @param  array{carrier_id?: int}  $data
+     */
+    private function resolveOwningCarrierId(array $data, User $user): int
+    {
+        if ($user->role === UserRole::Administrator) {
+            if (! isset($data['carrier_id'])) {
+                throw new BadRequestError('La empresa transportista es obligatoria');
+            }
+
+            return (int) $data['carrier_id'];
+        }
+
+        $carrier = $user->currentCarrier();
+
+        if ($carrier === null) {
+            throw new ForbiddenError('Necesitas pertenecer a una empresa transportista para registrar un vehículo');
+        }
+
+        return $carrier->id;
+    }
+
+    /**
      * Resolve the company the given user is restricted to.
      *
-     * An administrator has no scope at all; anybody else only reaches the
+     * An unscoped role has no scope at all; anybody else only reaches the
      * vehicles of the company it belongs to.
      */
     private function resolveScopedCarrierId(User $user): ?int
     {
-        if ($user->role === UserRole::Administrator) {
+        if (in_array($user->role, self::UNSCOPED_ROLES, true)) {
             return null;
         }
 

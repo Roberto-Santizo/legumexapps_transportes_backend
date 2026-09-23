@@ -20,7 +20,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — LAS DOS PRIMERAS ESTÁN ANIDADAS BAJO {trip} y la tercera NO. La confirmación vive en /api/trip-expenses/{tripExpense}/confirm porque el id del viático ya identifica el viaje. NO EXISTE UN LISTADO GLOBAL: no hay GET /api/trip-expenses, ni filtro tripId en query, ni endpoint de detalle GET /api/trip-expenses/{tripExpense}. El índice va siempre viaje → viáticos.
 
-    ATENCIÓN — NI administrator NI manager ALCANZAN LAS DOS RUTAS DE ESCRITURA. Registrar es del carrier que tomó el viaje y confirmar es del pilot asignado; los otros roles reciben 403 «No tienes permisos para acceder a este recurso». Un administrador NO puede registrar ni confirmar nada: el PATCH general de un viaje no toca trip_expenses. En la LECTURA entran los cuatro roles, y AQUÍ EL PILOTO ASIGNADO SÍ LEE, como con las cargas de combustible: el dato es sobre él.
+    ATENCIÓN — manager NO ALCANZA LAS DOS RUTAS DE ESCRITURA Y administrator SOLO LA DE REGISTRAR. Registrar es del carrier que tomó el viaje (o del administrator) y confirmar es del pilot asignado; los otros roles reciben 403 «No tienes permisos para acceder a este recurso». Un administrador NO puede registrar ni confirmar nada: el PATCH general de un viaje no toca trip_expenses. En la LECTURA entran los cuatro roles, y AQUÍ EL PILOTO ASIGNADO SÍ LEE, como con las cargas de combustible: el dato es sobre él.
 
     CUATRO GUARDAS DEL POST EN ORDEN FIJO, y ese orden es contrato: viaje inexistente → 404 «El viaje no existe»; viaje borrado → 400 «El viaje ya fue eliminado»; el viaje NO lo tomó la empresa de quien llama, INCLUIDO EL CASO DE UN VIAJE SIN ASIGNAR → 403 «No puedes registrar viáticos en un viaje que no tomó tu empresa transportista»; el viaje está finished → 400 «El viaje ya fue finalizado». CONSECUENCIA: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403. Se registra en pending Y en in_route —un extra en carretera es el caso real—, nunca después. Un carrier sin empresa registrada recibe 403 «No perteneces a ninguna empresa transportista» desde el service, no desde un middleware.
 
@@ -40,7 +40,7 @@ class TripExpenseController extends Controller
         description: <<<'TEXT'
         Devuelve los viáticos del viaje —confirmados y pendientes, mezclados— más el acumulado de los CONFIRMADOS en la raíz del sobre.
 
-        LA RUTA NO LLEVA role: Y LA ALCANZAN LOS CUATRO ROLES, acotados por el ámbito de SPEC 24, que este dominio no reescribe: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa MÁS la bolsa libre (los pending sin tripulación); y un pilot, SOLO aquellos donde él es el pilotId. AQUÍ EL PILOTO ASIGNADO SÍ LEE, como en GET /api/trips/{trip}/fuels y al contrario que en /positions. Fuera de ámbito es 403 y no 404, con dos mensajes distintos según el rol.
+        LA RUTA LLEVA role: CON TODOS LOS ROLES SALVO shipment —que no ve dinero y recibe 403—, acotados por el ámbito de SPEC 24, que este dominio no reescribe: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa MÁS la bolsa libre (los pending sin tripulación); y un pilot, SOLO aquellos donde él es el pilotId. AQUÍ EL PILOTO ASIGNADO SÍ LEE, como en GET /api/trips/{trip}/fuels y al contrario que en /positions. Fuera de ámbito es 403 y no 404, con dos mensajes distintos según el rol.
 
         Un viaje SIN NINGÚN VIÁTICO devuelve 200 con data vacío y totalAmount "0.00", NUNCA 404. Un viaje BORRADO o inexistente es 404 «El viaje no existe», indistinguibles entre sí.
 
@@ -132,7 +132,7 @@ class TripExpenseController extends Controller
         description: <<<'TEXT'
         Registra UN viático sobre un viaje que la empresa transportista ya tomó. Es la segunda vía de alta del dominio: el primer viático puede crearlo PATCH /api/trips/{trip}/assignment si viaja expenseAmount, y este endpoint sirve para los siguientes —un extra en carretera es el caso real— o para el primero cuando la asignación no lo llevó.
 
-        ATENCIÓN — ES EXCLUSIVO DEL ROL carrier (middleware role:carrier): un administrator, un manager o un pilot reciben 403 «No tienes permisos para acceder a este recurso». La ruta NO lleva carrier.required: un carrier sin empresa registrada lo para el SERVICE con 403 «No perteneces a ninguna empresa transportista».
+        ATENCIÓN — ES DEL ROL carrier Y DEL administrator (middleware role:carrier,administrator): manager, pilot, export, user y shipment reciben 403. El administrator no pertenece a ninguna empresa: se salta la comprobación de empresa pero exige viaje asignado (400 «El viaje aún no fue asignado») «No tienes permisos para acceder a este recurso». La ruta NO lleva carrier.required: un carrier sin empresa registrada lo para el SERVICE con 403 «No perteneces a ninguna empresa transportista».
 
         ATENCIÓN — SOLO LA EMPRESA QUE TOMÓ EL VIAJE. La comparación cae sobre la EMPRESA de assignedBy, no sobre la persona. Y un viaje SIN ASIGNAR NO ES LIBRE AQUÍ: la bolsa se lee con 200 pero registrarle viáticos es 403, porque un viático sin piloto que lo confirme nacería atascado.
 
@@ -186,7 +186,7 @@ class TripExpenseController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'Sin permiso para registrar. TRES CAUSAS con mensajes distintos: el middleware role:carrier rechaza a administrator, manager y pilot con «No tienes permisos para acceder a este recurso»; un carrier sin empresa recibe del service «No perteneces a ninguna empresa transportista»; y un carrier cuya empresa no tomó el viaje —INCLUIDO UN VIAJE SIN ASIGNAR— recibe «No puedes registrar viáticos en un viaje que no tomó tu empresa transportista».',
+                description: 'Sin permiso para registrar. TRES CAUSAS con mensajes distintos: el middleware role:carrier,administrator rechaza a manager, pilot, export, user y shipment con «No tienes permisos para acceder a este recurso»; un carrier sin empresa recibe del service «No perteneces a ninguna empresa transportista»; y un carrier cuya empresa no tomó el viaje —INCLUIDO UN VIAJE SIN ASIGNAR— recibe «No puedes registrar viáticos en un viaje que no tomó tu empresa transportista».',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(

@@ -379,9 +379,9 @@ it('no dispara N+1 al listar zonas de muchos registradores', function () {
     $sobreZonas = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "zones"'));
     $sobreUsuarios = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "users"'));
 
-    /** Una consulta por el listado y otra por la relación: la del usuario autenticado es aparte. */
+    /** Una consulta por el listado y otra por la relación; el usuario autenticado cuenta dos: jwt.auth y el role: de la lectura. */
     expect($sobreZonas)->toHaveCount(1)
-        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(2);
+        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(3);
 });
 
 /*

@@ -106,15 +106,31 @@ it('rechaza las rutas del tablero sin token', function (string $uri) {
         ->assertJsonPath('message', 'El token de sesión no es válido o ha expirado');
 })->with(dashboardEndpoints());
 
-it('rechaza con 403 a los pilotos en todas las rutas del tablero', function (string $uri) {
-    asUser(userWithRole(UserRole::Pilot))->getJson($uri)
+it('rechaza con 403 a pilot, user y shipment en todas las rutas del tablero', function (UserRole $role, string $uri) {
+    asUser(userWithRole($role))->getJson($uri)
         ->assertForbidden()
         ->assertExactJson([
             'statusCode' => 403,
             'message' => 'No tienes permisos para acceder a este recurso',
             'data' => null,
         ]);
+})->with([UserRole::Pilot, UserRole::User, UserRole::Shipment])->with(dashboardEndpoints());
+
+it('admite a export, sin empresa, en todas las rutas del tablero', function (string $uri) {
+    asUser(userWithRole(UserRole::Export))->getJson($uri)->assertOk();
 })->with(dashboardEndpoints());
+
+it('deja a export filtrar el resumen por cualquier empresa, como el administrador', function () {
+    $mine = dashboardCarrier('MIA');
+    $other = dashboardCarrier('OTRA');
+    tripTakenBy($mine);
+    tripTakenBy($other);
+
+    asUser(userWithRole(UserRole::Export))->getJson("/api/dashboard/trips?carrierId={$other->id}")
+        ->assertOk()
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.byCarrier.0.carrierId', $other->id);
+});
 
 it('rechaza con 403 a un transportista sin empresa en todas las rutas del tablero', function (string $uri) {
     asUser(userWithRole(UserRole::Carrier))->getJson($uri)

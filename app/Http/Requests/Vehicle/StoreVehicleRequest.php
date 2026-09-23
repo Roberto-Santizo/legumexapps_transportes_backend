@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Vehicle;
 
+use App\Enums\UserRole;
 use App\Enums\VehicleCondition;
 use App\Enums\VehicleType;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -13,13 +14,13 @@ use OpenApi\Attributes as OA;
     schema: 'StoreVehicleRequest',
     title: 'Alta de vehículo',
     description: <<<'TEXT'
-    Cuerpo multipart/form-data para registrar un vehículo. Los TRECE campos son obligatorios: omitir cualquiera devuelve 422.
+    Cuerpo multipart/form-data para registrar un vehículo. Los TRECE campos son obligatorios —catorce para un administrator, que añade carrier_id—: omitir cualquiera devuelve 422.
 
     CAMBIO INCOMPATIBLE respecto a la versión anterior de la API: el alta pedía siete campos (plate, brand, model, year, capacity, type e image) y ahora exige seis más (condition, kilometers_per_gallon, purchase_price, monthly_insurance_cost, mileage y engine_number). No hay periodo de gracia ni transición: cualquier cliente que siga enviando el cuerpo antiguo recibe 422 en TODAS las altas hasta que actualice su formulario. La edición y el listado sí siguen siendo compatibles, lo que puede dar la falsa impresión de que el alta también lo es.
 
     condition NO es status: son dos ejes distintos y ninguno reemplaza al otro. status es el estado operativo (active, inactive, under_repair), gobierna la baja lógica del DELETE y la unicidad condicional de la placa, y NO se acepta en este cuerpo: el vehículo nace siempre en active y enviarlo no cambia nada, se descarta sin error. condition (new, used) es cómo se adquirió el vehículo y no gobierna nada: no influye en el status inicial ni en ninguna otra regla del dominio.
 
-    El carrier_id tampoco se envía: se resuelve desde la empresa del usuario autenticado.
+    carrier_id depende del rol: un carrier NO lo envía —se resuelve desde su empresa y, si lo manda, se descarta sin validarlo—; un administrator SÍ, obligatorio, porque no pertenece a ninguna empresa y elige a cuál registra el vehículo (inexistente → 422).
 
     No hay ninguna validación cruzada entre los campos nuevos: un vehículo con condition = new y mileage = 90000 es válido, y un purchase_price de 0.01 también.
 
@@ -27,6 +28,12 @@ use OpenApi\Attributes as OA;
     TEXT,
     required: ['plate', 'brand', 'model', 'year', 'capacity', 'type', 'condition', 'kilometers_per_gallon', 'purchase_price', 'monthly_insurance_cost', 'mileage', 'engine_number', 'image'],
     properties: [
+        new OA\Property(
+            property: 'carrier_id',
+            description: 'Empresa dueña del vehículo. OBLIGATORIO SOLO PARA administrator (422 si falta o no existe). Para carrier se descarta sin validar: su vehículo siempre va a su propia empresa.',
+            type: 'integer',
+            example: 3,
+        ),
         new OA\Property(
             property: 'plate',
             description: 'Placa del vehículo. Se normaliza a mayúsculas antes de validar la unicidad y antes de persistir, así que p123abc y P123ABC son la misma placa.',
@@ -125,7 +132,11 @@ class StoreVehicleRequest extends FormRequest
      */
     public function rules(): array
     {
+        $isAdministrator = $this->user('api')?->role === UserRole::Administrator;
+
         return [
+            /** Solo el administrador elige la empresa; para el carrier se excluye y la fija el service. */
+            'carrier_id' => [Rule::excludeIf(! $isAdministrator), 'required', 'integer', 'exists:carriers,id'],
             'plate' => ['required', 'string', 'max:15'],
             'brand' => ['required', 'string', 'max:100'],
             'model' => ['required', 'string', 'max:100'],
@@ -148,6 +159,9 @@ class StoreVehicleRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'carrier_id.required' => 'La empresa transportista es obligatoria',
+            'carrier_id.integer' => 'La empresa transportista no es válida',
+            'carrier_id.exists' => 'La empresa transportista no existe',
             'plate.required' => 'La placa es obligatoria',
             'plate.string' => 'La placa debe ser texto',
             'plate.max' => 'La placa no puede superar los 15 caracteres',

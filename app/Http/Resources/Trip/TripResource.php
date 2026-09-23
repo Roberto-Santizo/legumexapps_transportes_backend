@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Trip;
 
+use App\Enums\UserRole;
 use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Services\Place\PolylineDecoder;
 use Illuminate\Http\Request;
@@ -29,7 +30,9 @@ use OpenApi\Attributes as OA;
  *
  * `totalExpensesAmount` (SPEC 31) is its mirror for the travel allowances: the sum of
  * the ones the pilot confirmed receiving, resolved the same way and painted right
- * after it. Unlike fuel, nothing about it blocks `/start`.
+ * after it. Unlike fuel, nothing about it blocks `/start`. A `shipment` reader sees
+ * it pinned to "0.00": that role sees no money, and the key keeps its place so the
+ * shape does not depend on who asks.
  *
  * `traveledPolyline` and `traveledPoints` (SPEC 28) are the real route, the mirror of
  * `polyline` and `points`: the `trip_positions` trail encoded by `/finish` and decoded
@@ -337,7 +340,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'totalExpensesAmount',
-            description: 'Viáticos CONFIRMADOS del viaje en GTQ (SPEC 31), como CADENA con dos decimales. ATENCIÓN — SOLO SUMA LOS VIÁTICOS QUE EL PILOTO CONFIRMÓ HABER RECIBIDO: un viaje recién asignado con expenseAmount devuelve "0.00" aunque /assignment ya le haya creado su primer viático, porque nace sin confirmar. Es el MISMO número que el totalAmount de GET /api/trips/{trip}/expenses, que lista los pendientes con isConfirmed en false. Lo resuelve un withSum acotado a received_at IS NOT NULL, sin cargar ninguna fila, así que el detalle NO devuelve los viáticos: no hay clave expenses ni contador. A diferencia de totalFuelGallons, NO BLOQUEA NADA: /start no exige viáticos. NO APARECE EN EL LISTADO: TripListItem sigue en 19 claves.',
+            description: 'Viáticos CONFIRMADOS del viaje en GTQ (SPEC 31), como CADENA con dos decimales. ATENCIÓN — SOLO SUMA LOS VIÁTICOS QUE EL PILOTO CONFIRMÓ HABER RECIBIDO: un viaje recién asignado con expenseAmount devuelve "0.00" aunque /assignment ya le haya creado su primer viático, porque nace sin confirmar. Es el MISMO número que el totalAmount de GET /api/trips/{trip}/expenses, que lista los pendientes con isConfirmed en false. Lo resuelve un withSum acotado a received_at IS NOT NULL, sin cargar ninguna fila, así que el detalle NO devuelve los viáticos: no hay clave expenses ni contador. A diferencia de totalFuelGallons, NO BLOQUEA NADA: /start no exige viáticos. PARA EL ROL shipment SIEMPRE VALE "0.00": ese rol no ve dinero. NO APARECE EN EL LISTADO: TripListItem sigue en 19 claves.',
             type: 'string',
             example: '850.00',
         ),
@@ -446,7 +449,10 @@ class TripResource extends JsonResource
              */
             'totalFuelGallons' => number_format((float) ($this->total_fuel_gallons ?? 0), 2, '.', ''),
             /** Espejo de totalFuelGallons para los viáticos (SPEC 31): solo los confirmados, resuelto por withSum. */
-            'totalExpensesAmount' => number_format((float) ($this->total_expenses_amount ?? 0), 2, '.', ''),
+            /** Shipment no ve dinero: la clave sale igual, fijada a cero. */
+            'totalExpensesAmount' => $request->user('api')?->role === UserRole::Shipment
+                ? '0.00'
+                : number_format((float) ($this->total_expenses_amount ?? 0), 2, '.', ''),
             'createdAt' => $this->created_at?->format('d-m-Y h:i:s A'),
             'updatedAt' => $this->updated_at?->format('d-m-Y h:i:s A'),
             'deletedAt' => $this->deleted_at?->format('d-m-Y h:i:s A'),

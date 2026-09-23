@@ -61,9 +61,9 @@ class TripController extends Controller
         operationId: 'indexTrips',
         summary: 'Listar viajes',
         description: <<<'TEXT'
-        Devuelve los viajes que el usuario autenticado tiene derecho a ver, con las relaciones ya resueltas como NOMBRE PLANO. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles y los cuatro obtienen 200; lo que cambia es QUÉ FILAS DEVUELVE.
+        Devuelve los viajes que el usuario autenticado tiene derecho a ver, con las relaciones ya resueltas como NOMBRE PLANO. NO LLEVA role:: lo puede llamar cualquiera de los siete roles y los cuatro obtienen 200; lo que cambia es QUÉ FILAS DEVUELVE.
 
-        ATENCIÓN — DOS USUARIOS DISTINTOS RECIBEN LISTADOS DISTINTOS SOBRE LOS MISMOS DATOS. administrator y manager ven TODOS los viajes. Un carrier ve la BOLSA —los pending con pilotId y vehicleId en null, que están libres para cualquier empresa— MÁS los que asignó su propia empresa; en cuanto la empresa A toma un viaje, ese viaje DESAPARECE del listado de la empresa B. Un pilot ve SOLO aquellos donde pilotId es él: LA BOLSA NO LE APARECE, porque él no elige viajes, se los asignan. La comparación de empresa se hace sobre los usuarios de la empresa de assignedBy, así que un compañero ve el viaje que tomó otro.
+        ATENCIÓN — DOS USUARIOS DISTINTOS RECIBEN LISTADOS DISTINTOS SOBRE LOS MISMOS DATOS. administrator, manager, export, user y shipment ven TODOS los viajes. Un carrier ve la BOLSA —los pending con pilotId y vehicleId en null, que están libres para cualquier empresa— MÁS los que asignó su propia empresa; en cuanto la empresa A toma un viaje, ese viaje DESAPARECE del listado de la empresa B. Un pilot ve SOLO aquellos donde pilotId es él: LA BOLSA NO LE APARECE, porque él no elige viajes, se los asignan. La comparación de empresa se hace sobre los usuarios de la empresa de assignedBy, así que un compañero ve el viaje que tomó otro.
 
         ATENCIÓN — EL ÁMBITO SE APLICA ANTES QUE LOS FILTROS. Un ?status=pending desde la empresa B no revela los viajes ya tomados por la A: los filtros solo pueden RECORTAR lo que el ámbito dejó pasar, nunca ampliarlo. No hay filtro por empresa asignataria ni por assignedBy: ni siquiera el administrador puede pedir «los viajes de la empresa X».
 
@@ -267,7 +267,7 @@ class TripController extends Controller
         operationId: 'storeTrip',
         summary: 'Publicar un viaje',
         description: <<<'TEXT'
-        Publica un viaje de exportación. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403, aunque los tres sí puedan leer viajes.
+        Publica un viaje de exportación. Lo pueden llamar administrator y export (middleware role:administrator,export): carrier, pilot, manager, user y shipment reciben 403, aunque todos ellos sí puedan leer viajes.
 
         El cuerpo tiene DOCE CAMPOS Y LOS DOCE SON OBLIGATORIOS. El viaje NACE EN LA BOLSA: status pending, pilotId, vehicleId y assignedById en null, y registeredByName el del administrador autenticado.
 
@@ -314,7 +314,7 @@ class TripController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator —un carrier, un pilot o un manager caen aquí, aunque los tres sí puedan leer viajes—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
+                description: 'El rol del usuario autenticado no es administrator ni export —carrier, pilot, manager, user y shipment caen aquí, aunque todos ellos sí puedan leer viajes—. El mensaje del middleware role es: No tienes permisos para acceder a este recurso',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -340,11 +340,11 @@ class TripController extends Controller
         operationId: 'showTrip',
         summary: 'Obtener un viaje por id',
         description: <<<'TEXT'
-        Devuelve un viaje concreto con sus 42 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los cuatro roles, pero el ÁMBITO decide si lo alcanza.
+        Devuelve un viaje concreto con sus 42 claves y las seis relaciones resueltas en pares planos. NO LLEVA role:: lo puede llamar cualquiera de los siete roles, pero el ÁMBITO decide si lo alcanza.
 
         ATENCIÓN — UN VIAJE FUERA DE ÁMBITO RESPONDE 403, NO 404, y es deliberado: el ámbito esconde filas de un listado, no pretende que nunca se publicaran. Es lo contrario del viaje borrado, que sí es 404. Los dos mensajes de 403 son distintos según el rol: un pilot que pide un viaje que no tiene asignado recibe «No puedes acceder a un viaje que no tienes asignado»; un carrier que pide uno tomado por otra empresa recibe «No puedes acceder a un viaje que no pertenece a tu empresa transportista».
 
-        Qué alcanza cada rol: administrator y manager, CUALQUIER viaje; un carrier, los de la BOLSA —pending con pilotId y vehicleId en null— y los que asignó su propia empresa, comparando la empresa de assignedBy y no el usuario exacto; un pilot, SOLO aquellos donde pilotId es él —ni siquiera los de la bolsa—.
+        Qué alcanza cada rol: administrator, manager, export, user y shipment, CUALQUIER viaje; un carrier, los de la BOLSA —pending con pilotId y vehicleId en null— y los que asignó su propia empresa, comparando la empresa de assignedBy y no el usuario exacto; un pilot, SOLO aquellos donde pilotId es él —ni siquiera los de la bolsa—.
 
         ATENCIÓN — UN VIAJE BORRADO RESPONDE 404 CON EL MISMO MENSAJE QUE UN id INEXISTENTE («El viaje no existe»), y es deliberado: quien lee no distingue «ya no está» de «nunca existió». Las cinco rutas de escritura sí los distinguen, con 400 «El viaje ya fue eliminado». No hay parámetro que devuelva los borrados ni endpoint /restore.
 
@@ -407,7 +407,7 @@ class TripController extends Controller
         operationId: 'updateTrip',
         summary: 'Actualizar un viaje',
         description: <<<'TEXT'
-        Edita los datos de un viaje. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo. NO comprueba ámbito, porque solo lo alcanza el administrador, que ve todos los viajes.
+        Edita los datos de un viaje. Lo pueden llamar administrator y export (middleware role:administrator,export): carrier, pilot, manager, user y shipment reciben 403. Ninguno de los dos toca la tripulación: pilotId y vehicleId se ignoran. La ruta acepta PATCH y PUT indistintamente y en ambos casos el comportamiento es el mismo: el PUT no reemplaza el recurso completo. NO comprueba ámbito, porque solo lo alcanza el administrador, que ve todos los viajes.
 
         Todos los campos son opcionales y solo se toca lo que venga. Un CUERPO VACÍO responde 200 como no-op, devolviendo el viaje sin cambios y sin mover updatedAt. Opcional no es vaciable: enviar una clave en blanco o con null es 422.
 
@@ -463,7 +463,7 @@ class TripController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator. El mensaje del middleware role es: No tienes permisos para acceder a este recurso. ATENCIÓN — este 403 es siempre de rol, nunca de ámbito: el administrador ve todos los viajes, así que aquí no existe el 403 por recurso ajeno del show.',
+                description: 'El rol del usuario autenticado no es administrator ni export. El mensaje del middleware role es: No tienes permisos para acceder a este recurso. ATENCIÓN — este 403 es siempre de rol, nunca de ámbito: el administrador ve todos los viajes, así que aquí no existe el 403 por recurso ajeno del show.',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -498,7 +498,7 @@ class TripController extends Controller
         operationId: 'destroyTrip',
         summary: 'Eliminar un viaje',
         description: <<<'TEXT'
-        Da de baja un viaje. Es EXCLUSIVO del rol administrator (middleware role:administrator): un carrier, un pilot o un manager reciben 403.
+        Da de baja un viaje. Lo pueden llamar administrator y export (middleware role:administrator,export): carrier, pilot, manager, user y shipment reciben 403.
 
         ES UN BORRADO LÓGICO (soft delete): la fila SIGUE EN LA BASE con su deleted_at puesto, pero DESAPARECE de la API para siempre. No se lista, no se consulta por id —el GET responde 404— y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni un status— que la devuelva, ni endpoint /restore. UN VIAJE BORRADO POR ERROR SOLO SE RECUPERA DESDE LA BASE DE DATOS.
 
@@ -546,7 +546,7 @@ class TripController extends Controller
             ),
             new OA\Response(
                 response: 403,
-                description: 'El rol del usuario autenticado no es administrator. El mensaje del middleware role es: No tienes permisos para acceder a este recurso. Ni el carrier que tomó el viaje ni el piloto que lo conduce pueden borrarlo.',
+                description: 'El rol del usuario autenticado no es administrator ni export. El mensaje del middleware role es: No tienes permisos para acceder a este recurso. Ni el carrier que tomó el viaje ni el piloto que lo conduce pueden borrarlo.',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(

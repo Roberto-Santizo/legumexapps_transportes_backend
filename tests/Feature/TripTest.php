@@ -78,7 +78,8 @@ function tripPilotEndpoints(): array
 }
 
 /**
- * The roles that never reach the administrator's writing endpoints.
+ * The roles that never reach the general writing endpoints, kept for the
+ * administrator and export.
  *
  * @return array<string, UserRole>
  */
@@ -88,6 +89,8 @@ function tripNonAdminRoles(): array
         'carrier' => UserRole::Carrier,
         'pilot' => UserRole::Pilot,
         'manager' => UserRole::Manager,
+        'user' => UserRole::User,
+        'shipment' => UserRole::Shipment,
     ];
 }
 
@@ -102,6 +105,9 @@ function tripNonAssignerRoles(): array
         'administrator' => UserRole::Administrator,
         'manager' => UserRole::Manager,
         'pilot' => UserRole::Pilot,
+        'export' => UserRole::Export,
+        'user' => UserRole::User,
+        'shipment' => UserRole::Shipment,
     ];
 }
 
@@ -116,17 +122,20 @@ function tripNonPilotRoles(): array
         'administrator' => UserRole::Administrator,
         'carrier' => UserRole::Carrier,
         'manager' => UserRole::Manager,
+        'export' => UserRole::Export,
+        'user' => UserRole::User,
+        'shipment' => UserRole::Shipment,
     ];
 }
 
 /**
- * Every role of the project: all four list the trips, each one within its own scope.
+ * Every role of the project: all of them list the trips, each one within its own scope.
  *
  * @return array<string, UserRole>
  */
 function tripReaderRoles(): array
 {
-    return tripNonAdminRoles() + ['administrator' => UserRole::Administrator];
+    return tripNonAdminRoles() + ['administrator' => UserRole::Administrator, 'export' => UserRole::Export];
 }
 
 if (! function_exists('userWithRole')) {
@@ -323,7 +332,7 @@ it('rechaza con 401 cualquiera de las nueve rutas de viajes sin token', function
         ]);
 })->with(tripEndpoints());
 
-it('rechaza con 403 a quien no es administrador en el alta, la edición y la baja', function (string $method, string $uri, UserRole $role) {
+it('rechaza con 403 a quien no es administrador ni export en el alta, la edición y la baja', function (string $method, string $uri, UserRole $role) {
     asUser(userWithRole($role))->json($method, $uri)
         ->assertForbidden()
         ->assertExactJson([
@@ -363,7 +372,7 @@ it('rechaza con 403 el inicio y el cierre a todo rol que no sea piloto', functio
         ->assertJsonPath('message', 'No tienes permisos para acceder a este recurso');
 })->with(tripPilotEndpoints())->with(tripNonPilotRoles());
 
-it('deja listar los viajes a los cuatro roles', function (UserRole $role) {
+it('deja listar los viajes a todos los roles', function (UserRole $role) {
     asUser(userWithRole($role))->getJson('/api/trips')
         ->assertOk()
         ->assertJsonPath('statusCode', 200)
@@ -376,7 +385,7 @@ it('deja listar los viajes a los cuatro roles', function (UserRole $role) {
 |--------------------------------------------------------------------------
 */
 
-it('deja ver todos los viajes, asignados o no, al administrador y al gerente', function (UserRole $role) {
+it('deja ver todos los viajes, asignados o no, a los roles sin ámbito de empresa', function (UserRole $role) {
     $libre = Trip::factory()->create();
     $tomado = Trip::factory()->assigned()->create();
 
@@ -388,6 +397,9 @@ it('deja ver todos los viajes, asignados o no, al administrador y al gerente', f
 })->with([
     'administrador' => UserRole::Administrator,
     'gerente' => UserRole::Manager,
+    'export' => UserRole::Export,
+    'user' => UserRole::User,
+    'shipment' => UserRole::Shipment,
 ]);
 
 it('deja ver al transportista la bolsa de viajes pendientes y sin tripulación', function () {
@@ -3600,3 +3612,78 @@ it('deja el TripInRouteResource del tablero sin las dos métricas reales', funct
     expect($response->json('data'))->toHaveCount(1)
         ->and($response->json('data.0'))->not->toHaveKeys(['traveledKilometers', 'traveledHours']);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Roles export, user y shipment
+|--------------------------------------------------------------------------
+*/
+
+it('deja a export dar de alta, editar y borrar un viaje', function () {
+    $export = userWithRole(UserRole::Export);
+
+    $id = asUser($export)->postJson('/api/trips', tripPayload())->assertCreated()->json('data.id');
+
+    asUser($export)->patchJson("/api/trips/{$id}", ['observations' => 'Revisar sellos'])
+        ->assertOk()
+        ->assertJsonPath('data.observations', 'Revisar sellos');
+
+    asUser($export)->deleteJson("/api/trips/{$id}")->assertOk();
+
+    expect(Trip::withTrashed()->findOrFail($id)->trashed())->toBeTrue();
+});
+
+it('no deja a export tocar la tripulación por el PATCH general', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team);
+    $other = tripTeam();
+
+    asUser(userWithRole(UserRole::Export))->patchJson("/api/trips/{$trip->id}", [
+        'pilotId' => $other['pilot']->id,
+        'vehicleId' => $other['vehicle']->id,
+    ])->assertOk();
+
+    expect($trip->refresh()->pilot_id)->toBe($team['pilot']->id)
+        ->and($trip->vehicle_id)->toBe($team['vehicle']->id);
+});
+
+it('deja a user y shipment consultar el detalle de cualquier viaje', function (UserRole $role) {
+    $trip = Trip::factory()->assigned()->create();
+
+    asUser(userWithRole($role))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.id', $trip->id);
+})->with([UserRole::User, UserRole::Shipment]);
+
+it('fija en cero los viáticos del detalle para shipment y los muestra a user', function () {
+    $trip = Trip::factory()->assigned()->create();
+    TripExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 850, 'received_at' => now(), 'confirmed_by' => $trip->pilot_id]);
+
+    asUser(userWithRole(UserRole::Shipment))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalExpensesAmount', '0.00');
+
+    asUser(userWithRole(UserRole::User))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalExpensesAmount', '850.00');
+});
+
+it('deja a user y shipment seguir el viaje por posiciones, paradas y cargas', function (UserRole $role, string $segment) {
+    $trip = Trip::factory()->assigned()->create();
+
+    asUser(userWithRole($role))->getJson("/api/trips/{$trip->id}/{$segment}")->assertOk();
+})->with([UserRole::User, UserRole::Shipment])->with(['positions', 'timeouts', 'fuels']);
+
+it('rechaza con 403 a shipment los viáticos y el costo del viaje', function (string $segment) {
+    $trip = Trip::factory()->finished()->create();
+
+    asUser(userWithRole(UserRole::Shipment))->getJson("/api/trips/{$trip->id}/{$segment}")
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No tienes permisos para acceder a este recurso');
+})->with(['expenses', 'cost']);
+
+it('deja a user consultar los viáticos y el costo del viaje', function (string $segment) {
+    $trip = Trip::factory()->finished()->create();
+
+    asUser(userWithRole(UserRole::User))->getJson("/api/trips/{$trip->id}/{$segment}")->assertOk();
+})->with(['expenses', 'cost']);

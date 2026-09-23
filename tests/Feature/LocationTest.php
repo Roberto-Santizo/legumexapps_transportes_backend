@@ -768,9 +768,9 @@ it('no dispara N+1 al listar destinos de muchos registradores', function () {
     $sobreDestinos = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "locations"'));
     $sobreUsuarios = collect($queries)->filter(fn (string $sql) => str_contains($sql, 'from "users"'));
 
-    /** Una consulta por el listado y otra por la relación: la del usuario autenticado es aparte. */
+    /** Una consulta por el listado y otra por la relación; el usuario autenticado cuenta dos: jwt.auth y el role: de la lectura. */
     expect($sobreDestinos)->toHaveCount(1)
-        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(2);
+        ->and($sobreUsuarios->count())->toBeLessThanOrEqual(3);
 });
 
 it('filtra por tipo devolviendo solo los destinos de esa etiqueta', function (string $type, int $esperado) {

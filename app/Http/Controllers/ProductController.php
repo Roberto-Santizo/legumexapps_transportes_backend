@@ -23,7 +23,7 @@ class ProductController extends Controller
         operationId: 'indexProducts',
         summary: 'Listar productos',
         description: <<<'TEXT'
-        Devuelve el catálogo de productos. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles —administrator, carrier, pilot y manager—, incluido un carrier sin empresa, porque el producto es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
+        Devuelve el catálogo de productos. Solo exige token: puede llamarlo cualquier rol salvo user y shipment —administrator, carrier, pilot, manager y export—, incluido un carrier sin empresa, porque el producto es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
 
         ATENCIÓN — el listado devuelve por defecto ACTIVOS E INACTIVOS mezclados. La baja de un producto es lógica, así que lo dado de baja sigue apareciendo aquí con status false; para quedarse solo con lo disponible hay que enviar status=true. Es intencionado: un catálogo de administración necesita ver lo que dio de baja para poder reactivarlo.
 
@@ -165,7 +165,7 @@ class ProductController extends Controller
         description: <<<'TEXT'
         Devuelve un producto concreto del catálogo, activo o dado de baja, con el nombre del administrador que lo capturó.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
 
         Un producto con status false se obtiene con toda normalidad: la baja es lógica y no oculta la fila en ninguna lectura. El campo status es lo que distingue si está disponible.
         TEXT,

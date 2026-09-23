@@ -1,14 +1,18 @@
 <?php
 
+use App\Enums\UserRole;
 use App\Http\Controllers\PlaceController;
 use Illuminate\Support\Facades\Route;
 
+/** Todo rol salvo user y shipment, que solo consultan viajes. */
+$readers = UserRole::allExcept(UserRole::User, UserRole::Shipment);
+
 /**
- * Ninguna ruta lleva role ni carrier.required: buscar una dirección es una lectura
- * abierta a cualquier autenticado, incluido un carrier que todavía no ha registrado
- * su empresa.
+ * Ninguna ruta lleva carrier.required: buscar una dirección es una lectura abierta a
+ * cualquier rol salvo user y shipment, incluido un carrier que todavía no ha
+ * registrado su empresa.
  */
-Route::prefix('places')->name('places.')->middleware('jwt.auth')->group(function (): void {
+Route::prefix('places')->name('places.')->middleware(['jwt.auth', "role:{$readers}"])->group(function (): void {
     /**
      * Se declara ANTES del apiResource: si no, el comodín {place} captura /directions y
      * la ruta responde 404 buscando una dirección llamada "directions".

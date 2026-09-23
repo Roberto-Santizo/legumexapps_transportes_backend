@@ -513,7 +513,7 @@ class DashboardService implements DashboardServiceInterface
     /**
      * Resolve the company every block of the dashboard is narrowed to, or null for all.
      *
-     * `administrator` and `manager` have no scope: for them the answer is the voluntary
+     * `administrator`, `manager` and `export` have no scope: for them the answer is the voluntary
      * `carrierId` filter, tolerant as ever. Anybody else is pinned to its own company
      * —resolved against the database, never the token claim— and its `carrierId` is
      * ignored, so a `carrier` can never read another company's numbers. Without a
@@ -523,7 +523,7 @@ class DashboardService implements DashboardServiceInterface
      */
     private function resolveEffectiveCarrierId(User $user, array $filters): ?int
     {
-        if (in_array($user->role, [UserRole::Administrator, UserRole::Manager], true)) {
+        if (in_array($user->role, [UserRole::Administrator, UserRole::Manager, UserRole::Export], true)) {
             return $this->resolveCarrierId($filters['carrierId'] ?? null);
         }
 

@@ -24,7 +24,7 @@ class FuelPriceController extends Controller
         operationId: 'indexFuelPrices',
         summary: 'Listar precios de combustible',
         description: <<<'TEXT'
-        Devuelve el catálogo de precios de combustible. Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa, porque el precio es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
+        Devuelve el catálogo de precios de combustible. Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa, porque el precio es un dato nacional y no está acotado por transportista. No hay ámbito ni filtrado por empresa: todos los usuarios ven exactamente las mismas filas.
 
         ATENCIÓN — el listado devuelve por defecto AMBOS estados, así que mezcla el precio vigente de cada tipo con todo su histórico ya desplazado. Un cliente que pinte "precios actuales" sin filtrar mostrará precios caducados como si estuvieran en vigor: para quedarse solo con los vigentes hay que enviar status=active, y para el vigente de un tipo concreto es mejor GET /api/fuel-prices/current.
 
@@ -106,7 +106,7 @@ class FuelPriceController extends Controller
         description: <<<'TEXT'
         Devuelve la única fila con status active del tipo de combustible indicado en la query. Es el endpoint que debe usar cualquier pantalla que muestre "el precio de hoy": evita tener que listar el catálogo y quedarse con el primer elemento.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa.
 
         La ruta está declarada ANTES del recurso, así que /current nunca se confunde con el id de un precio: no existe ningún precio cuyo detalle se sirva en esta URL.
 
@@ -233,7 +233,7 @@ class FuelPriceController extends Controller
         description: <<<'TEXT'
         Devuelve un precio concreto del catálogo, vigente o histórico, con el nombre del administrador que lo capturó.
 
-        Solo exige token: puede llamarlo cualquier usuario autenticado de los cuatro roles, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
+        Solo exige token: puede llamarlo cualquier rol salvo user y shipment, incluido un carrier sin empresa. No hay ámbito por empresa, así que no existe el 403 por recurso ajeno que sí tienen Vehicles o Carriers: o el id existe y se devuelve, o es 404.
 
         Una fila inactive se obtiene con toda normalidad: solo las ESCRITURAS distinguen entre vigente e histórico. Para saber cuál es el precio en vigor de un tipo, mira su campo status o usa GET /api/fuel-prices/current.
         TEXT,
