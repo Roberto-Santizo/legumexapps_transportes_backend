@@ -24,6 +24,7 @@ use App\Providers\Trip\TripProvider;
 use App\Providers\TripCost\TripCostProvider;
 use App\Providers\TripExpense\TripExpenseProvider;
 use App\Providers\TripFuel\TripFuelProvider;
+use App\Providers\TripNotification\TripNotificationProvider;
 use App\Providers\TripPosition\TripPositionProvider;
 use App\Providers\TripTimeout\TripTimeoutProvider;
 use App\Providers\Vehicle\VehicleProvider;
@@ -55,6 +56,7 @@ return [
     TripCostProvider::class,
     TripExpenseProvider::class,
     TripFuelProvider::class,
+    TripNotificationProvider::class,
     TripPositionProvider::class,
     TripTimeoutProvider::class,
     VehicleProvider::class,
