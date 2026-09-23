@@ -1,6 +1,6 @@
 # SPEC 34 — Tokens de dispositivo para notificaciones push
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-09-23
 > **Objetivo:** Crear la tabla `user_device_tokens` y dos endpoints, `POST /api/device-tokens` y `DELETE /api/device-tokens/{token}`, para que cualquier usuario autenticado registre y retire los tokens FCM (Android/iOS) de sus dispositivos, sin enviar todavía ninguna notificación.
