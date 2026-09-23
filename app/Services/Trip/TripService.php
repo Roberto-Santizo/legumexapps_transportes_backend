@@ -3,6 +3,7 @@
 namespace App\Services\Trip;
 
 use App\Enums\LocationType;
+use App\Enums\TripNotificationType;
 use App\Enums\TripStatus;
 use App\Enums\UserRole;
 use App\Enums\VehicleStatus;
@@ -10,6 +11,7 @@ use App\Errors\BadRequestError;
 use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
 use App\Interfaces\Trip\TripServiceInterface;
+use App\Jobs\SendTripNotification;
 use App\Models\Carrier;
 use App\Models\Client;
 use App\Models\DeparturePoint;
@@ -428,6 +430,13 @@ class TripService implements TripServiceInterface
             return $trip;
         });
 
+        /**
+         * Fuera y después de la transacción (SPEC 35): si se revierte, no sale el aviso de
+         * una asignación que no ocurrió. Cada asignación exitosa avisa, aunque se repita el
+         * piloto: pudo cambiar el vehículo.
+         */
+        SendTripNotification::dispatchAfterResponse($trip->id, TripNotificationType::Assigned);
+
         return $this->loadDetail($trip);
     }
 
@@ -462,6 +471,8 @@ class TripService implements TripServiceInterface
             'start_date' => now(),
             'status' => TripStatus::InRoute,
         ]);
+
+        SendTripNotification::dispatchAfterResponse($trip->id, TripNotificationType::Started);
 
         return $this->loadDetail($trip);
     }
@@ -500,6 +511,8 @@ class TripService implements TripServiceInterface
         ]);
 
         $this->closeOpenTimeout($trip);
+
+        SendTripNotification::dispatchAfterResponse($trip->id, TripNotificationType::Finished);
 
         return $trip->load(self::RELATIONS);
     }
