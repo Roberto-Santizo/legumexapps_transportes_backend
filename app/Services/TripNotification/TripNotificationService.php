@@ -96,6 +96,9 @@ class TripNotificationService implements TripNotificationServiceInterface
     /**
      * Title and body of the notification, in Spanish.
      *
+     * The collection date goes in the same `d-m-Y h:i:s A` format TripResource uses,
+     * so the pilot reads on the notification exactly what the app shows on the trip.
+     *
      * @return array{0: string, 1: string}
      */
     private function message(Trip $trip, TripNotificationType $type): array
@@ -104,7 +107,10 @@ class TripNotificationService implements TripNotificationServiceInterface
         $pilot = $trip->pilot?->name;
 
         return match ($type) {
-            TripNotificationType::Assigned => ['Nuevo viaje asignado', "Orden {$trip->order} · {$destination}"],
+            TripNotificationType::Assigned => [
+                'Nuevo viaje asignado',
+                "Tienes un nuevo viaje asignado con fecha de recolección: {$trip->recolection_date?->format('d-m-Y h:i:s A')}",
+            ],
             TripNotificationType::Started => ['Viaje iniciado', "Orden {$trip->order} · {$pilot} en ruta a {$destination}"],
             TripNotificationType::Finished => ['Viaje finalizado', "Orden {$trip->order} · {$pilot} llegó a {$destination}"],
         };

@@ -109,7 +109,7 @@ it('arma título, cuerpo y data de trip.assigned', function () {
     $sent = tripNotificationPush()->sent[0];
 
     expect($sent['title'])->toBe('Nuevo viaje asignado')
-        ->and($sent['body'])->toBe("Orden {$trip->order} · {$trip->location->name}")
+        ->and($sent['body'])->toBe('Tienes un nuevo viaje asignado con fecha de recolección: '.$trip->recolection_date->format('d-m-Y h:i:s A'))
         ->and($sent['data'])->toBe(['type' => 'trip.assigned', 'tripId' => (string) $trip->id]);
 });
 

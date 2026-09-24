@@ -39,7 +39,7 @@ Depende de SPEC 24 por las tres acciones y el ámbito, y de SPEC 34 por los toke
   | `finish()` (`PATCH /{trip}/finish`) | `trip.finished` | Los mismos que `trip.started` |
 
 - **Textos en español**:
-  - «Nuevo viaje asignado» / «Orden {order} · {destino}».
+  - «Nuevo viaje asignado» / «Tienes un nuevo viaje asignado con fecha de recolección: {recolection_date}», con la fecha en `d-m-Y h:i:s A`, el formato de `TripResource`.
   - «Viaje iniciado» / «Orden {order} · {piloto} en ruta a {destino}».
   - «Viaje finalizado» / «Orden {order} · {piloto} llegó a {destino}».
 
@@ -133,7 +133,7 @@ Se despacha con `SendTripNotification::dispatchAfterResponse($trip->id, $type)`.
 
 | Tipo | `title` | `body` | `data` |
 |---|---|---|---|
-| `trip.assigned` | Nuevo viaje asignado | Orden {order} · {location.name} | `{ "type": "trip.assigned", "tripId": "42" }` |
+| `trip.assigned` | Nuevo viaje asignado | Tienes un nuevo viaje asignado con fecha de recolección: {recolection_date, `d-m-Y h:i:s A`} | `{ "type": "trip.assigned", "tripId": "42" }` |
 | `trip.started` | Viaje iniciado | Orden {order} · {pilot.name} en ruta a {location.name} | `{ "type": "trip.started", "tripId": "42" }` |
 | `trip.finished` | Viaje finalizado | Orden {order} · {pilot.name} llegó a {location.name} | `{ "type": "trip.finished", "tripId": "42" }` |
 
