@@ -28,9 +28,8 @@ class TripPosition extends Model
     /**
      * The trip this point belongs to.
      *
-     * `Trip` deliberately gains no `positions()` on the other side: the relation would
-     * invite a `with('positions')` on the trip listing that would drag thousands of
-     * rows along. Same criterion that left `Vehicle` without `expenses()` in SPEC 14.
+     * `Trip::positions()` is the other side, loaded only by the trip detail: never add it
+     * to the listing, where it would drag thousands of rows along.
      *
      * @return BelongsTo<Trip, $this>
      */
