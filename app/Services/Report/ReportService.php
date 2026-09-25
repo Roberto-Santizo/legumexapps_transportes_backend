@@ -4,6 +4,7 @@ namespace App\Services\Report;
 
 use App\Enums\TripStatus;
 use App\Enums\VehicleExpenseNature;
+use App\Errors\BadRequestError;
 use App\Http\Resources\Trip\TripListResource;
 use App\Http\Resources\VehicleExpense\VehicleExpenseResource;
 use App\Interfaces\Report\ReportServiceInterface;
@@ -168,6 +169,12 @@ final class ReportService implements ReportServiceInterface
             ...$this->publish($prefix, self::VEHICLE_EXPENSE_HEADERS, $rows, $expenses->count()),
             'totalAmount' => $result['totalAmount'],
         ];
+    }
+
+    #[Override]
+    public function downloadTrips(User $user, array $filters): array
+    {
+        throw new BadRequestError('El reporte de viajes aún no está disponible');
     }
 
     /**
