@@ -10,6 +10,7 @@ use App\Providers\Client\ClientProvider;
 use App\Providers\Dashboard\DashboardProvider;
 use App\Providers\DeparturePoint\DeparturePointProvider;
 use App\Providers\DeviceToken\DeviceTokenProvider;
+use App\Providers\FinishedProduct\FinishedProductProvider;
 use App\Providers\FreightRate\FreightRateProvider;
 use App\Providers\FuelPrice\FuelPriceProvider;
 use App\Providers\Location\LocationProvider;
@@ -42,6 +43,7 @@ return [
     DashboardProvider::class,
     DeparturePointProvider::class,
     DeviceTokenProvider::class,
+    FinishedProductProvider::class,
     FreightRateProvider::class,
     FuelPriceProvider::class,
     LocationProvider::class,
