@@ -12,6 +12,7 @@ use App\Interfaces\Trip\TripServiceInterface;
 use App\Models\Carrier;
 use App\Models\Client;
 use App\Models\DeparturePoint;
+use App\Models\FinishedProduct;
 use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
@@ -67,7 +68,7 @@ function tripServiceTeam(): array
  */
 function tripServiceData(array $overrides = []): array
 {
-    return array_merge([
+    $payload = array_merge([
         'order' => '  ord-2026   0001 ',
         'clientId' => Client::factory()->create()->id,
         'shippingLineId' => ShippingLine::factory()->create()->id,
@@ -83,6 +84,33 @@ function tripServiceData(array $overrides = []): array
         'estimatedHours' => 1.75,
         'observations' => 'Cargar a primera hora',
     ], $overrides);
+
+    /**
+     * SPEC 37: una línea de producto terminado del mismo cliente que el payload, salvo
+     * que el test mande sus propios products. Con un clientId que no es un cliente
+     * existente el producto lleva su propio cliente: ese alta falla antes igual.
+     */
+    if (! array_key_exists('products', $overrides)) {
+        $payload['products'] = [tripServiceDataProductLine($payload['clientId'] ?? null)];
+    }
+
+    return $payload;
+}
+
+/**
+ * One valid `products` line for a trip payload: a fresh finished product of the given
+ * client, or of a client of its own when the given id is not an existing client.
+ *
+ * @return array{finishedProductId: int, boxes: int}
+ */
+function tripServiceDataProductLine(mixed $clientId): array
+{
+    $exists = is_numeric($clientId) && Client::withTrashed()->whereKey((int) $clientId)->exists();
+
+    return [
+        'finishedProductId' => FinishedProduct::factory()->create($exists ? ['client_id' => (int) $clientId] : [])->id,
+        'boxes' => 960,
+    ];
 }
 
 it('resuelve la implementación de viajes registrada en el provider', function () {

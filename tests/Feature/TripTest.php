@@ -7,11 +7,13 @@ use App\Enums\VehicleStatus;
 use App\Models\Carrier;
 use App\Models\Client;
 use App\Models\DeparturePoint;
+use App\Models\FinishedProduct;
 use App\Models\Location;
 use App\Models\PilotDocument;
 use App\Models\ShippingLine;
 use App\Models\Trip;
 use App\Models\TripExpense;
+use App\Models\TripFinishedProduct;
 use App\Models\TripFuel;
 use App\Models\TripPosition;
 use App\Models\User;
@@ -236,7 +238,7 @@ function tripFuelConfirmed(int $tripId): TripFuel
  */
 function tripPayload(array $overrides = []): array
 {
-    return array_merge([
+    $payload = array_merge([
         'order' => 'ord-2026-0001',
         'clientId' => Client::factory()->create()->id,
         'shippingLineId' => ShippingLine::factory()->create()->id,
@@ -252,6 +254,33 @@ function tripPayload(array $overrides = []): array
         'estimatedHours' => 1.75,
         'observations' => 'Cargar a primera hora',
     ], $overrides);
+
+    /**
+     * SPEC 37: una línea de producto terminado del mismo cliente que el payload, salvo
+     * que el test mande sus propios products. Con un clientId que no es un cliente
+     * existente el producto lleva su propio cliente: ese alta falla antes igual.
+     */
+    if (! array_key_exists('products', $overrides)) {
+        $payload['products'] = [tripPayloadProductLine($payload['clientId'] ?? null)];
+    }
+
+    return $payload;
+}
+
+/**
+ * One valid `products` line for a trip payload: a fresh finished product of the given
+ * client, or of a client of its own when the given id is not an existing client.
+ *
+ * @return array{finishedProductId: int, boxes: int}
+ */
+function tripPayloadProductLine(mixed $clientId): array
+{
+    $exists = is_numeric($clientId) && Client::withTrashed()->whereKey((int) $clientId)->exists();
+
+    return [
+        'finishedProductId' => FinishedProduct::factory()->create($exists ? ['client_id' => (int) $clientId] : [])->id,
+        'boxes' => 960,
+    ];
 }
 
 /**
@@ -629,16 +658,19 @@ it('rechaza con 422 el alta cuando falta cualquiera de los campos obligatorios',
     'estimatedKilometers' => ['estimatedKilometers', 'La distancia estimada es obligatoria'],
     'estimatedHours' => ['estimatedHours', 'La duración estimada es obligatoria'],
     'observations' => ['observations', 'Las observaciones son obligatorias'],
+    'products' => ['products', 'Los productos terminados son obligatorios'],
 ]);
 
-it('rechaza con 422 un alta con el cuerpo vacío señalando los catorce campos', function () {
+it('rechaza con 422 un alta con el cuerpo vacío señalando los quince campos', function () {
     $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', [])
         ->assertStatus(422)
         ->assertJsonValidationErrors([
             'order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId',
             'destination', 'container', 'transport', 'recolectionDate', 'shipDate',
-            'polyline', 'estimatedKilometers', 'estimatedHours', 'observations',
+            'polyline', 'estimatedKilometers', 'estimatedHours', 'observations', 'products',
         ]);
+
+    expect(array_keys($response->json('errors')))->toHaveCount(15);
 
     /** El 422 sale con el formato de Laravel, no con el sobre del ResponseHandler. */
     expect(array_keys($response->json()))->toBe(['message', 'errors']);
@@ -3746,4 +3778,105 @@ it('no pinta positions fuera del detalle', function () {
         ->json('data');
 
     expect($data)->not->toHaveKey('positions');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Productos terminados del viaje (SPEC 37)
+|--------------------------------------------------------------------------
+*/
+
+it('rechaza con 422 un alta sin productos, vacía, repetida o con cajas inválidas', function (Closure $products, string $field) {
+    $payload = tripPayload();
+    $payload['products'] = $products($payload);
+
+    if ($payload['products'] === 'unset') {
+        unset($payload['products']);
+    }
+
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', $payload)
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([$field]);
+
+    expect(Trip::withTrashed()->count())->toBe(0)
+        ->and(DB::table('trip_finished_products')->count())->toBe(0);
+})->with([
+    'ausente' => [fn () => 'unset', 'products'],
+    'vacía' => [fn () => [], 'products'],
+    'repetido' => [fn (array $payload) => [$payload['products'][0], $payload['products'][0]], 'products.1.finishedProductId'],
+    'cajas en cero' => [fn (array $payload) => [[...$payload['products'][0], 'boxes' => 0]], 'products.0.boxes'],
+    'cajas decimales' => [fn (array $payload) => [[...$payload['products'][0], 'boxes' => 1.5]], 'products.0.boxes'],
+]);
+
+it('rechaza con 400 un alta con un producto borrado o de otro cliente sin crear nada', function (bool $trashed, string $message) {
+    $payload = tripPayload();
+    $sku = $trashed
+        ? FinishedProduct::factory()->trashed()->create(['client_id' => $payload['clientId']])
+        : FinishedProduct::factory()->create();
+    $payload['products'][] = ['finishedProductId' => $sku->id, 'boxes' => 10];
+
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', $payload)
+        ->assertStatus(400)
+        ->assertJsonPath('message', $message);
+
+    expect(Trip::withTrashed()->count())->toBe(0)
+        ->and(DB::table('trip_finished_products')->count())->toBe(0);
+})->with([
+    'borrado' => [true, 'El producto terminado seleccionado ya fue eliminado'],
+    'de otro cliente' => [false, 'El producto terminado no pertenece al cliente del viaje'],
+]);
+
+it('crea las líneas del alta y las lista en orden id ASC, sin cambiar la forma del viaje', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $payload = tripPayload();
+    $second = FinishedProduct::factory()->create(['client_id' => $payload['clientId']]);
+    $payload['products'][] = ['finishedProductId' => $second->id, 'boxes' => 120];
+
+    $response = asUser($admin)->postJson('/api/trips', $payload)->assertCreated();
+    $tripId = $response->json('data.id');
+
+    expect(array_keys($response->json('data')))->toBe(tripResourceKeys());
+
+    $lines = asUser($admin)->getJson("/api/trip-finished-products?tripId={$tripId}")
+        ->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->json('data');
+
+    expect(array_column($lines, 'finishedProductId'))->toBe([$payload['products'][0]['finishedProductId'], $second->id])
+        ->and(array_column($lines, 'boxes'))->toBe([960, 120])
+        ->and($lines[0]['id'])->toBeLessThan($lines[1]['id']);
+
+    $this->assertDatabaseHas('trip_finished_products', [
+        'trip_id' => $tripId,
+        'finished_product_id' => $second->id,
+        'registered_by' => $admin->id,
+    ]);
+});
+
+it('rechaza con 400 cambiar el cliente de un viaje con líneas, y acepta reenviar el mismo', function () {
+    $trip = Trip::factory()->create();
+    TripFinishedProduct::factory()->create(['trip_id' => $trip->id]);
+    $admin = userWithRole(UserRole::Administrator);
+
+    asUser($admin)->patchJson("/api/trips/{$trip->id}", ['clientId' => Client::factory()->create()->id])
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'No se puede cambiar el cliente de un viaje con productos terminados');
+
+    expect($trip->fresh()->client_id)->toBe($trip->client_id);
+
+    asUser($admin)->patchJson("/api/trips/{$trip->id}", [
+        'clientId' => $trip->client_id,
+        'products' => [['finishedProductId' => FinishedProduct::factory()->create()->id, 'boxes' => 1]],
+    ])->assertOk();
+
+    expect(TripFinishedProduct::where('trip_id', $trip->id)->count())->toBe(1);
+});
+
+it('deja cambiar el cliente de un viaje sin líneas', function () {
+    $trip = Trip::factory()->create();
+    $client = Client::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['clientId' => $client->id])
+        ->assertOk()
+        ->assertJsonPath('data.clientId', $client->id);
 });
