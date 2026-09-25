@@ -34,6 +34,8 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan exists:, así que un id INVENTADO es 422; pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO, de modo que un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El cliente seleccionado fue eliminado», «La naviera seleccionada fue eliminada», «El destino seleccionado no es un puerto», «El puerto de destino está inactivo», «El punto de partida está inactivo», «El usuario seleccionado no es un piloto», «El piloto seleccionado no pertenece a ninguna empresa transportista», «El vehículo seleccionado no está activo» y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».
 
+    ATENCIÓN — IMPACTO DE SPEC 37 (PRODUCTOS TERMINADOS), Y ES INCOMPATIBLE. El POST PASA DE CATORCE CAMPOS A QUINCE: products, una lista obligatoria de al menos una línea { finishedProductId, boxes }, sin repetir producto (422). Cada línea se revalida con 400 «El producto terminado seleccionado ya fue eliminado» / «El producto terminado no pertenece al cliente del viaje», y el viaje y sus líneas se escriben en una transacción. En el PATCH products se IGNORA y cambiar clientId en un viaje con líneas es 400 «No se puede cambiar el cliente de un viaje con productos terminados». Las líneas NO salen en TripResource ni en TripListResource: se leen y editan en /api/trip-finished-products.
+
     CINCO CAMPOS SE DESCARTAN EN EL ALTA SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. El viaje nace pending, sin tripulación, y registeredBy sale del usuario autenticado. En el PATCH, además de pilotId y vehicleId, tampoco se reescriben assignedBy ni registeredBy.
 
     /start Y /finish NO TIENEN CUERPO. La fecha la pone el now() DEL SERVIDOR y mandarla en el body no se usa. start sobre un viaje ya iniciado es 400; finish sobre uno ya finalizado es 400, y sobre uno SIN startDate también es 400. Solo el piloto asignado las alcanza: otro piloto recibe 403.
@@ -305,7 +307,7 @@ class TripController extends Controller
             ),
             new OA\Response(
                 response: 400,
-                description: 'Regla de negocio incumplida, nunca un valor mal formado. Cinco casos, cada uno con su mensaje literal: «El cliente seleccionado fue eliminado» y «La naviera seleccionada fue eliminada» —los dos llegan hasta aquí porque el exists: de Laravel NO VE EL BORRADO LÓGICO—; «El destino seleccionado no es un puerto» cuando la location es de tipo destination; «El puerto de destino está inactivo»; y «El punto de partida está inactivo». ATENCIÓN — un id que NO EXISTE en ninguna de las cuatro tablas no cae aquí: es 422.',
+                description: 'Regla de negocio incumplida, nunca un valor mal formado. Siete casos, cada uno con su mensaje literal: «El cliente seleccionado fue eliminado» y «La naviera seleccionada fue eliminada» —los dos llegan hasta aquí porque el exists: de Laravel NO VE EL BORRADO LÓGICO—; «El destino seleccionado no es un puerto» cuando la location es de tipo destination; «El puerto de destino está inactivo»; «El punto de partida está inactivo»; y, por cada línea de products (SPEC 37), «El producto terminado seleccionado ya fue eliminado» y «El producto terminado no pertenece al cliente del viaje». Ninguno crea ni el viaje ni sus líneas. ATENCIÓN — un id que NO EXISTE en ninguna de las cuatro tablas no cae aquí: es 422.',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -460,7 +462,7 @@ class TripController extends Controller
             ),
             new OA\Response(
                 response: 400,
-                description: 'Regla de negocio incumplida. Seis casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404—; «El cliente seleccionado fue eliminado»; «La naviera seleccionada fue eliminada»; «El destino seleccionado no es un puerto»; «El puerto de destino está inactivo»; y «El punto de partida está inactivo». ATENCIÓN — los cinco últimos pueden salir AUNQUE EL PATCH NO TOQUE ESE CAMPO, porque los cuatro catálogos se revalidan en cada edición con los valores almacenados.',
+                description: 'Regla de negocio incumplida. Siete casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404—; «El cliente seleccionado fue eliminado»; «La naviera seleccionada fue eliminada»; «El destino seleccionado no es un puerto»; «El puerto de destino está inactivo»; «El punto de partida está inactivo»; y «No se puede cambiar el cliente de un viaje con productos terminados» (SPEC 37) cuando clientId cambia y el viaje tiene líneas —reenviar el mismo clientId no es cambio—. ATENCIÓN — los cinco últimos pueden salir AUNQUE EL PATCH NO TOQUE ESE CAMPO, porque los cuatro catálogos se revalidan en cada edición con los valores almacenados.',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(

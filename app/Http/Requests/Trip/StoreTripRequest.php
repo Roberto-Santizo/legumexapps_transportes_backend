@@ -11,7 +11,7 @@ use OpenApi\Attributes as OA;
     schema: 'StoreTripRequest',
     title: 'Alta de viaje',
     description: <<<'TEXT'
-    Cuerpo JSON para publicar un viaje de exportación. Son CATORCE CAMPOS Y LOS CATORCE SON OBLIGATORIOS: order, clientId, shippingLineId, departurePointId, locationId, destination, container, transport, recolectionDate, shipDate, polyline, estimatedKilometers, estimatedHours y observations. Falta cualquiera de ellos y la respuesta es 422. Es EXCLUSIVO del rol administrator.
+    Cuerpo JSON para publicar un viaje de exportación. Son QUINCE CAMPOS Y LOS QUINCE SON OBLIGATORIOS: order, clientId, shippingLineId, departurePointId, locationId, destination, container, transport, recolectionDate, shipDate, polyline, estimatedKilometers, estimatedHours, observations y products (SPEC 37). Falta cualquiera de ellos y la respuesta es 422. Es EXCLUSIVO del rol administrator.
 
     ATENCIÓN — CINCO CAMPOS SE DESCARTAN SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. Mandarlos no cambia nada y no da 422. El viaje NACE pending, SIN TRIPULACIÓN —pilotId, vehicleId y assignedById salen en null— y el registeredBy se toma del usuario autenticado. La tripulación solo la escribe PATCH /api/trips/{trip}/assignment, que es del carrier: EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA.
 
@@ -23,9 +23,11 @@ use OpenApi\Attributes as OA;
 
     NORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos, sin 400 ni 422.
 
+    ATENCIÓN — DESDE SPEC 37 EL ALTA EXIGE products: al menos una línea { finishedProductId, boxes }, sin repetir producto (repetido 422). Un POST de catorce campos, el de antes de SPEC 37, es 422. Tras las guardas de catálogo, cada línea pasa dos guardas del service con 400: «El producto terminado seleccionado ya fue eliminado» y «El producto terminado no pertenece al cliente del viaje». El viaje y sus líneas se escriben en UNA transacción: una línea rechazada no crea nada. Las líneas NO salen en la respuesta del viaje: se leen con GET /api/trip-finished-products?tripId=.
+
     Cualquier otra clave que se envíe se descarta en silencio.
     TEXT,
-    required: ['order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId', 'destination', 'container', 'transport', 'recolectionDate', 'shipDate', 'polyline', 'estimatedKilometers', 'estimatedHours', 'observations'],
+    required: ['order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId', 'destination', 'container', 'transport', 'recolectionDate', 'shipDate', 'polyline', 'estimatedKilometers', 'estimatedHours', 'observations', 'products'],
     properties: [
         new OA\Property(
             property: 'order',
@@ -120,6 +122,20 @@ use OpenApi\Attributes as OA;
             description: 'Instrucciones del viaje. OBLIGATORIAS y texto (mensajes: Las observaciones son obligatorias / Las observaciones deben ser texto). Son obligatorias a propósito, aunque parezcan un campo de notas: si el alta la hace el administrador y el viaje lo ejecuta otra empresa, es el ÚNICO CANAL DE INSTRUCCIONES del dominio. Se guardan tal como se teclean, con solo trim, y no tienen límite de longitud.',
             type: 'string',
             example: 'Carga refrigerada a -2 °C.',
+        ),
+        new OA\Property(
+            property: 'products',
+            description: 'Líneas de productos terminados del viaje (SPEC 37). OBLIGATORIO, lista con AL MENOS UNA línea (mensajes: Los productos terminados son obligatorios / El viaje debe llevar al menos un producto terminado). finishedProductId no puede repetirse (422 «El producto terminado está repetido en el viaje») y debe existir (422); si está BORRADO o es de OTRO CLIENTE que clientId, 400 desde el service. boxes es un ENTERO de 1 a 999999 (1.5 o 0 son 422). Se ignora en el PATCH del viaje: las líneas se editan en /api/trip-finished-products.',
+            type: 'array',
+            minItems: 1,
+            items: new OA\Items(
+                required: ['finishedProductId', 'boxes'],
+                properties: [
+                    new OA\Property(property: 'finishedProductId', description: 'Id del producto terminado (finished_products.id), del mismo cliente que el viaje.', type: 'integer', example: 4),
+                    new OA\Property(property: 'boxes', description: 'Cajas físicas de ese producto, entero entre 1 y 999999.', type: 'integer', maximum: 999999, minimum: 1, example: 960),
+                ],
+                type: 'object',
+            ),
         ),
     ],
     type: 'object',

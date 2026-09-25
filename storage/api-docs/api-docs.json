@@ -3661,7 +3661,7 @@
                     "Finished Products"
                 ],
                 "summary": "Listar productos terminados",
-                "description": "Devuelve los productos terminados vivos con el nombre de su cliente y de quien los registró. Todos los roles salvo pilot; sin ámbito por empresa: todos ven las mismas filas.\r\n\r\nLos borrados NO aparecen nunca y no hay parámetro que los devuelva. Orden fijo id ASC.\r\n\r\nFiltros TOLERANTES —nunca 422—: search (LIKE sobre code Y name, insensible a mayúsculas; en blanco se ignora), clientId (no numérico se ignora y devuelve el listado completo; un id sin SKUs devuelve data vacío) y limit. Sin coincidencias: 200 con data vacío.\r\n\r\nSin limit (o no numérico) devuelve todo sin metadatos; con limit numérico pagina acotado a [10, 100] con total, currentPage y lastPage APLANADOS en la raíz del sobre.",
+                "description": "Devuelve los productos terminados vivos con el nombre de su cliente y de quien los registró. Todos los roles salvo pilot; sin ámbito por empresa: todos ven las mismas filas.\n\nLos borrados NO aparecen nunca y no hay parámetro que los devuelva. Orden fijo id ASC.\n\nFiltros TOLERANTES —nunca 422—: search (LIKE sobre code Y name, insensible a mayúsculas; en blanco se ignora), clientId (no numérico se ignora y devuelve el listado completo; un id sin SKUs devuelve data vacío) y limit. Sin coincidencias: 200 con data vacío.\n\nSin limit (o no numérico) devuelve todo sin metadatos; con limit numérico pagina acotado a [10, 100] con total, currentPage y lastPage APLANADOS en la raíz del sobre.",
                 "operationId": "indexFinishedProducts",
                 "parameters": [
                     {
@@ -3758,7 +3758,7 @@
                     "Finished Products"
                 ],
                 "summary": "Registrar un producto terminado",
-                "description": "Da de alta un SKU. Solo administrator y export (role:administrator,export); el resto de roles, 403.\r\n\r\nLos cinco campos son obligatorios. code se recorta y pasa a mayúsculas y no admite espacios (422); name solo pasa a mayúsculas, sin recorte ni colapso de espacios, y no es único. registeredBy sale del usuario autenticado.\r\n\r\nOrden de las guardas del service tras validar: primero el code duplicado (400, contra vivos Y borrados), después el cliente borrado (400). clientId inexistente lo corta antes el FormRequest con 422.",
+                "description": "Da de alta un SKU. Solo administrator y export (role:administrator,export); el resto de roles, 403.\n\nLos cinco campos son obligatorios. code se recorta y pasa a mayúsculas y no admite espacios (422); name solo pasa a mayúsculas, sin recorte ni colapso de espacios, y no es único. registeredBy sale del usuario autenticado.\n\nOrden de las guardas del service tras validar: primero el code duplicado (400, contra vivos Y borrados), después el cliente borrado (400). clientId inexistente lo corta antes el FormRequest con 422.",
                 "operationId": "storeFinishedProduct",
                 "requestBody": {
                     "required": true,
@@ -3848,7 +3848,7 @@
                     "Finished Products"
                 ],
                 "summary": "Obtener un producto terminado por id",
-                "description": "Devuelve un SKU vivo. Todos los roles salvo pilot; sin ámbito por empresa.\r\n\r\nATENCIÓN — un SKU BORRADO responde 404 con el MISMO mensaje que un id inexistente («El producto terminado no existe»). Solo la escritura distingue el borrado (400). deletedAt es siempre null aquí. clientName sale aunque el cliente haya sido borrado.",
+                "description": "Devuelve un SKU vivo. Todos los roles salvo pilot; sin ámbito por empresa.\n\nATENCIÓN — un SKU BORRADO responde 404 con el MISMO mensaje que un id inexistente («El producto terminado no existe»). Solo la escritura distingue el borrado (400). deletedAt es siempre null aquí. clientName sale aunque el cliente haya sido borrado.",
                 "operationId": "showFinishedProduct",
                 "parameters": [
                     {
@@ -3928,7 +3928,7 @@
                     "Finished Products"
                 ],
                 "summary": "Eliminar un producto terminado",
-                "description": "ATENCIÓN — BORRA DE VERDAD (SoftDeletes) y NO HAY /restore: el SKU desaparece del listado y del detalle (404) y solo se recupera desde la base de datos. Solo administrator y export; el resto, 403.\r\n\r\nEl borrado NO LIBERA EL code: nadie puede volver a darlo de alta con ese código (400).\r\n\r\nNO es idempotente: el segundo DELETE responde 400 «El producto terminado ya fue eliminado»; un id que nunca existió, 404 «El producto terminado no existe».\r\n\r\nLa respuesta es la ÚNICA en la que deletedAt viene con fecha (d-m-Y h:i:s A).",
+                "description": "ATENCIÓN — BORRA DE VERDAD (SoftDeletes) y NO HAY /restore: el SKU desaparece del listado y del detalle (404) y solo se recupera desde la base de datos. Solo administrator y export; el resto, 403.\n\nEl borrado NO LIBERA EL code: nadie puede volver a darlo de alta con ese código (400).\n\nNO es idempotente: el segundo DELETE responde 400 «El producto terminado ya fue eliminado»; un id que nunca existió, 404 «El producto terminado no existe».\n\nLa respuesta es la ÚNICA en la que deletedAt viene con fecha (d-m-Y h:i:s A).",
                 "operationId": "destroyFinishedProduct",
                 "parameters": [
                     {
@@ -4018,7 +4018,7 @@
                     "Finished Products"
                 ],
                 "summary": "Actualizar un producto terminado",
-                "description": "Corrige cualquiera de los cinco campos. Solo administrator y export; el resto, 403. La ruta acepta PATCH y PUT con el mismo comportamiento parcial.\r\n\r\nSolo se toca lo que venga; un cuerpo vacío es un no-op con 200. Enviar un campo vacío o null es 422.\r\n\r\nOrden de las guardas del service: id inexistente 404 «El producto terminado no existe» → borrado 400 «El producto terminado ya fue eliminado» → code de OTRO SKU (vivo o borrado) 400 → cliente borrado 400 «El cliente seleccionado ya fue eliminado», INCLUSO si es el mismo cliente que ya tenía. Reenviar el propio code es 200. registeredBy no se reescribe.",
+                "description": "Corrige cualquiera de los cinco campos. Solo administrator y export; el resto, 403. La ruta acepta PATCH y PUT con el mismo comportamiento parcial.\n\nSolo se toca lo que venga; un cuerpo vacío es un no-op con 200. Enviar un campo vacío o null es 422.\n\nOrden de las guardas del service: id inexistente 404 «El producto terminado no existe» → borrado 400 «El producto terminado ya fue eliminado» → code de OTRO SKU (vivo o borrado) 400 → cliente borrado 400 «El cliente seleccionado ya fue eliminado», INCLUSO si es el mismo cliente que ya tenía. Reenviar el propio code es 200. registeredBy no se reescribe.",
                 "operationId": "updateFinishedProduct",
                 "parameters": [
                     {
@@ -7616,7 +7616,7 @@
                         }
                     },
                     "400": {
-                        "description": "Regla de negocio incumplida, nunca un valor mal formado. Cinco casos, cada uno con su mensaje literal: «El cliente seleccionado fue eliminado» y «La naviera seleccionada fue eliminada» —los dos llegan hasta aquí porque el exists: de Laravel NO VE EL BORRADO LÓGICO—; «El destino seleccionado no es un puerto» cuando la location es de tipo destination; «El puerto de destino está inactivo»; y «El punto de partida está inactivo». ATENCIÓN — un id que NO EXISTE en ninguna de las cuatro tablas no cae aquí: es 422.",
+                        "description": "Regla de negocio incumplida, nunca un valor mal formado. Siete casos, cada uno con su mensaje literal: «El cliente seleccionado fue eliminado» y «La naviera seleccionada fue eliminada» —los dos llegan hasta aquí porque el exists: de Laravel NO VE EL BORRADO LÓGICO—; «El destino seleccionado no es un puerto» cuando la location es de tipo destination; «El puerto de destino está inactivo»; «El punto de partida está inactivo»; y, por cada línea de products (SPEC 37), «El producto terminado seleccionado ya fue eliminado» y «El producto terminado no pertenece al cliente del viaje». Ninguno crea ni el viaje ni sus líneas. ATENCIÓN — un id que NO EXISTE en ninguna de las cuatro tablas no cae aquí: es 422.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -7954,7 +7954,7 @@
                         }
                     },
                     "400": {
-                        "description": "Regla de negocio incumplida. Seis casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404—; «El cliente seleccionado fue eliminado»; «La naviera seleccionada fue eliminada»; «El destino seleccionado no es un puerto»; «El puerto de destino está inactivo»; y «El punto de partida está inactivo». ATENCIÓN — los cinco últimos pueden salir AUNQUE EL PATCH NO TOQUE ESE CAMPO, porque los cuatro catálogos se revalidan en cada edición con los valores almacenados.",
+                        "description": "Regla de negocio incumplida. Siete casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404—; «El cliente seleccionado fue eliminado»; «La naviera seleccionada fue eliminada»; «El destino seleccionado no es un puerto»; «El puerto de destino está inactivo»; «El punto de partida está inactivo»; y «No se puede cambiar el cliente de un viaje con productos terminados» (SPEC 37) cuando clientId cambia y el viaje tiene líneas —reenviar el mismo clientId no es cambio—. ATENCIÓN — los cinco últimos pueden salir AUNQUE EL PATCH NO TOQUE ESE CAMPO, porque los cuatro catálogos se revalidan en cada edición con los valores almacenados.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -8665,6 +8665,391 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trip-finished-products": {
+            "get": {
+                "tags": [
+                    "Trip Finished Products"
+                ],
+                "summary": "Listar los productos terminados de un viaje",
+                "description": "Devuelve TODAS las líneas del viaje en orden id ASC. NUNCA PAGINA: limit y page se ignoran y el sobre no trae total, currentPage ni lastPage.\ntripId es OBLIGATORIO (sin él 422, formato de Laravel). Un viaje inexistente O BORRADO es 404 «El viaje no existe» desde el service, no 422.\nÁmbito del detalle del viaje: administrator, manager, export, user y shipment ven cualquier viaje; el pilot solo el suyo (403 «No puedes acceder a un viaje que no tienes asignado»); el carrier la bolsa y lo de su empresa (403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista»).\nUn viaje anterior a SPEC 37 no tiene líneas: 200 con data vacío.",
+                "operationId": "indexTripFinishedProducts",
+                "parameters": [
+                    {
+                        "name": "tripId",
+                        "in": "query",
+                        "description": "Id del viaje (trips.id). Obligatorio y entero (422 «El viaje es obligatorio» / «El viaje debe ser un número entero»).",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 12
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Productos del viaje obtenidos correctamente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Productos del viaje obtenidos correctamente"
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/TripFinishedProduct"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El viaje está fuera del ámbito del usuario (pilot no asignado o carrier de otra empresa).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El viaje no existe o fue borrado. Mensaje: El viaje no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Falta tripId o no es entero.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Trip Finished Products"
+                ],
+                "summary": "Agregar un producto terminado a un viaje",
+                "description": "Añade una línea a un viaje existente. Solo administrator y export; el resto, 403. registeredBy sale del usuario autenticado.\nTras validar, cinco guardas del service EN ESTE ORDEN, cada una con 400: «El viaje ya fue eliminado» → «Solo se pueden modificar los productos de un viaje pendiente» → «El producto terminado seleccionado ya fue eliminado» → «El producto terminado no pertenece al cliente del viaje» → «El producto terminado ya está en el viaje».\nUn tripId o finishedProductId que no existe en absoluto lo corta antes el FormRequest con 422.",
+                "operationId": "storeTripFinishedProduct",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreTripFinishedProductRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Producto agregado al viaje correctamente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Producto agregado al viaje correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/TripFinishedProduct"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Una de las cinco guardas, en orden: El viaje ya fue eliminado / Solo se pueden modificar los productos de un viaje pendiente / El producto terminado seleccionado ya fue eliminado / El producto terminado no pertenece al cliente del viaje / El producto terminado ya está en el viaje",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es administrator ni export. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Campo ausente, inexistente o boxes fuera de [1, 999999] o no entero.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trip-finished-products/{tripFinishedProduct}": {
+            "delete": {
+                "tags": [
+                    "Trip Finished Products"
+                ],
+                "summary": "Quitar un producto terminado de un viaje",
+                "description": "BORRADO FÍSICO: la fila desaparece y no hay restore. Solo administrator y export.\nOrden de fallo: 404 «La línea de producto no existe» → 400 «El viaje ya fue eliminado» → 400 «Solo se pueden modificar los productos de un viaje pendiente» → 400 «El viaje debe tener al menos un producto terminado» (no se puede borrar la última línea).",
+                "operationId": "destroyTripFinishedProduct",
+                "parameters": [
+                    {
+                        "name": "tripFinishedProduct",
+                        "in": "path",
+                        "description": "Id de la línea (trip_finished_products.id).",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Producto eliminado del viaje correctamente. data trae la línea recién borrada.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Producto eliminado del viaje correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/TripFinishedProduct"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El viaje ya fue eliminado / Solo se pueden modificar los productos de un viaje pendiente / El viaje debe tener al menos un producto terminado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es administrator ni export. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "La línea no existe. Mensaje: La línea de producto no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Trip Finished Products"
+                ],
+                "summary": "Cambiar las cajas de una línea",
+                "description": "Cambia SOLO boxes. tripId y finishedProductId se ignoran en silencio: cambiar de producto es borrar la línea y crear otra. registeredBy no se reescribe. Solo administrator y export.\nCuerpo vacío es 422 (boxes obligatorio). Orden de fallo: 404 «La línea de producto no existe» → 400 «El viaje ya fue eliminado» → 400 «Solo se pueden modificar los productos de un viaje pendiente».",
+                "operationId": "updateTripFinishedProduct",
+                "parameters": [
+                    {
+                        "name": "tripFinishedProduct",
+                        "in": "path",
+                        "description": "Id de la línea (trip_finished_products.id).",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateTripFinishedProductRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Producto del viaje actualizado correctamente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Producto del viaje actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/TripFinishedProduct"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El viaje ya fue eliminado / Solo se pueden modificar los productos de un viaje pendiente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es administrator ni export. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "La línea no existe. Mensaje: La línea de producto no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "boxes ausente, no entero o fuera de [1, 999999].",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
                                 }
                             }
                         }
@@ -11696,7 +12081,7 @@
             },
             "StoreFinishedProductRequest": {
                 "title": "Alta de producto terminado",
-                "description": "Cuerpo JSON para dar de alta un SKU. Los CINCO campos son OBLIGATORIOS: code, name, presentation, boxesPerPallet y clientId. Cualquier otra clave se descarta en silencio; registeredBy sale del usuario autenticado.\r\n\r\nATENCIÓN — EL code DUPLICADO ES 400 DESDE EL SERVICE, NUNCA 422: no hay regla unique porque la de Laravel no ve las filas borradas. Mensaje literal: «Ya existe un producto terminado con ese código, que puede haber sido eliminado». El borrado NO libera el código.\r\n\r\nATENCIÓN — clientId inexistente es 422 («El cliente seleccionado no existe»), pero un cliente BORRADO pasa el exists: y lo para el service con 400 «El cliente seleccionado ya fue eliminado».\r\n\r\nNormalización antes de validar: code se recorta y pasa a mayúsculas (con cualquier espacio interior es 422, no se arregla); name SOLO pasa a mayúsculas —sin recorte ni colapso de espacios— y NO es único.",
+                "description": "Cuerpo JSON para dar de alta un SKU. Los CINCO campos son OBLIGATORIOS: code, name, presentation, boxesPerPallet y clientId. Cualquier otra clave se descarta en silencio; registeredBy sale del usuario autenticado.\n\nATENCIÓN — EL code DUPLICADO ES 400 DESDE EL SERVICE, NUNCA 422: no hay regla unique porque la de Laravel no ve las filas borradas. Mensaje literal: «Ya existe un producto terminado con ese código, que puede haber sido eliminado». El borrado NO libera el código.\n\nATENCIÓN — clientId inexistente es 422 («El cliente seleccionado no existe»), pero un cliente BORRADO pasa el exists: y lo para el service con 400 «El cliente seleccionado ya fue eliminado».\n\nNormalización antes de validar: code se recorta y pasa a mayúsculas (con cualquier espacio interior es 422, no se arregla); name SOLO pasa a mayúsculas —sin recorte ni colapso de espacios— y NO es único.",
                 "required": [
                     "code",
                     "name",
@@ -11743,7 +12128,7 @@
             },
             "UpdateFinishedProductRequest": {
                 "title": "Actualización de producto terminado",
-                "description": "Cuerpo JSON para corregir un SKU. Los cinco campos son OPCIONALES (sometimes|required): se toca solo lo que venga, y UN CUERPO VACÍO ES UN NO-OP CON 200. Opcional no es vaciable: enviar un campo vacío o null es 422.\r\n\r\nMismas reglas que el alta: code duplicado contra otro SKU —vivo o borrado— es 400 «Ya existe un producto terminado con ese código, que puede haber sido eliminado» (reenviar el propio código es 200); clientId inexistente 422; cliente borrado 400 «El cliente seleccionado ya fue eliminado», INCLUSO SI ES EL MISMO CLIENTE QUE YA TENÍA. registeredBy no se reescribe.",
+                "description": "Cuerpo JSON para corregir un SKU. Los cinco campos son OPCIONALES (sometimes|required): se toca solo lo que venga, y UN CUERPO VACÍO ES UN NO-OP CON 200. Opcional no es vaciable: enviar un campo vacío o null es 422.\n\nMismas reglas que el alta: code duplicado contra otro SKU —vivo o borrado— es 400 «Ya existe un producto terminado con ese código, que puede haber sido eliminado» (reenviar el propio código es 200); clientId inexistente 422; cliente borrado 400 «El cliente seleccionado ya fue eliminado», INCLUSO SI ES EL MISMO CLIENTE QUE YA TENÍA. registeredBy no se reescribe.",
                 "properties": {
                     "code": {
                         "description": "Nuevo código. Máximo 15 caracteres, recortado y en MAYÚSCULAS, sin ningún espacio (422 «El código no puede contener espacios»). El de otro SKU —vivo o borrado— es 400.",
@@ -12142,6 +12527,52 @@
                 },
                 "type": "object"
             },
+            "StoreTripFinishedProductRequest": {
+                "title": "Alta de línea de producto terminado",
+                "description": "Cuerpo JSON de POST /api/trip-finished-products. Tres campos obligatorios. registeredBy no se acepta: sale del usuario autenticado. Los exists: leen la tabla en crudo, así que un viaje o un producto BORRADOS pasan la validación y los para el service con 400.",
+                "required": [
+                    "tripId",
+                    "finishedProductId",
+                    "boxes"
+                ],
+                "properties": {
+                    "tripId": {
+                        "description": "Id del viaje (trips.id). Obligatorio, entero y existente (El viaje es obligatorio / El viaje debe ser un número entero / El viaje seleccionado no existe). Debe estar pending y no borrado (400).",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "finishedProductId": {
+                        "description": "Id del producto terminado (finished_products.id). Obligatorio, entero y existente (El producto terminado es obligatorio / El producto terminado debe ser un identificador válido / El producto terminado seleccionado no existe). Debe estar vivo, ser del cliente del viaje y no estar ya en él (400).",
+                        "type": "integer",
+                        "example": 4
+                    },
+                    "boxes": {
+                        "description": "Cajas físicas, entero entre 1 y 999999 (Las cajas son obligatorias / Las cajas deben ser un número entero / Las cajas deben ser al menos 1 / Las cajas no pueden superar 999999).",
+                        "type": "integer",
+                        "example": 960,
+                        "maximum": 999999,
+                        "minimum": 1
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateTripFinishedProductRequest": {
+                "title": "Edición de línea de producto terminado",
+                "description": "Cuerpo JSON de PATCH /api/trip-finished-products/{tripFinishedProduct}. UN SOLO CAMPO Y ES OBLIGATORIO: el cuerpo vacío es 422, no un no-op. tripId y finishedProductId se ignoran en silencio: cambiar de producto es borrar la línea y crear otra.",
+                "required": [
+                    "boxes"
+                ],
+                "properties": {
+                    "boxes": {
+                        "description": "Nuevas cajas de la línea, entero entre 1 y 999999 (Las cajas son obligatorias / Las cajas deben ser un número entero / Las cajas deben ser al menos 1 / Las cajas no pueden superar 999999).",
+                        "type": "integer",
+                        "example": 480,
+                        "maximum": 999999,
+                        "minimum": 1
+                    }
+                },
+                "type": "object"
+            },
             "StoreTripFuelRequest": {
                 "title": "Registro de una carga de combustible",
                 "description": "Cuerpo JSON con el que la empresa transportista registra UNA carga de combustible sobre un viaje que ya tomó. EXACTAMENTE DOS CAMPOS —gallons y fuelType— Y LOS DOS SON OBLIGATORIOS. Un cuerpo vacío es 422 señalando los dos.\n\nATENCIÓN — NO SE ACEPTA tripId: el viaje va EN LA URL (/api/trips/{trip}/fuels), igual que en las posiciones de SPEC 26. Y tampoco se acepta nada del ciclo de vida de la carga: loadedAt, confirmedBy ni registeredBy. La fecha la pone el servidor con now() CUANDO EL PILOTO CONFIRMA, el piloto sale de su propio token en esa otra llamada y el autor del alta sale del token de quien registra. Mandar cualquiera de ellos SE DESCARTA EN SILENCIO, con 201 y sin 422, como el vehicleId de un gasto de vehículo.\n\nATENCIÓN — LA CARGA NACE SIN CONFIRMAR Y NO HAY FORMA DE CREARLA YA CONFIRMADA. Registrar no es confirmar: quien registra es el transportista y quien confirma es el piloto asignado, con PATCH /api/trip-fuels/{tripFuel}/confirm. Hasta entonces isConfirmed es false, loadedAt es null y ESTOS GALONES NO SUMAN NI EN totalGallons NI EN totalFuelGallons.\n\nATENCIÓN — NO HAY NINGUNA VALIDACIÓN CRUZADA SOBRE gallons. No se compara contra vehicles.kilometersPerGallon, ni contra la distancia del viaje, ni contra un techo de negocio, ni contra lo ya cargado: 5 000 galones en una rastra se aceptan con 201. Y como la tabla es APPEND-ONLY —no hay PATCH ni DELETE de una carga—, un 450 tecleado en vez de un 45 se queda para siempre y no se puede compensar, porque los galones no admiten negativos. EL FRONTEND DEBE CONFIRMAR LA CANTIDAD ANTES DE MANDAR EL POST.\n\nATENCIÓN — fuelType SE VALIDA SOLO CONTRA EL ENUM. No se exige que ese tipo tenga un FuelPrice vigente (SPEC 06): se puede cargar diesel aunque ningún precio de diesel esté active, porque aquí NO SE GUARDA NINGÚN PRECIO NI NINGÚN COSTO. Es una etiqueta, no una llave foránea. Cada carga lleva su propio tipo: dos cargas del mismo viaje pueden no coincidir y ambas se guardan.\n\nATENCIÓN — LA VALIDACIÓN DEL CUERPO CORRE ANTES QUE LAS CUATRO GUARDAS DEL SERVICE, no después: solo el middleware role:carrier (403) va por delante. Un cuerpo inválido sobre un viaje INEXISTENTE devuelve 422, no 404, y sobre un viaje borrado, ajeno o ya finalizado también 422, no 400 ni 403. El orden de las cuatro guardas entre sí sí es contrato, pero solo se llega a ellas con un cuerpo válido.",
@@ -12256,7 +12687,7 @@
             },
             "StoreTripRequest": {
                 "title": "Alta de viaje",
-                "description": "Cuerpo JSON para publicar un viaje de exportación. Son CATORCE CAMPOS Y LOS CATORCE SON OBLIGATORIOS: order, clientId, shippingLineId, departurePointId, locationId, destination, container, transport, recolectionDate, shipDate, polyline, estimatedKilometers, estimatedHours y observations. Falta cualquiera de ellos y la respuesta es 422. Es EXCLUSIVO del rol administrator.\n\nATENCIÓN — CINCO CAMPOS SE DESCARTAN SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. Mandarlos no cambia nada y no da 422. El viaje NACE pending, SIN TRIPULACIÓN —pilotId, vehicleId y assignedById salen en null— y el registeredBy se toma del usuario autenticado. La tripulación solo la escribe PATCH /api/trips/{trip}/assignment, que es del carrier: EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan regla exists:, así que un id INVENTADO es 422. Pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO: un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400 —«El cliente seleccionado fue eliminado» / «La naviera seleccionada fue eliminada»—. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El destino seleccionado no es un puerto», «El puerto de destino está inactivo» y «El punto de partida está inactivo».\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y LA API NUNCA LLAMA A GOOGLE. polyline es obligatoria aquí y también en el PATCH; se resuelve antes con GET /api/places/directions (SPEC 16) y se envía ya calculada. El backend no la recalcula ni la valida contra el par punto de partida / puerto.\n\nATENCIÓN — DESDE SPEC 30 LA RUTA SON TRES CAMPOS, NO UNO. estimatedKilometers y estimatedHours son OBLIGATORIOS y salen de la MISMA respuesta de GET /api/places/directions que polyline: se reenvían distanceKilometers y durationHours SIN CONVERTIR NADA. La API los guarda tal cual —numeric, min:0, con tope 999999.99 km y 9999.99 h— y NO los coteja con la polilínea: mandar 1000 km con una línea de 5 km es legal. Un POST de doce campos, el de antes de SPEC 30, es 422.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos, sin 400 ni 422.\n\nCualquier otra clave que se envíe se descarta en silencio.",
+                "description": "Cuerpo JSON para publicar un viaje de exportación. Son QUINCE CAMPOS Y LOS QUINCE SON OBLIGATORIOS: order, clientId, shippingLineId, departurePointId, locationId, destination, container, transport, recolectionDate, shipDate, polyline, estimatedKilometers, estimatedHours, observations y products (SPEC 37). Falta cualquiera de ellos y la respuesta es 422. Es EXCLUSIVO del rol administrator.\n\nATENCIÓN — CINCO CAMPOS SE DESCARTAN SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. Mandarlos no cambia nada y no da 422. El viaje NACE pending, SIN TRIPULACIÓN —pilotId, vehicleId y assignedById salen en null— y el registeredBy se toma del usuario autenticado. La tripulación solo la escribe PATCH /api/trips/{trip}/assignment, que es del carrier: EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan regla exists:, así que un id INVENTADO es 422. Pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO: un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400 —«El cliente seleccionado fue eliminado» / «La naviera seleccionada fue eliminada»—. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El destino seleccionado no es un puerto», «El puerto de destino está inactivo» y «El punto de partida está inactivo».\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y LA API NUNCA LLAMA A GOOGLE. polyline es obligatoria aquí y también en el PATCH; se resuelve antes con GET /api/places/directions (SPEC 16) y se envía ya calculada. El backend no la recalcula ni la valida contra el par punto de partida / puerto.\n\nATENCIÓN — DESDE SPEC 30 LA RUTA SON TRES CAMPOS, NO UNO. estimatedKilometers y estimatedHours son OBLIGATORIOS y salen de la MISMA respuesta de GET /api/places/directions que polyline: se reenvían distanceKilometers y durationHours SIN CONVERTIR NADA. La API los guarda tal cual —numeric, min:0, con tope 999999.99 km y 9999.99 h— y NO los coteja con la polilínea: mandar 1000 km con una línea de 5 km es legal. Un POST de doce campos, el de antes de SPEC 30, es 422.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos, sin 400 ni 422.\n\nATENCIÓN — DESDE SPEC 37 EL ALTA EXIGE products: al menos una línea { finishedProductId, boxes }, sin repetir producto (repetido 422). Un POST de catorce campos, el de antes de SPEC 37, es 422. Tras las guardas de catálogo, cada línea pasa dos guardas del service con 400: «El producto terminado seleccionado ya fue eliminado» y «El producto terminado no pertenece al cliente del viaje». El viaje y sus líneas se escriben en UNA transacción: una línea rechazada no crea nada. Las líneas NO salen en la respuesta del viaje: se leen con GET /api/trip-finished-products?tripId=.\n\nCualquier otra clave que se envíe se descarta en silencio.",
                 "required": [
                     "order",
                     "clientId",
@@ -12271,7 +12702,8 @@
                     "polyline",
                     "estimatedKilometers",
                     "estimatedHours",
-                    "observations"
+                    "observations",
+                    "products"
                 ],
                 "properties": {
                     "order": {
@@ -12353,13 +12785,39 @@
                         "description": "Instrucciones del viaje. OBLIGATORIAS y texto (mensajes: Las observaciones son obligatorias / Las observaciones deben ser texto). Son obligatorias a propósito, aunque parezcan un campo de notas: si el alta la hace el administrador y el viaje lo ejecuta otra empresa, es el ÚNICO CANAL DE INSTRUCCIONES del dominio. Se guardan tal como se teclean, con solo trim, y no tienen límite de longitud.",
                         "type": "string",
                         "example": "Carga refrigerada a -2 °C."
+                    },
+                    "products": {
+                        "description": "Líneas de productos terminados del viaje (SPEC 37). OBLIGATORIO, lista con AL MENOS UNA línea (mensajes: Los productos terminados son obligatorios / El viaje debe llevar al menos un producto terminado). finishedProductId no puede repetirse (422 «El producto terminado está repetido en el viaje») y debe existir (422); si está BORRADO o es de OTRO CLIENTE que clientId, 400 desde el service. boxes es un ENTERO de 1 a 999999 (1.5 o 0 son 422). Se ignora en el PATCH del viaje: las líneas se editan en /api/trip-finished-products.",
+                        "type": "array",
+                        "items": {
+                            "required": [
+                                "finishedProductId",
+                                "boxes"
+                            ],
+                            "properties": {
+                                "finishedProductId": {
+                                    "description": "Id del producto terminado (finished_products.id), del mismo cliente que el viaje.",
+                                    "type": "integer",
+                                    "example": 4
+                                },
+                                "boxes": {
+                                    "description": "Cajas físicas de ese producto, entero entre 1 y 999999.",
+                                    "type": "integer",
+                                    "example": 960,
+                                    "maximum": 999999,
+                                    "minimum": 1
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "minItems": 1
                     }
                 },
                 "type": "object"
             },
             "UpdateTripRequest": {
                 "title": "Actualización de viaje",
-                "description": "Cuerpo JSON para editar un viaje. Es EXCLUSIVO del rol administrator. TODOS LOS CAMPOS SON OPCIONALES y solo se toca lo que venga: un CUERPO VACÍO responde 200 como no-op, sin mover siquiera updatedAt. Opcional NO es vaciable: enviar una clave en blanco, de solo espacios o con null es 422.\n\nSon los mismos catorce campos del alta MÁS status, y MENOS pilotId y vehicleId.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR NI DESASIGNAR. pilotId y vehicleId NO SE ACEPTAN AQUÍ y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva la asignación que tuviera. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, exclusiva del carrier. Tampoco se reescriben assignedBy ni registeredBy: mandarlos se descarta igual. Consecuencia real: SI NINGUNA EMPRESA TOMA UN VIAJE, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status SE ACEPTA Y NO HAY MÁQUINA DE ESTADOS. Los tres valores del enum son válidos en cualquier orden y NO se tocan las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas. El frontend debe pintar el relato desde las FECHAS, no desde el status. Un valor fuera del enum es 422.\n\nATENCIÓN — LOS CATÁLOGOS SE REVALIDAN SIEMPRE, aunque el cuerpo solo mueva una fecha: el service fusiona lo enviado sobre lo almacenado y vuelve a comprobar los cuatro. Un viaje que apunta a un puerto que se desactivó desde el alta responde 400 aunque el PATCH no toque locationId. Mismo reparto 422 / 400 que el alta: id inventado 422, cliente o naviera BORRADOS 400.\n\nATENCIÓN — LA RUTA SON TRES CAMPOS QUE VIAJAN JUNTOS O NINGUNO. Desde SPEC 30 polyline, estimatedKilometers y estimatedHours se exigen entre sí: mandar uno solo, o dos de los tres, es 422 con un mensaje por cada campo que falta. Un PATCH con solo polyline —válido hasta SPEC 30— ya NO pasa. Los tres salen de la MISMA respuesta de GET /api/places/directions (polyline, distanceKilometers y durationHours) y se reenvían tal cual; la API no coteja los números con la línea.\n\nATENCIÓN — SI SE CAMBIA locationId O departurePointId HAY QUE REMANDAR LA RUTA COMPLETA. Nada obliga a enviarla al cambiar el destino: la API NO la recalcula y NO AVISA, así que polyline, estimatedKilometers y estimatedHours quedan obsoletos A LA VEZ y el mapa dibuja una ruta que ya no corresponde. Debe resolverse de nuevo con GET /api/places/directions y viajar en el MISMO PATCH.\n\nLas dos fechas planificadas DEJAN DE EXIGIR FUTURO —editar un viaje ya arrancado no puede obligar a reprogramarlo—; el orden entre ellas se mantiene y solo se comprueba cuando las dos viajan juntas. startDate y endDate NO se aceptan por ninguna vía: las pone el servidor en /start y /finish.\n\nNormalización idéntica a la del alta: order y container en MAYÚSCULAS con espacios colapsados; destination, transport y observations con solo trim.",
+                "description": "Cuerpo JSON para editar un viaje. Es EXCLUSIVO del rol administrator. TODOS LOS CAMPOS SON OPCIONALES y solo se toca lo que venga: un CUERPO VACÍO responde 200 como no-op, sin mover siquiera updatedAt. Opcional NO es vaciable: enviar una clave en blanco, de solo espacios o con null es 422.\n\nSon los catorce campos del alta anteriores a SPEC 37 MÁS status, y MENOS pilotId y vehicleId. products (SPEC 37) NO se acepta: se ignora en silencio, y cambiar clientId en un viaje con productos terminados es 400.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR NI DESASIGNAR. pilotId y vehicleId NO SE ACEPTAN AQUÍ y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva la asignación que tuviera. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, exclusiva del carrier. Tampoco se reescriben assignedBy ni registeredBy: mandarlos se descarta igual. Consecuencia real: SI NINGUNA EMPRESA TOMA UN VIAJE, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status SE ACEPTA Y NO HAY MÁQUINA DE ESTADOS. Los tres valores del enum son válidos en cualquier orden y NO se tocan las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas. El frontend debe pintar el relato desde las FECHAS, no desde el status. Un valor fuera del enum es 422.\n\nATENCIÓN — LOS CATÁLOGOS SE REVALIDAN SIEMPRE, aunque el cuerpo solo mueva una fecha: el service fusiona lo enviado sobre lo almacenado y vuelve a comprobar los cuatro. Un viaje que apunta a un puerto que se desactivó desde el alta responde 400 aunque el PATCH no toque locationId. Mismo reparto 422 / 400 que el alta: id inventado 422, cliente o naviera BORRADOS 400.\n\nATENCIÓN — LA RUTA SON TRES CAMPOS QUE VIAJAN JUNTOS O NINGUNO. Desde SPEC 30 polyline, estimatedKilometers y estimatedHours se exigen entre sí: mandar uno solo, o dos de los tres, es 422 con un mensaje por cada campo que falta. Un PATCH con solo polyline —válido hasta SPEC 30— ya NO pasa. Los tres salen de la MISMA respuesta de GET /api/places/directions (polyline, distanceKilometers y durationHours) y se reenvían tal cual; la API no coteja los números con la línea.\n\nATENCIÓN — SI SE CAMBIA locationId O departurePointId HAY QUE REMANDAR LA RUTA COMPLETA. Nada obliga a enviarla al cambiar el destino: la API NO la recalcula y NO AVISA, así que polyline, estimatedKilometers y estimatedHours quedan obsoletos A LA VEZ y el mapa dibuja una ruta que ya no corresponde. Debe resolverse de nuevo con GET /api/places/directions y viajar en el MISMO PATCH.\n\nLas dos fechas planificadas DEJAN DE EXIGIR FUTURO —editar un viaje ya arrancado no puede obligar a reprogramarlo—; el orden entre ellas se mantiene y solo se comprueba cuando las dos viajan juntas. startDate y endDate NO se aceptan por ninguna vía: las pone el servidor en /start y /finish.\n\nNormalización idéntica a la del alta: order y container en MAYÚSCULAS con espacios colapsados; destination, transport y observations con solo trim.",
                 "properties": {
                     "order": {
                         "description": "Referencia comercial. Opcional; si se envía es obligatoria, texto y de 255 caracteres como máximo (La orden es obligatoria / La orden debe ser texto / La orden no puede superar los 255 caracteres). Se normaliza a MAYÚSCULAS con espacios colapsados antes de validarse, así que una orden de solo espacios cae en order.required. Sigue sin ser única.",
@@ -14151,7 +14609,7 @@
             },
             "FinishedProduct": {
                 "title": "Producto terminado",
-                "description": "SKU del catálogo nacional de productos terminados: una presentación empacada de un cliente, con su código, su nombre, su presentación y sus cajas por tarima. NO pertenece a ninguna empresa transportista —ninguna ruta lleva carrier.required— y NO TIENE NINGUNA RELACIÓN CON Products (SPEC 07): Product es la mercancía que cotiza en freight-rates; un producto terminado es un SKU de un cliente. Comparten la palabra, no el dominio.\r\n\r\nLa lectura está abierta a todos los roles SALVO pilot (administrator, manager, carrier, export, user y shipment); la escritura es solo de administrator y export.\r\n\r\nATENCIÓN — BORRA DE VERDAD (SoftDeletes, sin /restore): la fila borrada desaparece del listado y del detalle (404) y no hay forma de recuperarla por la API. El borrado NO LIBERA EL code, que sigue ocupado para siempre.\r\n\r\nATENCIÓN — presentation y boxesPerPallet salen como STRING con dos decimales (\"12.50\"), no como número. createdAt, updatedAt y deletedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601.\r\n\r\nSon exactamente ONCE claves, en camelCase y en este orden: id, code, name, presentation, boxesPerPallet, clientId, clientName, registeredByName, createdAt, updatedAt y deletedAt.",
+                "description": "SKU del catálogo nacional de productos terminados: una presentación empacada de un cliente, con su código, su nombre, su presentación y sus cajas por tarima. NO pertenece a ninguna empresa transportista —ninguna ruta lleva carrier.required— y NO TIENE NINGUNA RELACIÓN CON Products (SPEC 07): Product es la mercancía que cotiza en freight-rates; un producto terminado es un SKU de un cliente. Comparten la palabra, no el dominio.\n\nLa lectura está abierta a todos los roles SALVO pilot (administrator, manager, carrier, export, user y shipment); la escritura es solo de administrator y export.\n\nATENCIÓN — BORRA DE VERDAD (SoftDeletes, sin /restore): la fila borrada desaparece del listado y del detalle (404) y no hay forma de recuperarla por la API. El borrado NO LIBERA EL code, que sigue ocupado para siempre.\n\nATENCIÓN — presentation y boxesPerPallet salen como STRING con dos decimales (\"12.50\"), no como número. createdAt, updatedAt y deletedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601.\n\nSon exactamente ONCE claves, en camelCase y en este orden: id, code, name, presentation, boxesPerPallet, clientId, clientName, registeredByName, createdAt, updatedAt y deletedAt.",
                 "properties": {
                     "id": {
                         "description": "Identificador numérico (finished_products.id). Es el valor del parámetro {finishedProduct}. Sobrevive al borrado en la base, pero deja de ser alcanzable: GET responde 404 y PATCH/DELETE 400.",
@@ -15322,6 +15780,64 @@
                         "$ref": "#/components/schemas/PaginationMeta"
                     }
                 ]
+            },
+            "TripFinishedProduct": {
+                "title": "Línea de producto terminado de un viaje",
+                "description": "Cuántas cajas de un producto terminado lleva un viaje. DIEZ CLAVES en camelCase. code, name, presentation y boxesPerPallet se leen EN VIVO del producto terminado —también si fue borrado después—, sin copia: editar el producto cambia lo que muestran los viajes que lo llevan. createdAt usa el formato d-m-Y h:i:s A, no ISO 8601.",
+                "properties": {
+                    "id": {
+                        "description": "Id de la línea: el parámetro {tripFinishedProduct} del PATCH y del DELETE.",
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "tripId": {
+                        "description": "Id del viaje. Inmutable.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "finishedProductId": {
+                        "description": "Id del producto terminado. Inmutable.",
+                        "type": "integer",
+                        "example": 4
+                    },
+                    "code": {
+                        "description": "Código del producto terminado, en vivo.",
+                        "type": "string",
+                        "example": "BRO-IQF-10"
+                    },
+                    "name": {
+                        "description": "Nombre del producto terminado, en vivo.",
+                        "type": "string",
+                        "example": "BRÓCOLI FLORETE IQF"
+                    },
+                    "presentation": {
+                        "description": "Presentación del producto, STRING de dos decimales, en vivo.",
+                        "type": "string",
+                        "example": "10.00"
+                    },
+                    "boxesPerPallet": {
+                        "description": "Cajas por tarima del producto, STRING de dos decimales, en vivo. La API no calcula tarimas.",
+                        "type": "string",
+                        "example": "96.50"
+                    },
+                    "boxes": {
+                        "description": "Cajas de la línea, ENTERO. El único campo editable.",
+                        "type": "integer",
+                        "example": 960
+                    },
+                    "registeredByName": {
+                        "description": "Nombre de quien registró la línea. No cambia al editarla.",
+                        "type": "string",
+                        "example": "Admin",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha de alta de la línea, formato d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "25-09-2026 10:15:00 AM"
+                    }
+                },
+                "type": "object"
             },
             "TripFuel": {
                 "title": "Carga de combustible de un viaje",
@@ -16632,7 +17148,7 @@
         },
         {
             "name": "Trips",
-            "description": "Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con NUEVE ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nPERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR Y NO SE PUEDE DESASIGNAR. /assignment es exclusiva del carrier, porque asignar es el acto por el que una empresa TOMA el viaje; el PATCH general NO ACEPTA pilotId ni vehicleId y mandarlos se ignora en silencio con 200. pilot_id y vehicle_id NO VUELVEN NUNCA A null —no hay desasignación, y null en /assignment es 422—. Reasignar solo se puede mientras el viaje siga pending: en in_route o finished es 400. CONSECUENCIA REAL: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta los tres valores sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y NO SE RECALCULA NUNCA. polyline es obligatoria en el alta Y en el PATCH; la resuelve el front con GET /api/places/directions (SPEC 16) y LA API NUNCA LLAMA A GOOGLE. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA y la API no avisa.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS con los espacios interiores colapsados; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan exists:, así que un id INVENTADO es 422; pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO, de modo que un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El cliente seleccionado fue eliminado», «La naviera seleccionada fue eliminada», «El destino seleccionado no es un puerto», «El puerto de destino está inactivo», «El punto de partida está inactivo», «El usuario seleccionado no es un piloto», «El piloto seleccionado no pertenece a ninguna empresa transportista», «El vehículo seleccionado no está activo» y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».\n\nCINCO CAMPOS SE DESCARTAN EN EL ALTA SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. El viaje nace pending, sin tripulación, y registeredBy sale del usuario autenticado. En el PATCH, además de pilotId y vehicleId, tampoco se reescriben assignedBy ni registeredBy.\n\n/start Y /finish NO TIENEN CUERPO. La fecha la pone el now() DEL SERVIDOR y mandarla en el body no se usa. start sobre un viaje ya iniciado es 400; finish sobre uno ya finalizado es 400, y sobre uno SIN startDate también es 400. Solo el piloto asignado las alcanza: otro piloto recibe 403.\n\nSOFT DELETES. El listado y el show EXCLUYEN los borrados y no hay parámetro que los devuelva —ni withTrashed, ni onlyTrashed—; un show de un borrado es 404, indistinguible de un id inexistente. En cambio PATCH, /assignment, /start, /finish y el segundo DELETE responden 400 «El viaje ya fue eliminado». NO EXISTE /restore.\n\nEL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.\n\nLA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 19 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 42 claves en camelCase —34 hasta SPEC 27, que añadió totalFuelGallons; 35 hasta SPEC 28, que añadió traveledPolyline y traveledPoints; 37 hasta SPEC 30, que añadió estimatedKilometers y estimatedHours; 39 hasta SPEC 31, que añadió totalExpensesAmount; 40 hasta SPEC 32, que añadió traveledKilometers y traveledHours—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.\n\nATENCIÓN — IMPACTO DE SPEC 27 (COMBUSTIBLE) SOBRE ESTE DOMINIO, Y UNO DE LOS DOS CAMBIOS ES INCOMPATIBLE. Uno: PATCH /api/trips/{trip}/assignment PASA DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType, los cuatro obligatorios, SIN PERIODO DE GRACIA— y crea la primera carga de combustible dentro de su propia transacción; reasignar AÑADE otra carga en vez de pisarla. Dos: PATCH /api/trips/{trip}/start gana un CUARTO 400, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje», comprobado DESPUÉS de «El viaje ya fue iniciado», así que LOS VIAJES ASIGNADOS ANTES DE SPEC 27 NO PUEDEN ARRANCAR hasta que su empresa registre una carga y el piloto la confirme —no hubo backfill y el administrador no puede desbloquearlos—. /finish NO comprueba nada de combustible. El detalle gana la clave totalFuelGallons (solo las cargas CONFIRMADAS), el PATCH general NO acepta fuelGallons ni fuelType —se ignoran en silencio con 200—, GET /api/trips no gana ningún filtro de combustible y TripListItem sigue en 15 claves. Las cargas se gestionan en su propio dominio, Trip Fuels.\n\nIMPACTO DE SPEC 31 (VIÁTICOS) SOBRE ESTE DOMINIO, SIN NADA INCOMPATIBLE: PATCH /api/trips/{trip}/assignment gana DOS CAMPOS OPCIONALES, expenseAmount y expenseDescription, y si viaja el primero crea el primer viático dentro de su misma transacción; sin él nada cambia. El detalle gana la clave totalExpensesAmount (solo los viáticos CONFIRMADOS). Ni /start ni /finish miran los viáticos, el PATCH general NO acepta expenseAmount ni expenseDescription, GET /api/trips no gana filtros y TripListItem sigue en 17 claves. Los viáticos se gestionan en su propio dominio, Trip Expenses.\n\nATENCIÓN — IMPACTO DE SPEC 30 (ESTIMACIONES), Y ES INCOMPATIBLE. El POST PASA DE DOCE CAMPOS A CATORCE —estimatedKilometers y estimatedHours, obligatorios, SIN PERIODO DE GRACIA—, y en el PATCH general los tres campos de la ruta (polyline, estimatedKilometers, estimatedHours) VIAJAN JUNTOS O NINGUNO: un PATCH con solo polyline, válido hasta SPEC 30, ahora es 422. Los dos números son el distanceKilometers y el durationHours de GET /api/places/directions, reenviados sin convertir; la API no los calcula ni los coteja con la polilínea. Salen como cadena de dos decimales en el detalle (claves 21 y 22) Y en el listado (claves 12 y 13), y son null solo en los viajes anteriores a la spec. /assignment, /start y /finish no los tocan.\n\nIMPACTO DE SPEC 32 (DISTANCIA Y TIEMPO REALES), SIN NADA INCOMPATIBLE: el cierre con PATCH /api/trips/{trip}/finish CALCULA Y PERSISTE traveledKilometers —suma Haversine EN CRUDO de los segmentos consecutivos del rastro de trip_positions, sin filtrar ruido GPS— y traveledHours —endDate menos startDate en horas decimales, SIN descontar paradas—, en el mismo UPDATE que endDate, status y traveledPolyline. Salen como cadena de dos decimales en el detalle (claves 25 y 26, tras traveledPoints) Y en el listado (claves 14 y 15, tras estimatedHours), en la misma escala que las estimaciones para comparar a ojo; la API NO las compara. Son null en todo viaje pending o in_route —también en GET /api/trips/current— y en los finalizados antes de la spec (sin backfill); un viaje que terminó con cero o un punto vale \"0.00\", no null. NINGÚN BODY LAS ACEPTA: mandarlas en el POST o en cualquier PATCH se ignora en silencio con 200. /finish no gana guardas, no hay rutas nuevas y GET /api/trips no gana filtros.\n\nIMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto."
+            "description": "Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con NUEVE ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nPERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR Y NO SE PUEDE DESASIGNAR. /assignment es exclusiva del carrier, porque asignar es el acto por el que una empresa TOMA el viaje; el PATCH general NO ACEPTA pilotId ni vehicleId y mandarlos se ignora en silencio con 200. pilot_id y vehicle_id NO VUELVEN NUNCA A null —no hay desasignación, y null en /assignment es 422—. Reasignar solo se puede mientras el viaje siga pending: en in_route o finished es 400. CONSECUENCIA REAL: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta los tres valores sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y NO SE RECALCULA NUNCA. polyline es obligatoria en el alta Y en el PATCH; la resuelve el front con GET /api/places/directions (SPEC 16) y LA API NUNCA LLAMA A GOOGLE. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA y la API no avisa.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS con los espacios interiores colapsados; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan exists:, así que un id INVENTADO es 422; pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO, de modo que un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El cliente seleccionado fue eliminado», «La naviera seleccionada fue eliminada», «El destino seleccionado no es un puerto», «El puerto de destino está inactivo», «El punto de partida está inactivo», «El usuario seleccionado no es un piloto», «El piloto seleccionado no pertenece a ninguna empresa transportista», «El vehículo seleccionado no está activo» y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».\n\nATENCIÓN — IMPACTO DE SPEC 37 (PRODUCTOS TERMINADOS), Y ES INCOMPATIBLE. El POST PASA DE CATORCE CAMPOS A QUINCE: products, una lista obligatoria de al menos una línea { finishedProductId, boxes }, sin repetir producto (422). Cada línea se revalida con 400 «El producto terminado seleccionado ya fue eliminado» / «El producto terminado no pertenece al cliente del viaje», y el viaje y sus líneas se escriben en una transacción. En el PATCH products se IGNORA y cambiar clientId en un viaje con líneas es 400 «No se puede cambiar el cliente de un viaje con productos terminados». Las líneas NO salen en TripResource ni en TripListResource: se leen y editan en /api/trip-finished-products.\n\nCINCO CAMPOS SE DESCARTAN EN EL ALTA SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. El viaje nace pending, sin tripulación, y registeredBy sale del usuario autenticado. En el PATCH, además de pilotId y vehicleId, tampoco se reescriben assignedBy ni registeredBy.\n\n/start Y /finish NO TIENEN CUERPO. La fecha la pone el now() DEL SERVIDOR y mandarla en el body no se usa. start sobre un viaje ya iniciado es 400; finish sobre uno ya finalizado es 400, y sobre uno SIN startDate también es 400. Solo el piloto asignado las alcanza: otro piloto recibe 403.\n\nSOFT DELETES. El listado y el show EXCLUYEN los borrados y no hay parámetro que los devuelva —ni withTrashed, ni onlyTrashed—; un show de un borrado es 404, indistinguible de un id inexistente. En cambio PATCH, /assignment, /start, /finish y el segundo DELETE responden 400 «El viaje ya fue eliminado». NO EXISTE /restore.\n\nEL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.\n\nLA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 19 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 42 claves en camelCase —34 hasta SPEC 27, que añadió totalFuelGallons; 35 hasta SPEC 28, que añadió traveledPolyline y traveledPoints; 37 hasta SPEC 30, que añadió estimatedKilometers y estimatedHours; 39 hasta SPEC 31, que añadió totalExpensesAmount; 40 hasta SPEC 32, que añadió traveledKilometers y traveledHours—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.\n\nATENCIÓN — IMPACTO DE SPEC 27 (COMBUSTIBLE) SOBRE ESTE DOMINIO, Y UNO DE LOS DOS CAMBIOS ES INCOMPATIBLE. Uno: PATCH /api/trips/{trip}/assignment PASA DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType, los cuatro obligatorios, SIN PERIODO DE GRACIA— y crea la primera carga de combustible dentro de su propia transacción; reasignar AÑADE otra carga en vez de pisarla. Dos: PATCH /api/trips/{trip}/start gana un CUARTO 400, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje», comprobado DESPUÉS de «El viaje ya fue iniciado», así que LOS VIAJES ASIGNADOS ANTES DE SPEC 27 NO PUEDEN ARRANCAR hasta que su empresa registre una carga y el piloto la confirme —no hubo backfill y el administrador no puede desbloquearlos—. /finish NO comprueba nada de combustible. El detalle gana la clave totalFuelGallons (solo las cargas CONFIRMADAS), el PATCH general NO acepta fuelGallons ni fuelType —se ignoran en silencio con 200—, GET /api/trips no gana ningún filtro de combustible y TripListItem sigue en 15 claves. Las cargas se gestionan en su propio dominio, Trip Fuels.\n\nIMPACTO DE SPEC 31 (VIÁTICOS) SOBRE ESTE DOMINIO, SIN NADA INCOMPATIBLE: PATCH /api/trips/{trip}/assignment gana DOS CAMPOS OPCIONALES, expenseAmount y expenseDescription, y si viaja el primero crea el primer viático dentro de su misma transacción; sin él nada cambia. El detalle gana la clave totalExpensesAmount (solo los viáticos CONFIRMADOS). Ni /start ni /finish miran los viáticos, el PATCH general NO acepta expenseAmount ni expenseDescription, GET /api/trips no gana filtros y TripListItem sigue en 17 claves. Los viáticos se gestionan en su propio dominio, Trip Expenses.\n\nATENCIÓN — IMPACTO DE SPEC 30 (ESTIMACIONES), Y ES INCOMPATIBLE. El POST PASA DE DOCE CAMPOS A CATORCE —estimatedKilometers y estimatedHours, obligatorios, SIN PERIODO DE GRACIA—, y en el PATCH general los tres campos de la ruta (polyline, estimatedKilometers, estimatedHours) VIAJAN JUNTOS O NINGUNO: un PATCH con solo polyline, válido hasta SPEC 30, ahora es 422. Los dos números son el distanceKilometers y el durationHours de GET /api/places/directions, reenviados sin convertir; la API no los calcula ni los coteja con la polilínea. Salen como cadena de dos decimales en el detalle (claves 21 y 22) Y en el listado (claves 12 y 13), y son null solo en los viajes anteriores a la spec. /assignment, /start y /finish no los tocan.\n\nIMPACTO DE SPEC 32 (DISTANCIA Y TIEMPO REALES), SIN NADA INCOMPATIBLE: el cierre con PATCH /api/trips/{trip}/finish CALCULA Y PERSISTE traveledKilometers —suma Haversine EN CRUDO de los segmentos consecutivos del rastro de trip_positions, sin filtrar ruido GPS— y traveledHours —endDate menos startDate en horas decimales, SIN descontar paradas—, en el mismo UPDATE que endDate, status y traveledPolyline. Salen como cadena de dos decimales en el detalle (claves 25 y 26, tras traveledPoints) Y en el listado (claves 14 y 15, tras estimatedHours), en la misma escala que las estimaciones para comparar a ojo; la API NO las compara. Son null en todo viaje pending o in_route —también en GET /api/trips/current— y en los finalizados antes de la spec (sin backfill); un viaje que terminó con cero o un punto vale \"0.00\", no null. NINGÚN BODY LAS ACEPTA: mandarlas en el POST o en cualquier PATCH se ignora en silencio con 200. /finish no gana guardas, no hay rutas nuevas y GET /api/trips no gana filtros.\n\nIMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto."
         },
         {
             "name": "Trip Costs",
@@ -16641,6 +17157,10 @@
         {
             "name": "Trip Expenses",
             "description": "Viáticos del viaje: la empresa transportista registra el dinero que entrega al piloto para los gastos del camino y el PILOTO ASIGNADO confirma haberlo recibido. Es el CALCO de las cargas de combustible de SPEC 27 con dinero en vez de galones. TRES ENDPOINTS Y NINGUNO MÁS, los tres con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nLAS TRES RUTAS, con sus roles: POST /api/trips/{trip}/expenses (role:carrier) registra un viático SIN CONFIRMAR; GET /api/trips/{trip}/expenses (jwt.auth a secas) lista los del viaje con el ámbito de SPEC 24; y PATCH /api/trip-expenses/{tripExpense}/confirm (role:pilot) escribe la fecha de recepción. Ninguna de las tres lleva carrier.required: el ámbito lo resuelve el service.\n\nATENCIÓN — LAS DOS PRIMERAS ESTÁN ANIDADAS BAJO {trip} y la tercera NO. La confirmación vive en /api/trip-expenses/{tripExpense}/confirm porque el id del viático ya identifica el viaje. NO EXISTE UN LISTADO GLOBAL: no hay GET /api/trip-expenses, ni filtro tripId en query, ni endpoint de detalle GET /api/trip-expenses/{tripExpense}. El índice va siempre viaje → viáticos.\n\nATENCIÓN — manager NO ALCANZA LAS DOS RUTAS DE ESCRITURA Y administrator SOLO LA DE REGISTRAR. Registrar es del carrier que tomó el viaje (o del administrator) y confirmar es del pilot asignado; los otros roles reciben 403 «No tienes permisos para acceder a este recurso». Un administrador NO puede registrar ni confirmar nada: el PATCH general de un viaje no toca trip_expenses. En la LECTURA entran los cuatro roles, y AQUÍ EL PILOTO ASIGNADO SÍ LEE, como con las cargas de combustible: el dato es sobre él.\n\nCUATRO GUARDAS DEL POST EN ORDEN FIJO, y ese orden es contrato: viaje inexistente → 404 «El viaje no existe»; viaje borrado → 400 «El viaje ya fue eliminado»; el viaje NO lo tomó la empresa de quien llama, INCLUIDO EL CASO DE UN VIAJE SIN ASIGNAR → 403 «No puedes registrar viáticos en un viaje que no tomó tu empresa transportista»; el viaje está finished → 400 «El viaje ya fue finalizado». CONSECUENCIA: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403. Se registra en pending Y en in_route —un extra en carretera es el caso real—, nunca después. Un carrier sin empresa registrada recibe 403 «No perteneces a ninguna empresa transportista» desde el service, no desde un middleware.\n\nATENCIÓN — ESTE DOMINIO CAMBIA UN ENDPOINT DE SPEC 24 SIN ROMPERLO: PATCH /api/trips/{trip}/assignment gana DOS CAMPOS OPCIONALES, expenseAmount y expenseDescription. Si viaja expenseAmount, la asignación crea el primer viático dentro de su propia transacción; si no viaja, la asignación queda exactamente como hasta ahora. expenseDescription sin expenseAmount SE IGNORA EN SILENCIO. Y TripResource pasa de 39 a 40 claves con totalExpensesAmount. NI /start NI /finish comprueban nada de viáticos: un viaje arranca con o sin ellos.\n\nNADA SE EDITA, NADA SE BORRA Y NADA SE DESCONFIRMA. La tabla es APPEND-ONLY, como trip_fuels: no hay PATCH de monto, no hay DELETE, received_at no vuelve nunca a null y el DELETE (baja lógica) del viaje no toca ninguna fila. Un monto mal tecleado es permanente y no se puede compensar, porque el monto no admite negativos.\n\nNO ES CONTABILIDAD: no hay comprobante, ni categoría, ni moneda (GTQ por convención), ni cantidad realmente recibida distinta de la entregada. NO SE EMITE NADA: registrar o confirmar no manda correo y no emite por Reverb. TripListResource sigue en 17 claves, GET /api/trips/current no cambia de forma, GET /api/trips no gana ningún filtro y el Dashboard de SPEC 29 no agrega viáticos."
+        },
+        {
+            "name": "Trip Finished Products",
+            "description": "Productos terminados del viaje (SPEC 37): cuántas cajas de cada producto terminado del cliente lleva un viaje. Rutas SIN ANIDAR bajo /api/trip-finished-products: el viaje viaja en el query param obligatorio tripId del listado y en el body del alta. Las cuatro exigen token JWT (401 «El token de sesión no es válido o ha expirado»). LECTURA con jwt.auth a secas y el ámbito del detalle del viaje (incluido el pilot asignado, user y shipment; el carrier solo dentro de su empresa). ESCRITURA (alta, edición de cajas y borrado físico) solo administrator y export; el resto, 403 «No tienes permisos para acceder a este recurso». Toda escritura exige el viaje en pending. Un viaje siempre conserva al menos una línea."
         },
         {
             "name": "Trip Fuels",

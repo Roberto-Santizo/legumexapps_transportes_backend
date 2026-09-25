@@ -15,7 +15,7 @@ use OpenApi\Attributes as OA;
     description: <<<'TEXT'
     Cuerpo JSON para editar un viaje. Es EXCLUSIVO del rol administrator. TODOS LOS CAMPOS SON OPCIONALES y solo se toca lo que venga: un CUERPO VACÍO responde 200 como no-op, sin mover siquiera updatedAt. Opcional NO es vaciable: enviar una clave en blanco, de solo espacios o con null es 422.
 
-    Son los mismos catorce campos del alta MÁS status, y MENOS pilotId y vehicleId.
+    Son los catorce campos del alta anteriores a SPEC 37 MÁS status, y MENOS pilotId y vehicleId. products (SPEC 37) NO se acepta: se ignora en silencio, y cambiar clientId en un viaje con productos terminados es 400.
 
     ATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR NI DESASIGNAR. pilotId y vehicleId NO SE ACEPTAN AQUÍ y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva la asignación que tuviera. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, exclusiva del carrier. Tampoco se reescriben assignedBy ni registeredBy: mandarlos se descarta igual. Consecuencia real: SI NINGUNA EMPRESA TOMA UN VIAJE, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.
 
