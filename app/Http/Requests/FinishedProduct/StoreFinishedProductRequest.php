@@ -5,7 +5,63 @@ namespace App\Http\Requests\FinishedProduct;
 use App\Models\FinishedProduct;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: 'StoreFinishedProductRequest',
+    title: 'Alta de producto terminado',
+    description: <<<'TEXT'
+    Cuerpo JSON para dar de alta un SKU. Los CINCO campos son OBLIGATORIOS: code, name, presentation, boxesPerPallet y clientId. Cualquier otra clave se descarta en silencio; registeredBy sale del usuario autenticado.
+
+    ATENCIÓN — EL code DUPLICADO ES 400 DESDE EL SERVICE, NUNCA 422: no hay regla unique porque la de Laravel no ve las filas borradas. Mensaje literal: «Ya existe un producto terminado con ese código, que puede haber sido eliminado». El borrado NO libera el código.
+
+    ATENCIÓN — clientId inexistente es 422 («El cliente seleccionado no existe»), pero un cliente BORRADO pasa el exists: y lo para el service con 400 «El cliente seleccionado ya fue eliminado».
+
+    Normalización antes de validar: code se recorta y pasa a mayúsculas (con cualquier espacio interior es 422, no se arregla); name SOLO pasa a mayúsculas —sin colapso de espacios interiores— y NO es único.
+    TEXT,
+    required: ['code', 'name', 'presentation', 'boxesPerPallet', 'clientId'],
+    properties: [
+        new OA\Property(
+            property: 'code',
+            description: 'Código del SKU. Obligatorio, texto, máximo 15 caracteres. Se guarda recortado y en MAYÚSCULAS. NO ADMITE ESPACIOS NI TABULADORES, ni siquiera interiores: 422 «El código no puede contener espacios». Si otro producto terminado —vivo o BORRADO— ya lo usa: 400, no 422.',
+            type: 'string',
+            maxLength: 15,
+            example: 'sku-bro-001',
+        ),
+        new OA\Property(
+            property: 'name',
+            description: 'Nombre del SKU. Obligatorio, texto, máximo 255 caracteres. Se guarda en MAYÚSCULAS sin colapsar los espacios interiores (los extremos los recorta el middleware global TrimStrings). NO es único.',
+            type: 'string',
+            maxLength: 255,
+            example: 'brócoli florete iqf',
+        ),
+        new OA\Property(
+            property: 'presentation',
+            description: 'Presentación. Obligatoria, numérica, entre 0.01 y 99999999.99 (mensajes: La presentación debe ser mayor a 0 / La presentación no puede superar 99999999.99). Se devuelve como string con dos decimales.',
+            type: 'number',
+            format: 'float',
+            maximum: 99999999.99,
+            minimum: 0.01,
+            example: 12.5,
+        ),
+        new OA\Property(
+            property: 'boxesPerPallet',
+            description: 'Cajas por tarima. Obligatorio, numérico (admite decimales), entre 0.01 y 99999999.99. Se devuelve como string con dos decimales.',
+            type: 'number',
+            format: 'float',
+            maximum: 99999999.99,
+            minimum: 0.01,
+            example: 80,
+        ),
+        new OA\Property(
+            property: 'clientId',
+            description: 'Id del cliente (clients.id). Obligatorio, entero. Inexistente → 422 «El cliente seleccionado no existe»; cliente borrado → 400 «El cliente seleccionado ya fue eliminado».',
+            type: 'integer',
+            example: 7,
+        ),
+    ],
+    type: 'object',
+)]
 class StoreFinishedProductRequest extends FormRequest
 {
     public function authorize(): bool

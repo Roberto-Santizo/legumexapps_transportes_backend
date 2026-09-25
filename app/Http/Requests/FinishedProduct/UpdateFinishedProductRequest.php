@@ -5,7 +5,58 @@ namespace App\Http\Requests\FinishedProduct;
 use App\Models\FinishedProduct;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: 'UpdateFinishedProductRequest',
+    title: 'Actualización de producto terminado',
+    description: <<<'TEXT'
+    Cuerpo JSON para corregir un SKU. Los cinco campos son OPCIONALES (sometimes|required): se toca solo lo que venga, y UN CUERPO VACÍO ES UN NO-OP CON 200. Opcional no es vaciable: enviar un campo vacío o null es 422.
+
+    Mismas reglas que el alta: code duplicado contra otro SKU —vivo o borrado— es 400 «Ya existe un producto terminado con ese código, que puede haber sido eliminado» (reenviar el propio código es 200); clientId inexistente 422; cliente borrado 400 «El cliente seleccionado ya fue eliminado», INCLUSO SI ES EL MISMO CLIENTE QUE YA TENÍA. registeredBy no se reescribe.
+    TEXT,
+    properties: [
+        new OA\Property(
+            property: 'code',
+            description: 'Nuevo código. Máximo 15 caracteres, recortado y en MAYÚSCULAS, sin ningún espacio (422 «El código no puede contener espacios»). El de otro SKU —vivo o borrado— es 400.',
+            type: 'string',
+            maxLength: 15,
+            example: 'sku-bro-002',
+        ),
+        new OA\Property(
+            property: 'name',
+            description: 'Nuevo nombre. Máximo 255 caracteres, en MAYÚSCULAS sin colapsar espacios interiores. No es único.',
+            type: 'string',
+            maxLength: 255,
+            example: 'brócoli florete iqf 2kg',
+        ),
+        new OA\Property(
+            property: 'presentation',
+            description: 'Nueva presentación, numérica entre 0.01 y 99999999.99.',
+            type: 'number',
+            format: 'float',
+            maximum: 99999999.99,
+            minimum: 0.01,
+            example: 2,
+        ),
+        new OA\Property(
+            property: 'boxesPerPallet',
+            description: 'Nuevas cajas por tarima, numéricas entre 0.01 y 99999999.99.',
+            type: 'number',
+            format: 'float',
+            maximum: 99999999.99,
+            minimum: 0.01,
+            example: 96,
+        ),
+        new OA\Property(
+            property: 'clientId',
+            description: 'Nuevo cliente (clients.id). Inexistente → 422; borrado → 400, aunque sea el mismo cliente actual.',
+            type: 'integer',
+            example: 8,
+        ),
+    ],
+    type: 'object',
+)]
 class UpdateFinishedProductRequest extends FormRequest
 {
     public function authorize(): bool

@@ -3655,6 +3655,475 @@
                 ]
             }
         },
+        "/api/finished-products": {
+            "get": {
+                "tags": [
+                    "Finished Products"
+                ],
+                "summary": "Listar productos terminados",
+                "description": "Devuelve los productos terminados vivos con el nombre de su cliente y de quien los registró. Todos los roles salvo pilot; sin ámbito por empresa: todos ven las mismas filas.\n\nLos borrados NO aparecen nunca y no hay parámetro que los devuelva. Orden fijo id ASC.\n\nFiltros TOLERANTES —nunca 422—: search (LIKE sobre code Y name, insensible a mayúsculas; en blanco se ignora), clientId (no numérico se ignora y devuelve el listado completo; un id sin SKUs devuelve data vacío) y limit. Sin coincidencias: 200 con data vacío.\n\nSin limit (o no numérico) devuelve todo sin metadatos; con limit numérico pagina acotado a [10, 100] con total, currentPage y lastPage APLANADOS en la raíz del sobre.",
+                "operationId": "indexFinishedProducts",
+                "parameters": [
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Búsqueda parcial sobre code y name a la vez (OR). El término se recorta y pasa a mayúsculas, así que es insensible a mayúsculas. En blanco se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "brócoli"
+                        }
+                    },
+                    {
+                        "name": "clientId",
+                        "in": "query",
+                        "description": "Filtra por cliente (clients.id). Tolerante: un valor no entero (clientId=abc) se ignora en silencio, nunca 422. Un id inexistente devuelve data vacío, no 404.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 7
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página; su presencia activa la paginación. Omitido o no numérico: todos los registros sin metadatos. Numérico: acotado a [10, 100] (limit=1 → 10, limit=500 → 100).",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada. Solo tiene efecto con un limit numérico.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Productos terminados obtenidos correctamente. Sin limit: FinishedProductListResponse; con limit numérico: PaginatedFinishedProductListResponse. deletedAt siempre null.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/FinishedProductListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedFinishedProductListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El usuario es pilot: es el único rol sin lectura. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Finished Products"
+                ],
+                "summary": "Registrar un producto terminado",
+                "description": "Da de alta un SKU. Solo administrator y export (role:administrator,export); el resto de roles, 403.\n\nLos cinco campos son obligatorios. code se recorta y pasa a mayúsculas y no admite espacios (422); name solo pasa a mayúsculas y no es único. registeredBy sale del usuario autenticado.\n\nOrden de las guardas del service tras validar: primero el code duplicado (400, contra vivos Y borrados), después el cliente borrado (400). clientId inexistente lo corta antes el FormRequest con 422.",
+                "operationId": "storeFinishedProduct",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreFinishedProductRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Producto terminado registrado correctamente, con code y name en mayúsculas, presentation/boxesPerPallet como string de dos decimales y deletedAt null.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Producto terminado registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FinishedProduct"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio. (1) «Ya existe un producto terminado con ese código, que puede haber sido eliminado» —el ocupante puede ser un SKU borrado invisible en todos los endpoints—; se comprueba primero. (2) «El cliente seleccionado ya fue eliminado».",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es administrator ni export. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validación con el formato de Laravel {message, errors}. Casos: falta algún campo; code con más de 15 caracteres o con espacios (El código no puede contener espacios); name de más de 255; presentation o boxesPerPallet no numéricos, menores a 0.01 o mayores a 99999999.99; clientId no entero o inexistente (El cliente seleccionado no existe). El code duplicado NO cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/finished-products/{finishedProduct}": {
+            "get": {
+                "tags": [
+                    "Finished Products"
+                ],
+                "summary": "Obtener un producto terminado por id",
+                "description": "Devuelve un SKU vivo. Todos los roles salvo pilot; sin ámbito por empresa.\n\nATENCIÓN — un SKU BORRADO responde 404 con el MISMO mensaje que un id inexistente («El producto terminado no existe»). Solo la escritura distingue el borrado (400). deletedAt es siempre null aquí. clientName sale aunque el cliente haya sido borrado.",
+                "operationId": "showFinishedProduct",
+                "parameters": [
+                    {
+                        "name": "finishedProduct",
+                        "in": "path",
+                        "description": "Id numérico del producto terminado (finished_products.id). NO es el code.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 12
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Producto terminado obtenido correctamente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Producto terminado obtenido correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FinishedProduct"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El usuario es pilot. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Id inexistente O producto terminado borrado, indistinguibles a propósito. Mensaje: El producto terminado no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Finished Products"
+                ],
+                "summary": "Eliminar un producto terminado",
+                "description": "ATENCIÓN — BORRA DE VERDAD (SoftDeletes) y NO HAY /restore: el SKU desaparece del listado y del detalle (404) y solo se recupera desde la base de datos. Solo administrator y export; el resto, 403.\n\nEl borrado NO LIBERA EL code: nadie puede volver a darlo de alta con ese código (400).\n\nNO es idempotente: el segundo DELETE responde 400 «El producto terminado ya fue eliminado»; un id que nunca existió, 404 «El producto terminado no existe».\n\nLa respuesta es la ÚNICA en la que deletedAt viene con fecha (d-m-Y h:i:s A).",
+                "operationId": "destroyFinishedProduct",
+                "parameters": [
+                    {
+                        "name": "finishedProduct",
+                        "in": "path",
+                        "description": "Id numérico del producto terminado (finished_products.id) a borrar. Debe estar vivo.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 12
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Producto terminado eliminado correctamente. data trae la fila recién borrada con deletedAt con fecha.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Producto terminado eliminado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FinishedProduct"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El producto terminado ya fue borrado antes. Mensaje: El producto terminado ya fue eliminado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es administrator ni export. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni borrada. Mensaje: El producto terminado no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Finished Products"
+                ],
+                "summary": "Actualizar un producto terminado",
+                "description": "Corrige cualquiera de los cinco campos. Solo administrator y export; el resto, 403. La ruta acepta PATCH y PUT con el mismo comportamiento parcial.\n\nSolo se toca lo que venga; un cuerpo vacío es un no-op con 200. Enviar un campo vacío o null es 422.\n\nOrden de las guardas del service: id inexistente 404 «El producto terminado no existe» → borrado 400 «El producto terminado ya fue eliminado» → code de OTRO SKU (vivo o borrado) 400 → cliente borrado 400 «El cliente seleccionado ya fue eliminado», INCLUSO si es el mismo cliente que ya tenía. Reenviar el propio code es 200. registeredBy no se reescribe.",
+                "operationId": "updateFinishedProduct",
+                "parameters": [
+                    {
+                        "name": "finishedProduct",
+                        "in": "path",
+                        "description": "Id numérico del producto terminado (finished_products.id). Es también la fila que se ignora al revalidar la unicidad del code.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 12
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateFinishedProductRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Producto terminado actualizado correctamente (también con cuerpo vacío, sin cambios).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Producto terminado actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/FinishedProduct"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Regla de negocio: «El producto terminado ya fue eliminado», «Ya existe un producto terminado con ese código, que puede haber sido eliminado» o «El cliente seleccionado ya fue eliminado».",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol no es administrator ni export. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "No existe ninguna fila con ese id, ni viva ni borrada. Mensaje: El producto terminado no existe. Un SKU borrado NO cae aquí: es 400.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validación con el formato de Laravel {message, errors}: campo enviado vacío o null, code con espacios o de más de 15 caracteres, name de más de 255, presentation/boxesPerPallet fuera de [0.01, 99999999.99] o no numéricos, clientId no entero o inexistente. Un cuerpo vacío NO es 422.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/freight-rates": {
             "get": {
                 "tags": [
@@ -11225,6 +11694,93 @@
                 },
                 "type": "object"
             },
+            "StoreFinishedProductRequest": {
+                "title": "Alta de producto terminado",
+                "description": "Cuerpo JSON para dar de alta un SKU. Los CINCO campos son OBLIGATORIOS: code, name, presentation, boxesPerPallet y clientId. Cualquier otra clave se descarta en silencio; registeredBy sale del usuario autenticado.\n\nATENCIÓN — EL code DUPLICADO ES 400 DESDE EL SERVICE, NUNCA 422: no hay regla unique porque la de Laravel no ve las filas borradas. Mensaje literal: «Ya existe un producto terminado con ese código, que puede haber sido eliminado». El borrado NO libera el código.\n\nATENCIÓN — clientId inexistente es 422 («El cliente seleccionado no existe»), pero un cliente BORRADO pasa el exists: y lo para el service con 400 «El cliente seleccionado ya fue eliminado».\n\nNormalización antes de validar: code se recorta y pasa a mayúsculas (con cualquier espacio interior es 422, no se arregla); name SOLO pasa a mayúsculas —sin colapso de espacios interiores— y NO es único.",
+                "required": [
+                    "code",
+                    "name",
+                    "presentation",
+                    "boxesPerPallet",
+                    "clientId"
+                ],
+                "properties": {
+                    "code": {
+                        "description": "Código del SKU. Obligatorio, texto, máximo 15 caracteres. Se guarda recortado y en MAYÚSCULAS. NO ADMITE ESPACIOS NI TABULADORES, ni siquiera interiores: 422 «El código no puede contener espacios». Si otro producto terminado —vivo o BORRADO— ya lo usa: 400, no 422.",
+                        "type": "string",
+                        "example": "sku-bro-001",
+                        "maxLength": 15
+                    },
+                    "name": {
+                        "description": "Nombre del SKU. Obligatorio, texto, máximo 255 caracteres. Se guarda en MAYÚSCULAS sin colapsar los espacios interiores (los extremos los recorta el middleware global TrimStrings). NO es único.",
+                        "type": "string",
+                        "example": "brócoli florete iqf",
+                        "maxLength": 255
+                    },
+                    "presentation": {
+                        "description": "Presentación. Obligatoria, numérica, entre 0.01 y 99999999.99 (mensajes: La presentación debe ser mayor a 0 / La presentación no puede superar 99999999.99). Se devuelve como string con dos decimales.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 12.5,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "boxesPerPallet": {
+                        "description": "Cajas por tarima. Obligatorio, numérico (admite decimales), entre 0.01 y 99999999.99. Se devuelve como string con dos decimales.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 80,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "clientId": {
+                        "description": "Id del cliente (clients.id). Obligatorio, entero. Inexistente → 422 «El cliente seleccionado no existe»; cliente borrado → 400 «El cliente seleccionado ya fue eliminado».",
+                        "type": "integer",
+                        "example": 7
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateFinishedProductRequest": {
+                "title": "Actualización de producto terminado",
+                "description": "Cuerpo JSON para corregir un SKU. Los cinco campos son OPCIONALES (sometimes|required): se toca solo lo que venga, y UN CUERPO VACÍO ES UN NO-OP CON 200. Opcional no es vaciable: enviar un campo vacío o null es 422.\n\nMismas reglas que el alta: code duplicado contra otro SKU —vivo o borrado— es 400 «Ya existe un producto terminado con ese código, que puede haber sido eliminado» (reenviar el propio código es 200); clientId inexistente 422; cliente borrado 400 «El cliente seleccionado ya fue eliminado», INCLUSO SI ES EL MISMO CLIENTE QUE YA TENÍA. registeredBy no se reescribe.",
+                "properties": {
+                    "code": {
+                        "description": "Nuevo código. Máximo 15 caracteres, recortado y en MAYÚSCULAS, sin ningún espacio (422 «El código no puede contener espacios»). El de otro SKU —vivo o borrado— es 400.",
+                        "type": "string",
+                        "example": "sku-bro-002",
+                        "maxLength": 15
+                    },
+                    "name": {
+                        "description": "Nuevo nombre. Máximo 255 caracteres, en MAYÚSCULAS sin colapsar espacios interiores. No es único.",
+                        "type": "string",
+                        "example": "brócoli florete iqf 2kg",
+                        "maxLength": 255
+                    },
+                    "presentation": {
+                        "description": "Nueva presentación, numérica entre 0.01 y 99999999.99.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 2,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "boxesPerPallet": {
+                        "description": "Nuevas cajas por tarima, numéricas entre 0.01 y 99999999.99.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 96,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "clientId": {
+                        "description": "Nuevo cliente (clients.id). Inexistente → 422; borrado → 400, aunque sea el mismo cliente actual.",
+                        "type": "integer",
+                        "example": 8
+                    }
+                },
+                "type": "object"
+            },
             "StoreFreightRateRequest": {
                 "title": "Alta de tarifa de flete",
                 "description": "Cuerpo JSON para cotizar una banda nueva. Los cinco campos —locationId, productId, fuelType, fuelMin y pricePerPound— son OBLIGATORIOS; no hay ningún campo opcional.\n\nEl registeredBy NO SE ACEPTA por ningún nombre: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no tiene ningún efecto, ni siquiera un 422. Tampoco se acepta ningún precio de combustible vigente: la tarifa guarda un fuelMin, no una referencia a fuel_prices.\n\nLas claves del cuerpo van en camelCase; el service traduce a snake_case al persistir.\n\nATENCIÓN — 422 Y 400 SIGNIFICAN COSAS DISTINTAS. La regla exists solo comprueba que la fila ESTÉ, nunca que esté activa: un locationId o un productId inexistente es 422 (validación), mientras que un destino o un producto con status false es 400 (regla de negocio del service, con su propio mensaje: El destino seleccionado no está activo / El producto seleccionado no está activo). Repetir una banda ya cotizada también es 400, no 422: Ya existe una tarifa para ese destino, ese producto y ese combustible desde ese precio.\n\nLa unicidad mira SOLO las filas vivas: tras un DELETE, ese mismo fuelMin vuelve a estar libre y se puede cotizar otra vez con 201.",
@@ -13593,6 +14149,108 @@
                 },
                 "type": "object"
             },
+            "FinishedProduct": {
+                "title": "Producto terminado",
+                "description": "SKU del catálogo nacional de productos terminados: una presentación empacada de un cliente, con su código, su nombre, su presentación y sus cajas por tarima. NO pertenece a ninguna empresa transportista —ninguna ruta lleva carrier.required— y NO TIENE NINGUNA RELACIÓN CON Products (SPEC 07): Product es la mercancía que cotiza en freight-rates; un producto terminado es un SKU de un cliente. Comparten la palabra, no el dominio.\n\nLa lectura está abierta a todos los roles SALVO pilot (administrator, manager, carrier, export, user y shipment); la escritura es solo de administrator y export.\n\nATENCIÓN — BORRA DE VERDAD (SoftDeletes, sin /restore): la fila borrada desaparece del listado y del detalle (404) y no hay forma de recuperarla por la API. El borrado NO LIBERA EL code, que sigue ocupado para siempre.\n\nATENCIÓN — presentation y boxesPerPallet salen como STRING con dos decimales (\"12.50\"), no como número. createdAt, updatedAt y deletedAt usan el formato propio d-m-Y h:i:s A, NO ISO 8601.\n\nSon exactamente ONCE claves, en camelCase y en este orden: id, code, name, presentation, boxesPerPallet, clientId, clientName, registeredByName, createdAt, updatedAt y deletedAt.",
+                "properties": {
+                    "id": {
+                        "description": "Identificador numérico (finished_products.id). Es el valor del parámetro {finishedProduct}. Sobrevive al borrado en la base, pero deja de ser alcanzable: GET responde 404 y PATCH/DELETE 400.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "code": {
+                        "description": "Código del SKU, SIEMPRE EN MAYÚSCULAS, sin ningún espacio y de 15 caracteres como máximo. Único GLOBAL Y PERMANENTE: incluye a los productos terminados borrados, que lo siguen reservando. Uno de los dos campos que barre el filtro search.",
+                        "type": "string",
+                        "example": "SKU-BRO-001",
+                        "maxLength": 15
+                    },
+                    "name": {
+                        "description": "Nombre del SKU, EN MAYÚSCULAS. A diferencia del resto de catálogos NO se le colapsan los espacios interiores —se guardan tal cual se teclearon— y NO ES ÚNICO: dos productos terminados pueden llamarse igual. Los espacios de los extremos sí los quita el middleware global TrimStrings de Laravel antes de llegar a la validación. Es el otro campo que barre search.",
+                        "type": "string",
+                        "example": "BRÓCOLI  FLORETE IQF",
+                        "maxLength": 255
+                    },
+                    "presentation": {
+                        "description": "Presentación del SKU (tamaño del empaque; la columna no fija unidad). Sale como STRING con exactamente dos decimales, no como número. Siempre entre 0.01 y 99999999.99.",
+                        "type": "string",
+                        "example": "12.50"
+                    },
+                    "boxesPerPallet": {
+                        "description": "Cajas por tarima. Sale como STRING con exactamente dos decimales, no como número ni entero. Siempre entre 0.01 y 99999999.99.",
+                        "type": "string",
+                        "example": "80.00"
+                    },
+                    "clientId": {
+                        "description": "Id del cliente (clients.id) dueño del SKU. Obligatorio: todo producto terminado tiene cliente. Puede apuntar a un cliente borrado DESPUÉS del alta: borrar un cliente NO se bloquea por sus productos terminados.",
+                        "type": "integer",
+                        "example": 7
+                    },
+                    "clientName": {
+                        "description": "Nombre del cliente. ATENCIÓN — SALE AUNQUE EL CLIENTE ESTÉ BORRADO: la relación lee clientes eliminados, así que un SKU conserva el nombre de su cliente tras borrarlo.",
+                        "type": "string",
+                        "example": "AGROEXPORTADORA DEL SUR",
+                        "nullable": true
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del usuario que dio de alta el SKU. Sale del usuario autenticado, nunca del body, y el PATCH no lo reescribe.",
+                        "type": "string",
+                        "example": "Roberto Santizo",
+                        "nullable": true
+                    },
+                    "createdAt": {
+                        "description": "Fecha de alta, formato d-m-Y h:i:s A (NO ISO 8601).",
+                        "type": "string",
+                        "example": "25-09-2026 08:45:12 AM",
+                        "nullable": true
+                    },
+                    "updatedAt": {
+                        "description": "Fecha del último cambio, formato d-m-Y h:i:s A (NO ISO 8601).",
+                        "type": "string",
+                        "example": "25-09-2026 08:51:40 AM",
+                        "nullable": true
+                    },
+                    "deletedAt": {
+                        "description": "Fecha del borrado lógico. ATENCIÓN — es null en el listado, el detalle, el alta y la actualización; SOLO VIENE CON FECHA EN LA RESPUESTA DEL PROPIO DELETE, que pinta la fila recién borrada. Formato d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": null,
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "FinishedProductListResponse": {
+                "title": "Listado de productos terminados sin paginar",
+                "description": "Respuesta de GET /api/finished-products sin limit (o con un limit no numérico): todos los productos terminados vivos que pasen los filtros, sin total, currentPage ni lastPage. Los borrados nunca aparecen. Orden id ASC.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Productos terminados obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FinishedProduct"
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedFinishedProductListResponse": {
+                "title": "Listado de productos terminados paginado",
+                "description": "Respuesta de GET /api/finished-products con un limit numérico (acotado a [10, 100]): total, currentPage y lastPage salen APLANADOS en la raíz del sobre, no bajo meta. El total cuenta solo los productos terminados vivos que pasen los filtros.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/FinishedProductListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
+            },
             "FreightQuote": {
                 "title": "Cotización de flete",
                 "description": "Respuesta de GET /api/freight-rates/quote: cuánto cuesta la libra hasta el destino consultado y, si se enviaron las libras, cuánto cuesta el flete completo.\n\nNO PERSISTE NADA. Es una consulta pura: ninguna fila se crea, se edita ni se marca, y llamarla mil veces deja freight_rates exactamente igual. No es una reserva, no es un pedido y no bloquea el precio: la misma consulta mañana puede devolver otro número si cambió el precio del combustible o si se cotizó una banda nueva.\n\nUNIDADES FIJAS DEL DOMINIO: currentFuelPrice y appliedFuelMin en QUETZALES (GTQ) POR GALÓN, pricePerPound en GTQ POR LIBRA con seis decimales, pounds en LIBRAS y total en GTQ con dos decimales. No hay moneda configurable, ni kilos, ni litros, ni impuestos.\n\nATENCIÓN — EL PRECIO DEL COMBUSTIBLE NUNCA VIAJA EN LA PETICIÓN. currentFuelPrice sale SIEMPRE del FuelPrice con status active de ese fuelType; cualquier precio que el cliente mande en la query se ignora por completo, por ningún nombre se acepta. No existe la simulación \"¿y si el diésel subiera a 45?\": si se aceptara, cada quien cotizaría al precio que le conviene.\n\nATENCIÓN — EL TOTAL AUTORITATIVO ES EL DE LA API. Recalcularlo en pantalla redondeando pricePerPound a dos decimales da 20 250.00 en vez de 20 435.40 para 45 000 libras: 185 quetzales de diferencia en un solo flete. La API multiplica con los seis decimales completos y redondea SOLO al final.\n\nEste recurso NO envuelve un modelo: junta la tarifa elegida con los tres datos que la hacen auditable —el precio de combustible vigente, la banda que se aplicó y el total—, que no viven en ninguna fila.\n\nEjemplo completo del dominio: 45 000 libras de brócoli con destino en la bodega central de Escuintla y el diésel vigente a 40.00 devuelven currentFuelPrice 40.00, appliedFuelMin 35.00, pricePerPound 0.454120, pounds 45000.00 y total 20435.40.",
@@ -15939,6 +16597,10 @@
         {
             "name": "Device Tokens",
             "description": "Tokens FCM (Android e iOS) de los dispositivos del usuario, guardados para notificaciones push. DOS ENDPOINTS Y NINGUNO MÁS, los dos con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nSIN role: NI carrier.required: valen para los siete roles, y un carrier o un pilot sin empresa también pueden registrar su teléfono.\n\nATENCIÓN — TODAVÍA NO SE ENVÍA NINGUNA NOTIFICACIÓN. Este dominio solo guarda los tokens. No hay GET para listarlos ni endpoint de logout: al cerrar sesión el móvil debe llamar al DELETE."
+        },
+        {
+            "name": "Finished Products",
+            "description": "Productos terminados (SPEC 36): catálogo nacional de SKUs —code único global, name, presentation, boxesPerPallet y un cliente obligatorio—. NO tiene relación con Products (SPEC 07). Ninguna ruta lleva carrier.required. Los cinco endpoints exigen token JWT (401 «El token de sesión no es válido o ha expirado»). LECTURA (listado y detalle) para todos los roles SALVO pilot —administrator, manager, carrier, export, user y shipment—; ESCRITURA (alta, actualización y borrado) solo administrator y export; el resto recibe 403 «No tienes permisos para acceder a este recurso». Borrado SoftDeletes real sin /restore: el borrado desaparece del listado y del detalle (404) y responde 400 «El producto terminado ya fue eliminado» en PATCH/DELETE. El code duplicado —incluso contra un borrado— es 400 desde el service, nunca 422. Borrar un cliente NO se bloquea por sus productos terminados, que conservan clientName."
         },
         {
             "name": "FreightRates",
