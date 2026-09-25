@@ -286,6 +286,17 @@ function tripResourceKeys(): array
 }
 
 /**
+ * The 43 keys of `GET /api/trips/{trip}` for any role but `pilot`: the 42 of
+ * `TripResource` plus the `positions` trail, which only the detail loads.
+ *
+ * @return array<int, string>
+ */
+function tripDetailKeys(): array
+{
+    return [...tripResourceKeys(), 'positions'];
+}
+
+/**
  * The 19 keys `TripListResource` promises, in the order the resource declares them.
  *
  * El listado es una vista de tabla: no trae los ids de las relaciones, ni `clientName`,
@@ -2092,7 +2103,7 @@ it('devuelve 19 claves en el listado y las 42 del detalle, y no las confunde', f
     expect(tripResourceKeys())->toHaveCount(42)
         ->and(tripListResourceKeys())->toHaveCount(19)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
-        ->and(array_keys($detalle))->toBe(tripResourceKeys());
+        ->and(array_keys($detalle))->toBe(tripDetailKeys());
 });
 
 it('deja fuera del listado las claves que solo pinta el detalle', function () {
@@ -2138,7 +2149,7 @@ it('devuelve las seis relaciones como par id + nombre plano, nunca como objeto a
         ->and($data['assignedByName'])->toBe($team['owner']->name)
         ->and($data['registeredByName'])->toBe($admin->name)
         /** Ni un solo objeto anidado: las seis relaciones salen aplanadas; las dos listas son las polilíneas decodificadas. */
-        ->and(collect($data)->except(['points', 'traveledPoints'])->filter(fn ($valor) => is_array($valor))->all())->toBe([]);
+        ->and(collect($data)->except(['points', 'traveledPoints', 'positions'])->filter(fn ($valor) => is_array($valor))->all())->toBe([]);
 });
 
 it('devuelve vehicleImage como URL absoluta del vehículo asignado, no como la key cruda', function () {
@@ -2974,7 +2985,7 @@ it('coloca las dos claves del recorrido justo después de las estimaciones de SP
     $indexOfPoints = array_search('points', $keys, true);
 
     expect(array_slice($keys, $indexOfPoints, 8))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations'])
-        ->and($keys)->toHaveCount(42);
+        ->and($keys)->toHaveCount(43);
 });
 
 it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
@@ -3058,7 +3069,7 @@ it('devuelve las dos estimaciones como cadena de dos decimales justo después de
 
     $keys = array_keys($response->json('data'));
 
-    expect($keys)->toBe(tripResourceKeys())
+    expect($keys)->toBe(tripDetailKeys())
         ->and($keys[20])->toBe('estimatedKilometers')
         ->and($keys[21])->toBe('estimatedHours')
         ->and($keys[19])->toBe('points')
@@ -3389,7 +3400,7 @@ it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el list
     $indexOfFuel = array_search('totalFuelGallons', $keys, true);
 
     expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'createdAt'])
-        ->and($keys)->toHaveCount(42);
+        ->and($keys)->toHaveCount(43);
 
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
 
@@ -3468,12 +3479,12 @@ it('coloca traveledKilometers y traveledHours justo después de traveledPoints y
 
     $keys = array_keys(asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data'));
 
-    expect($keys)->toBe(tripResourceKeys())
+    expect($keys)->toBe(tripDetailKeys())
         ->and($keys[23])->toBe('traveledPoints')
         ->and($keys[24])->toBe('traveledKilometers')
         ->and($keys[25])->toBe('traveledHours')
         ->and($keys[26])->toBe('observations')
-        ->and($keys)->toHaveCount(42);
+        ->and($keys)->toHaveCount(43);
 });
 
 it('devuelve null en las dos métricas reales de un viaje pending o in_route, presentes y no ausentes', function (TripStatus $status) {
@@ -3687,3 +3698,52 @@ it('deja a user consultar los viáticos y el costo del viaje', function (string 
 
     asUser(userWithRole(UserRole::User))->getJson("/api/trips/{$trip->id}/{$segment}")->assertOk();
 })->with(['expenses', 'cost']);
+
+/*
+|--------------------------------------------------------------------------
+| Rastro en el detalle
+|--------------------------------------------------------------------------
+*/
+
+it('devuelve en el detalle el rastro del viaje como pares [lat, lng], igual que points, en orden recordedAt asc', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    $otroViaje = Trip::factory()->inRoute()->create();
+
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'latitude' => 14.62315678, 'longitude' => -90.5148, 'recorded_at' => now()]);
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $trip->pilot_id, 'latitude' => 14.6248, 'longitude' => -90.5152, 'recorded_at' => now()->subMinute()]);
+    TripPosition::factory()->create(['trip_id' => $otroViaje->id, 'pilot_id' => $otroViaje->pilot_id]);
+
+    $response = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk();
+
+    /** Misma forma que points: lista de pares numéricos, sin claves; con los ocho decimales de la tabla. */
+    expect($response->json('data.positions'))->toBe([[14.6248, -90.5152], [14.62315678, -90.5148]])
+        ->and($response->json('data.points.0'))->toBeArray()->toHaveCount(2);
+});
+
+it('devuelve positions vacío en el detalle de un viaje sin puntos', function () {
+    $trip = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.positions', []);
+});
+
+it('no le devuelve el rastro al piloto asignado en el detalle', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()]);
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $team['pilot']->id]);
+
+    $data = asUser($team['pilot'])->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+
+    expect(array_keys($data))->toBe(tripResourceKeys());
+});
+
+it('no pinta positions fuera del detalle', function () {
+    $trip = Trip::factory()->create();
+
+    $data = asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [])
+        ->assertOk()
+        ->json('data');
+
+    expect($data)->not->toHaveKey('positions');
+});

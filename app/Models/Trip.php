@@ -180,6 +180,18 @@ class Trip extends Model
     }
 
     /**
+     * The live track reported by the pilot (SPEC 26), in `recorded_at asc, id asc` order.
+     *
+     * Only `GET /api/trips/{trip}` loads it, so the listing never drags the trail along.
+     *
+     * @return HasMany<TripPosition, $this>
+     */
+    public function positions(): HasMany
+    {
+        return $this->hasMany(TripPosition::class)->orderBy('recorded_at')->orderBy('id');
+    }
+
+    /**
      * Normalize a commercial reference: trim it, collapse inner whitespace and upper case it.
      *
      * A single function shared by `order` and `container`, against the project's habit of

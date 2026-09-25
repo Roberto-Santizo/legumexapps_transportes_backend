@@ -15352,6 +15352,27 @@
                         "example": "27-08-2026 10:02:51 AM",
                         "nullable": true
                     },
+                    "positions": {
+                        "description": "Rastro real punto a punto del viaje (trip_positions, SPEC 26) como pares [lat, lng] numéricos, CON LA MISMA FORMA QUE points, en orden de registro (recorded_at asc). SOLO SALE EN GET /api/trips/{trip} —los otros seis endpoints que pintan este recurso no traen la clave— y NUNCA PARA EL ROL pilot, que emite el rastro pero no lo lee. Lista vacía si el viaje no tiene puntos. A diferencia de traveledPoints, está disponible mientras el viaje sigue in_route y conserva la precisión completa de la tabla (no pasa por la polilínea de cinco decimales).",
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "number",
+                                "format": "float"
+                            }
+                        },
+                        "example": [
+                            [
+                                14.6248,
+                                -90.5152
+                            ],
+                            [
+                                14.6231,
+                                -90.5148
+                            ]
+                        ]
+                    },
                     "deletedAt": {
                         "description": "Fecha del borrado lógico del viaje. ATENCIÓN — ES null EN SIETE DE LOS OCHO ENDPOINTS, porque ninguno de los otros alcanza un viaje borrado: LA ÚNICA RESPUESTA QUE LO DEVUELVE CON VALOR ES LA DEL PROPIO DELETE, que pinta la fila recién borrada. No sirve para descubrir viajes eliminados: el listado los excluye siempre y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni status— que los devuelva, ni endpoint /restore. Mismo formato propio d-m-Y h:i:s A.",
                         "type": "string",

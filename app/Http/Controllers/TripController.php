@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\UserRole;
 use App\Helpers\ResponseHandler;
 use App\Http\Requests\Trip\AssignTripRequest;
 use App\Http\Requests\Trip\StoreTripRequest;
@@ -394,7 +395,13 @@ class TripController extends Controller
     public function show(int $trip, TripServiceInterface $tripService)
     {
         try {
-            $found = $tripService->getTripById(auth('api')->user(), $trip);
+            $user = auth('api')->user();
+            $found = $tripService->getTripById($user, $trip);
+
+            /** El piloto emite el rastro pero no lo lee (SPEC 26): a él no se le carga. */
+            if ($user->role !== UserRole::Pilot) {
+                $found->load('positions');
+            }
 
             return ResponseHandler::success(new TripResource($found), 'Viaje obtenido correctamente', 200);
         } catch (\Throwable $th) {

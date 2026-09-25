@@ -1,5 +1,6 @@
 <?php
 
+use App\Interfaces\PushNotification\PushNotificationServiceInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -7,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
+use Tests\Doubles\InMemoryPushNotificationService;
 use Tests\TestCase;
 
 /*
@@ -41,6 +43,15 @@ pest()->extend(TestCase::class)
          * 200 vacío: lanza StrayRequestException y revienta el test.
          */
         Http::preventStrayRequests();
+
+        /**
+         * Ningún test manda un push de verdad.
+         *
+         * Kreait habla con FCM por su propio cliente Guzzle, fuera del facade Http,
+         * así que preventStrayRequests() no lo detendría: el contrato entero se
+         * sustituye por el doble, y cada test lo recupera del contenedor.
+         */
+        app()->instance(PushNotificationServiceInterface::class, new InMemoryPushNotificationService);
     })
     ->in('Feature', 'Unit');
 

@@ -16,6 +16,7 @@ use App\Providers\Location\LocationProvider;
 use App\Providers\Pilot\PilotProvider;
 use App\Providers\Place\PlaceProvider;
 use App\Providers\Product\ProductProvider;
+use App\Providers\PushNotification\PushNotificationProvider;
 use App\Providers\Report\ReportProvider;
 use App\Providers\ShippingLine\ShippingLineProvider;
 use App\Providers\Storage\StorageProvider;
@@ -23,6 +24,7 @@ use App\Providers\Trip\TripProvider;
 use App\Providers\TripCost\TripCostProvider;
 use App\Providers\TripExpense\TripExpenseProvider;
 use App\Providers\TripFuel\TripFuelProvider;
+use App\Providers\TripNotification\TripNotificationProvider;
 use App\Providers\TripPosition\TripPositionProvider;
 use App\Providers\TripTimeout\TripTimeoutProvider;
 use App\Providers\Vehicle\VehicleProvider;
@@ -46,6 +48,7 @@ return [
     PilotProvider::class,
     PlaceProvider::class,
     ProductProvider::class,
+    PushNotificationProvider::class,
     ReportProvider::class,
     ShippingLineProvider::class,
     StorageProvider::class,
@@ -53,6 +56,7 @@ return [
     TripCostProvider::class,
     TripExpenseProvider::class,
     TripFuelProvider::class,
+    TripNotificationProvider::class,
     TripPositionProvider::class,
     TripTimeoutProvider::class,
     VehicleProvider::class,

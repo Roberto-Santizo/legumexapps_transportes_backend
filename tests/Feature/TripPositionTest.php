@@ -591,8 +591,14 @@ it('no borra ninguna posición al dar de baja el viaje', function () {
         ->and(TripPosition::where('trip_id', $trip->id)->count())->toBe(2);
 });
 
-it('no expone una relación positions() en el viaje', function () {
-    expect(method_exists(Trip::class, 'positions'))->toBeFalse();
+it('no pinta el rastro en el listado de viajes, solo en el detalle', function () {
+    ['trip' => $trip] = tripInRoute();
+    tripPositionAt($trip, '2026-09-07 08:00:00');
+
+    $admin = userWithRole(UserRole::Administrator);
+
+    expect(asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0'))->not->toHaveKey('positions')
+        ->and(asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data.positions'))->toHaveCount(1);
 });
 
 it('no publica ninguna ruta que edite o borre una posición', function () {

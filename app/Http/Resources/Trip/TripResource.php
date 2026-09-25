@@ -359,6 +359,13 @@ use OpenApi\Attributes as OA;
             example: '27-08-2026 10:02:51 AM',
         ),
         new OA\Property(
+            property: 'positions',
+            description: 'Rastro real punto a punto del viaje (trip_positions, SPEC 26) como pares [lat, lng] numéricos, CON LA MISMA FORMA QUE points, en orden de registro (recorded_at asc). SOLO SALE EN GET /api/trips/{trip} —los otros seis endpoints que pintan este recurso no traen la clave— y NUNCA PARA EL ROL pilot, que emite el rastro pero no lo lee. Lista vacía si el viaje no tiene puntos. A diferencia de traveledPoints, está disponible mientras el viaje sigue in_route y conserva la precisión completa de la tabla (no pasa por la polilínea de cinco decimales).',
+            type: 'array',
+            items: new OA\Items(type: 'array', items: new OA\Items(type: 'number', format: 'float')),
+            example: [[14.6248, -90.5152], [14.6231, -90.5148]],
+        ),
+        new OA\Property(
             property: 'deletedAt',
             description: 'Fecha del borrado lógico del viaje. ATENCIÓN — ES null EN SIETE DE LOS OCHO ENDPOINTS, porque ninguno de los otros alcanza un viaje borrado: LA ÚNICA RESPUESTA QUE LO DEVUELVE CON VALOR ES LA DEL PROPIO DELETE, que pinta la fila recién borrada. No sirve para descubrir viajes eliminados: el listado los excluye siempre y NO EXISTE NINGÚN PARÁMETRO —ni withTrashed, ni onlyTrashed, ni status— que los devuelva, ni endpoint /restore. Mismo formato propio d-m-Y h:i:s A.',
             type: 'string',
@@ -456,6 +463,10 @@ class TripResource extends JsonResource
             'createdAt' => $this->created_at?->format('d-m-Y h:i:s A'),
             'updatedAt' => $this->updated_at?->format('d-m-Y h:i:s A'),
             'deletedAt' => $this->deleted_at?->format('d-m-Y h:i:s A'),
+            /** El rastro punto a punto como pares [lat, lng], igual que points: solo en GET /api/trips/{trip} y nunca para el piloto. */
+            'positions' => $this->whenLoaded('positions', fn () => $this->positions
+                ->map(fn ($position) => [(float) $position->latitude, (float) $position->longitude])
+                ->all()),
         ];
     }
 }
