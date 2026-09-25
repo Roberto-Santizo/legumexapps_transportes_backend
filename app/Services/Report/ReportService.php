@@ -3,6 +3,7 @@
 namespace App\Services\Report;
 
 use App\Enums\TripStatus;
+use App\Enums\UserRole;
 use App\Enums\VehicleExpenseNature;
 use App\Errors\BadRequestError;
 use App\Http\Resources\Trip\TripListResource;
@@ -90,6 +91,25 @@ final class ReportService implements ReportServiceInterface
      * Format of the dates in the downloadable report, the project's own and not ISO 8601.
      */
     private const string REPORT_DATE_FORMAT = 'd-m-Y h:i:s A';
+
+    /**
+     * Headers appended at the end of the downloadable report, only for `PRODUCT_ROLES`.
+     *
+     * @var list<string>
+     */
+    private const array TRIP_PRODUCT_HEADERS = ['Productos', 'Total de cajas'];
+
+    /**
+     * Roles whose downloadable report carries the finished products of each trip.
+     *
+     * The report keeps its own matrix and does not inherit the one of each endpoint:
+     * `carrier` and `user` read `GET /api/trip-finished-products` but stay out of here.
+     *
+     * @var list<UserRole>
+     */
+    private const array PRODUCT_ROLES = [
+        UserRole::Administrator, UserRole::Manager, UserRole::Export, UserRole::Shipment,
+    ];
 
     /**
      * Headers of the vehicle expenses sheet, in the order of `VehicleExpenseResource`
@@ -213,15 +233,48 @@ final class ReportService implements ReportServiceInterface
         /** Una consulta por relación sobre la colección: `LIST_RELATIONS` no trae el cliente. */
         $trips->load('client');
 
+        $withProducts = in_array($user->role, self::PRODUCT_ROLES, true);
+
+        if ($withProducts) {
+            /** Solo quien ve los productos paga su consulta; `finishedProduct()` ya lee `withTrashed()`. */
+            $trips->load([
+                'finishedProducts' => static fn ($query) => $query->orderBy('id'),
+                'finishedProducts.finishedProduct',
+            ]);
+        }
+
         $rows = $trips
-            ->map(static fn (Trip $trip): array => self::tripReportRow($trip))
+            ->map(static fn (Trip $trip): array => $withProducts
+                ? [...self::tripReportRow($trip), ...self::tripProductCells($trip)]
+                : self::tripReportRow($trip))
             ->values()
             ->all();
 
+        $headers = $withProducts
+            ? [...self::TRIP_REPORT_HEADERS, ...self::TRIP_PRODUCT_HEADERS]
+            : self::TRIP_REPORT_HEADERS;
+
         return [
             'fileName' => 'viajes-'.$filters['dateFrom'].'_'.$filters['dateTo'].'.'.self::EXTENSION,
-            'contents' => $this->writer->write(self::TRIP_REPORT_HEADERS, $rows),
+            'contents' => $this->writer->write($headers, $rows),
         ];
+    }
+
+    /**
+     * The two product cells of the downloadable report: `CODE × N cajas; …` in the order
+     * of the line ids —empty without lines— and the total of boxes, `0` without lines.
+     *
+     * @return array{0: string|null, 1: int}
+     */
+    private static function tripProductCells(Trip $trip): array
+    {
+        $lines = $trip->finishedProducts;
+
+        $summary = $lines
+            ->map(static fn ($line): string => $line->finishedProduct->code.' × '.$line->boxes.' cajas')
+            ->implode('; ');
+
+        return [$summary === '' ? null : $summary, (int) $lines->sum('boxes')];
     }
 
     /**

@@ -12,7 +12,9 @@ use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\Trip\TripServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
 use App\Models\Carrier;
+use App\Models\FinishedProduct;
 use App\Models\Trip;
+use App\Models\TripFinishedProduct;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
@@ -419,4 +421,43 @@ it('responde 400 por exceso de viajes antes de escribir el archivo, citando MAX_
     expect(fn () => downloadReportService($writer, 2)->downloadTrips(reportAdmin(), septemberReport()))
         ->toThrow(BadRequestError::class, 'El reporte excede 5000 viajes; acota el rango de fechas')
         ->and($writer->calls)->toBe(0);
+});
+
+it('añade Productos y Total de cajas al final solo para los roles que los ven', function (UserRole $role, bool $withProducts) {
+    Trip::factory()->create(['recolection_date' => '2026-09-10 08:00:00']);
+
+    $user = $role === UserRole::Carrier
+        ? reportCarrierOwner(Carrier::factory()->create())
+        : User::factory()->create(['role' => $role]);
+
+    $headers = downloadedReportRows(app(ReportServiceInterface::class)->downloadTrips($user, septemberReport())['contents'])[0];
+
+    expect($headers)->toBe($withProducts
+        ? [...tripReportBaseHeaders(), 'Productos', 'Total de cajas']
+        : tripReportBaseHeaders());
+})->with([
+    'administrator' => [UserRole::Administrator, true],
+    'manager' => [UserRole::Manager, true],
+    'export' => [UserRole::Export, true],
+    'shipment' => [UserRole::Shipment, true],
+    'carrier' => [UserRole::Carrier, false],
+    'user' => [UserRole::User, false],
+]);
+
+it('resume las líneas de productos en orden de línea, con su total y aunque el SKU esté borrado', function () {
+    $trip = Trip::factory()->create(['recolection_date' => '2026-09-10 08:00:00']);
+    $first = FinishedProduct::factory()->create(['code' => 'CODE1', 'client_id' => $trip->client_id]);
+    $second = FinishedProduct::factory()->create(['code' => 'CODE2', 'client_id' => $trip->client_id]);
+
+    TripFinishedProduct::factory()->create(['trip_id' => $trip->id, 'finished_product_id' => $first->id, 'boxes' => 120]);
+    TripFinishedProduct::factory()->create(['trip_id' => $trip->id, 'finished_product_id' => $second->id, 'boxes' => 40]);
+    $second->delete();
+
+    Trip::factory()->create(['order' => 'ORD-EMPTY', 'recolection_date' => '2026-09-05 08:00:00']);
+
+    $rows = downloadedReportRows(app(ReportServiceInterface::class)->downloadTrips(reportAdmin(), septemberReport())['contents']);
+
+    expect(array_slice($rows[1], 22))->toBe(['CODE1 × 120 cajas; CODE2 × 40 cajas', 160])
+        ->and($rows[2][1])->toBe('ORD-EMPTY')
+        ->and(array_slice($rows[2], 22))->toBe(['', 0]);
 });
