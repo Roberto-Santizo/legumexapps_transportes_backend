@@ -24,6 +24,7 @@ use App\Providers\Storage\StorageProvider;
 use App\Providers\Trip\TripProvider;
 use App\Providers\TripCost\TripCostProvider;
 use App\Providers\TripExpense\TripExpenseProvider;
+use App\Providers\TripFinishedProduct\TripFinishedProductProvider;
 use App\Providers\TripFuel\TripFuelProvider;
 use App\Providers\TripNotification\TripNotificationProvider;
 use App\Providers\TripPosition\TripPositionProvider;
@@ -57,6 +58,7 @@ return [
     TripProvider::class,
     TripCostProvider::class,
     TripExpenseProvider::class,
+    TripFinishedProductProvider::class,
     TripFuelProvider::class,
     TripNotificationProvider::class,
     TripPositionProvider::class,
