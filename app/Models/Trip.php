@@ -192,6 +192,19 @@ class Trip extends Model
     }
 
     /**
+     * The finished product lines this trip carries (SPEC 37).
+     *
+     * Only the guards use it —the `clientId` change on `PATCH` and the «last line» on
+     * `DELETE`—: neither `TripResource` nor `TripListResource` exposes the rows.
+     *
+     * @return HasMany<TripFinishedProduct, $this>
+     */
+    public function finishedProducts(): HasMany
+    {
+        return $this->hasMany(TripFinishedProduct::class);
+    }
+
+    /**
      * Normalize a commercial reference: trim it, collapse inner whitespace and upper case it.
      *
      * A single function shared by `order` and `container`, against the project's habit of
