@@ -37,7 +37,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'name',
-            description: 'Nombre del SKU, EN MAYÚSCULAS. A diferencia del resto de catálogos NO se le colapsan los espacios interiores —se guardan tal cual se teclearon— y NO ES ÚNICO: dos productos terminados pueden llamarse igual. Los espacios de los extremos sí los quita el middleware global TrimStrings de Laravel antes de llegar a la validación. Es el otro campo que barre search.',
+            description: 'Nombre del SKU, EN MAYÚSCULAS. A diferencia del resto de catálogos NO se recorta ni se le colapsan los espacios —interiores y de los extremos se guardan tal cual se teclearon; la ruta está excluida del middleware global TrimStrings— y NO ES ÚNICO: dos productos terminados pueden llamarse igual. Es el otro campo que barre search.',
             type: 'string',
             maxLength: 255,
             example: 'BRÓCOLI  FLORETE IQF',

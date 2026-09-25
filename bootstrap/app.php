@@ -29,6 +29,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => EnsureUserHasRole::class,
             'carrier.required' => EnsureUserHasCarrier::class,
         ]);
+
+        /**
+         * SPEC 36: el name de un producto terminado se guarda sin trim, solo en mayúsculas.
+         * El code lo recorta igual FinishedProduct::normalizeCode() y el search, el service.
+         */
+        $middleware->trimStrings(except: [
+            fn (Request $request) => $request->is('api/finished-products', 'api/finished-products/*'),
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

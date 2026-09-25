@@ -108,7 +108,7 @@ class FinishedProductController extends Controller
         description: <<<'TEXT'
         Da de alta un SKU. Solo administrator y export (role:administrator,export); el resto de roles, 403.
 
-        Los cinco campos son obligatorios. code se recorta y pasa a mayúsculas y no admite espacios (422); name solo pasa a mayúsculas y no es único. registeredBy sale del usuario autenticado.
+        Los cinco campos son obligatorios. code se recorta y pasa a mayúsculas y no admite espacios (422); name solo pasa a mayúsculas, sin recorte ni colapso de espacios, y no es único. registeredBy sale del usuario autenticado.
 
         Orden de las guardas del service tras validar: primero el code duplicado (400, contra vivos Y borrados), después el cliente borrado (400). clientId inexistente lo corta antes el FormRequest con 422.
         TEXT,

@@ -17,7 +17,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — clientId inexistente es 422 («El cliente seleccionado no existe»), pero un cliente BORRADO pasa el exists: y lo para el service con 400 «El cliente seleccionado ya fue eliminado».
 
-    Normalización antes de validar: code se recorta y pasa a mayúsculas (con cualquier espacio interior es 422, no se arregla); name SOLO pasa a mayúsculas —sin colapso de espacios interiores— y NO es único.
+    Normalización antes de validar: code se recorta y pasa a mayúsculas (con cualquier espacio interior es 422, no se arregla); name SOLO pasa a mayúsculas —sin recorte ni colapso de espacios— y NO es único.
     TEXT,
     required: ['code', 'name', 'presentation', 'boxesPerPallet', 'clientId'],
     properties: [
@@ -30,7 +30,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'name',
-            description: 'Nombre del SKU. Obligatorio, texto, máximo 255 caracteres. Se guarda en MAYÚSCULAS sin colapsar los espacios interiores (los extremos los recorta el middleware global TrimStrings). NO es único.',
+            description: 'Nombre del SKU. Obligatorio, texto, máximo 255 caracteres. Se guarda en MAYÚSCULAS SIN RECORTAR NI COLAPSAR ESPACIOS: " brócoli  florete " se guarda " BRÓCOLI  FLORETE " (esta ruta está excluida del middleware global TrimStrings). Un nombre de solo espacios es 422. NO es único.',
             type: 'string',
             maxLength: 255,
             example: 'brócoli florete iqf',

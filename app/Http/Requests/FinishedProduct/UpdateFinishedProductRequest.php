@@ -25,7 +25,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'name',
-            description: 'Nuevo nombre. Máximo 255 caracteres, en MAYÚSCULAS sin colapsar espacios interiores. No es único.',
+            description: 'Nuevo nombre. Máximo 255 caracteres, en MAYÚSCULAS sin recortar ni colapsar espacios. No es único.',
             type: 'string',
             maxLength: 255,
             example: 'brócoli florete iqf 2kg',
