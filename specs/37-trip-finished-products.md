@@ -1,6 +1,6 @@
 # SPEC 37 — Productos terminados del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 22, SPEC 24, SPEC 36
 > **Fecha:** 2026-09-25
 > **Objetivo:** Registrar en una tabla propia (`trip_finished_products`) cuántas cajas de cada producto terminado del cliente lleva un viaje: al menos una línea obligatoria en el alta del viaje, y después un dominio `TripFinishedProduct` propio para listarlas por `tripId` y para añadir, editar o borrar líneas mientras el viaje siga `pending`.
@@ -185,27 +185,27 @@
 
 ## Criterios de aceptación
 
-- [ ] `php artisan migrate` crea `trip_finished_products` con el índice único `(trip_id, finished_product_id)` y sin `deleted_at`.
-- [ ] `php artisan route:list --path=trip-finished-products` muestra exactamente cuatro rutas.
-- [ ] Sin token, las cuatro rutas responden 401.
-- [ ] `POST /api/trips` sin `products`, con `products: []`, con `finishedProductId` repetido, con `boxes: 0` o con `boxes: 1.5` responde **422**.
-- [ ] `POST /api/trips` con un producto borrado o de otro cliente responde **400** y no crea ni el viaje ni ninguna línea.
-- [ ] `POST /api/trips` válido con dos productos responde 201, y `GET /api/trip-finished-products?tripId=` devuelve esas dos líneas en orden `id ASC`.
-- [ ] `TripResource` sigue en 42/43 claves y `TripListResource` en 19.
-- [ ] `PATCH /api/trips/{trip}` con un `clientId` distinto en un viaje con líneas responde **400**; con el mismo `clientId`, 200. `products` en el body se ignora.
-- [ ] `GET /api/trip-finished-products` sin `tripId` responde **422**; con un viaje inexistente o borrado, **404**; fuera del ámbito del `carrier`, **403**.
-- [ ] El listado responde 200 a `administrator`, `manager`, `export`, `user`, `shipment`, al `pilot` asignado y al `carrier` dentro de su ámbito. Nunca pagina, ni siquiera con `?limit=`.
-- [ ] Un viaje sin líneas (anterior a la spec) responde 200 con `data: []`.
-- [ ] `POST`, `PATCH` y `DELETE` de líneas responden 2xx a `administrator` y `export`, y **403** a los otros cinco roles.
-- [ ] `POST` de línea responde 400 en este orden: viaje borrado → viaje no `pending` → producto borrado → cliente distinto → producto ya en el viaje.
-- [ ] `PATCH` de línea cambia solo `boxes`, ignora `tripId` y `finishedProductId` y no reescribe `registered_by`. Con cuerpo vacío responde **422**.
-- [ ] `PATCH` y `DELETE` de línea responden **400** si el viaje está `in_route` o `finished`, y **404** si la línea no existe.
-- [ ] `DELETE` de la única línea de un viaje responde **400**; con dos líneas, borra una con 200 y la fila desaparece de la tabla.
-- [ ] Borrar el producto terminado después de crear la línea no la oculta: sigue saliendo con su `code` y su `name`.
-- [ ] `TripFinishedProductResource` devuelve exactamente las 10 claves. `presentation` y `boxesPerPallet` salen como string de dos decimales y `boxes` como entero.
-- [ ] El número de consultas del listado no crece con el número de líneas (`DB::getQueryLog()`).
-- [ ] `api-docs.json` regenerado incluye las cuatro rutas y `products` en el `POST /api/trips`.
-- [ ] `php artisan test --compact --filter="TripFinishedProduct|TripTest|TripServiceTest"` en verde y `vendor/bin/pint --dirty --format agent` sin cambios pendientes.
+- [x] `php artisan migrate` crea `trip_finished_products` con el índice único `(trip_id, finished_product_id)` y sin `deleted_at`.
+- [x] `php artisan route:list --path=trip-finished-products` muestra exactamente cuatro rutas.
+- [x] Sin token, las cuatro rutas responden 401.
+- [x] `POST /api/trips` sin `products`, con `products: []`, con `finishedProductId` repetido, con `boxes: 0` o con `boxes: 1.5` responde **422**.
+- [x] `POST /api/trips` con un producto borrado o de otro cliente responde **400** y no crea ni el viaje ni ninguna línea.
+- [x] `POST /api/trips` válido con dos productos responde 201, y `GET /api/trip-finished-products?tripId=` devuelve esas dos líneas en orden `id ASC`.
+- [x] `TripResource` sigue en 42/43 claves y `TripListResource` en 19.
+- [x] `PATCH /api/trips/{trip}` con un `clientId` distinto en un viaje con líneas responde **400**; con el mismo `clientId`, 200. `products` en el body se ignora.
+- [x] `GET /api/trip-finished-products` sin `tripId` responde **422**; con un viaje inexistente o borrado, **404**; fuera del ámbito del `carrier`, **403**.
+- [x] El listado responde 200 a `administrator`, `manager`, `export`, `user`, `shipment`, al `pilot` asignado y al `carrier` dentro de su ámbito. Nunca pagina, ni siquiera con `?limit=`.
+- [x] Un viaje sin líneas (anterior a la spec) responde 200 con `data: []`.
+- [x] `POST`, `PATCH` y `DELETE` de líneas responden 2xx a `administrator` y `export`, y **403** a los otros cinco roles.
+- [x] `POST` de línea responde 400 en este orden: viaje borrado → viaje no `pending` → producto borrado → cliente distinto → producto ya en el viaje.
+- [x] `PATCH` de línea cambia solo `boxes`, ignora `tripId` y `finishedProductId` y no reescribe `registered_by`. Con cuerpo vacío responde **422**.
+- [x] `PATCH` y `DELETE` de línea responden **400** si el viaje está `in_route` o `finished`, y **404** si la línea no existe.
+- [x] `DELETE` de la única línea de un viaje responde **400**; con dos líneas, borra una con 200 y la fila desaparece de la tabla.
+- [x] Borrar el producto terminado después de crear la línea no la oculta: sigue saliendo con su `code` y su `name`.
+- [x] `TripFinishedProductResource` devuelve exactamente las 10 claves. `presentation` y `boxesPerPallet` salen como string de dos decimales y `boxes` como entero.
+- [x] El número de consultas del listado no crece con el número de líneas (`DB::getQueryLog()`).
+- [x] `api-docs.json` regenerado incluye las cuatro rutas y `products` en el `POST /api/trips`.
+- [x] `php artisan test --compact --filter="TripFinishedProduct|TripTest|TripServiceTest"` en verde y `vendor/bin/pint --dirty --format agent` sin cambios pendientes.
 
 ---
 
