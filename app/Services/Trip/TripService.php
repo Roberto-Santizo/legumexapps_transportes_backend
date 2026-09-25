@@ -15,10 +15,12 @@ use App\Jobs\SendTripNotification;
 use App\Models\Carrier;
 use App\Models\Client;
 use App\Models\DeparturePoint;
+use App\Models\FinishedProduct;
 use App\Models\Location;
 use App\Models\ShippingLine;
 use App\Models\Trip;
 use App\Models\TripExpense;
+use App\Models\TripFinishedProduct;
 use App\Models\TripFuel;
 use App\Models\TripPosition;
 use App\Models\TripTimeout;
@@ -266,35 +268,60 @@ class TripService implements TripServiceInterface
 
         $this->ensureCatalogsAreUsable($catalogs);
 
+        /** Después de los catálogos: cada línea, producto no borrado y del mismo cliente (SPEC 37). */
+        $this->ensureFinishedProductsAreUsable($data['products'], (int) $catalogs['client_id']);
+
         /**
-         * Se construye campo a campo en vez de volcar $data: así los tres campos de
-         * tripulación se descartan por construcción, aunque el FormRequest cambie o
-         * alguien llame al service directamente.
+         * El viaje y sus líneas se escriben juntos: un viaje nuevo sin productos rompería
+         * el invariante «al menos una línea» que SPEC 37 mantiene toda su vida.
          */
-        $trip = Trip::create([
-            ...$catalogs,
-            /** Se normaliza aquí aunque el FormRequest ya lo haya hecho: el service es llamable directamente. */
-            'order' => Trip::normalizeReference($data['order']),
-            'container' => Trip::normalizeReference($data['container']),
-            /** Los tres de texto libre entran tal como se teclearon: solo el trim del FormRequest. */
-            'destination' => $data['destination'],
-            'transport' => $data['transport'],
-            'observations' => $data['observations'],
-            'recolection_date' => $data['recolectionDate'],
-            'ship_date' => $data['shipDate'],
-            /** La ruta ya resuelta por el frontend: este service nunca llama a Google. */
-            'polyline' => $data['polyline'],
-            /** Sus estimaciones vienen de la misma respuesta y entran tal cual: ni se recalculan ni se cotejan con la línea. */
-            'estimated_kilometers' => $data['estimatedKilometers'],
-            'estimated_hours' => $data['estimatedHours'],
-            /** Nace pendiente y sin dueño operativo: solo /assignment llena la tripulación. */
-            'status' => TripStatus::Pending,
-            'pilot_id' => null,
-            'vehicle_id' => null,
-            'assigned_by' => null,
-            /** El autor sale del usuario autenticado, nunca del body. */
-            'registered_by' => $user->id,
-        ]);
+        $trip = DB::transaction(function () use ($user, $data, $catalogs) {
+            /**
+             * Se construye campo a campo en vez de volcar $data: así los tres campos de
+             * tripulación se descartan por construcción, aunque el FormRequest cambie o
+             * alguien llame al service directamente.
+             */
+            $trip = Trip::create([
+                ...$catalogs,
+                /** Se normaliza aquí aunque el FormRequest ya lo haya hecho: el service es llamable directamente. */
+                'order' => Trip::normalizeReference($data['order']),
+                'container' => Trip::normalizeReference($data['container']),
+                /** Los tres de texto libre entran tal como se teclearon: solo el trim del FormRequest. */
+                'destination' => $data['destination'],
+                'transport' => $data['transport'],
+                'observations' => $data['observations'],
+                'recolection_date' => $data['recolectionDate'],
+                'ship_date' => $data['shipDate'],
+                /** La ruta ya resuelta por el frontend: este service nunca llama a Google. */
+                'polyline' => $data['polyline'],
+                /** Sus estimaciones vienen de la misma respuesta y entran tal cual: ni se recalculan ni se cotejan con la línea. */
+                'estimated_kilometers' => $data['estimatedKilometers'],
+                'estimated_hours' => $data['estimatedHours'],
+                /** Nace pendiente y sin dueño operativo: solo /assignment llena la tripulación. */
+                'status' => TripStatus::Pending,
+                'pilot_id' => null,
+                'vehicle_id' => null,
+                'assigned_by' => null,
+                /** El autor sale del usuario autenticado, nunca del body. */
+                'registered_by' => $user->id,
+            ]);
+
+            /**
+             * Con el modelo y no con TripFinishedProductServiceInterface: ese service ya
+             * inyecta TripServiceInterface y el contrato inverso cerraría un ciclo en el
+             * contenedor. Precedente: closeOpenTimeout() sobre TripTimeout.
+             */
+            foreach ($data['products'] as $product) {
+                TripFinishedProduct::query()->create([
+                    'trip_id' => $trip->id,
+                    'finished_product_id' => (int) $product['finishedProductId'],
+                    'boxes' => (int) $product['boxes'],
+                    'registered_by' => $user->id,
+                ]);
+            }
+
+            return $trip;
+        });
 
         return $this->loadDetail($trip);
     }
@@ -725,6 +752,42 @@ class TripService implements TripServiceInterface
 
         if ($departurePoint === null || $departurePoint->status !== true) {
             throw new BadRequestError('El punto de partida está inactivo');
+        }
+    }
+
+    /**
+     * Refuse any finished product line a new trip cannot carry (SPEC 37).
+     *
+     * Per line and in order: the finished product must not be deleted, and it must be
+     * packed for the trip's client. Both finished products are read in a single query.
+     * A repeated product never reaches this point: the form request's `distinct` stops
+     * it with a 422, and the unique index backs it on a direct call.
+     *
+     * Throws a BadRequestError, each one with its own message, for every case.
+     *
+     * @param  list<array{finishedProductId: int|string, boxes: int|string}>  $products
+     */
+    private function ensureFinishedProductsAreUsable(array $products, int $clientId): void
+    {
+        $finishedProducts = FinishedProduct::withTrashed()
+            ->whereIn('id', array_map(fn (array $product) => (int) $product['finishedProductId'], $products))
+            ->get()
+            ->keyBy('id');
+
+        foreach ($products as $product) {
+            $finishedProduct = $finishedProducts->get((int) $product['finishedProductId']);
+
+            if ($finishedProduct === null) {
+                throw new NotFoundError('El producto terminado no existe');
+            }
+
+            if ($finishedProduct->trashed()) {
+                throw new BadRequestError('El producto terminado seleccionado ya fue eliminado');
+            }
+
+            if ($finishedProduct->client_id !== $clientId) {
+                throw new BadRequestError('El producto terminado no pertenece al cliente del viaje');
+            }
         }
     }
 

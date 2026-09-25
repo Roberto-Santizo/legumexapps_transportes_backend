@@ -196,6 +196,14 @@ class StoreTripRequest extends FormRequest
             'estimatedKilometers' => ['required', 'numeric', 'min:0', 'max:999999.99'],
             'estimatedHours' => ['required', 'numeric', 'min:0', 'max:9999.99'],
             'observations' => ['required', 'string'],
+            /**
+             * Las líneas de productos terminados (SPEC 37): al menos una, sin repetir
+             * producto. exists: ve también los borrados; un producto borrado o de otro
+             * cliente lo para el service con 400.
+             */
+            'products' => ['required', 'array', 'min:1'],
+            'products.*.finishedProductId' => ['required', 'integer', 'distinct', 'exists:finished_products,id'],
+            'products.*.boxes' => ['required', 'integer', 'min:1', 'max:999999'],
         ];
     }
 
@@ -248,6 +256,17 @@ class StoreTripRequest extends FormRequest
             'estimatedHours.max' => 'La duración estimada supera el máximo permitido',
             'observations.required' => 'Las observaciones son obligatorias',
             'observations.string' => 'Las observaciones deben ser texto',
+            'products.required' => 'Los productos terminados son obligatorios',
+            'products.array' => 'Los productos terminados deben ser una lista',
+            'products.min' => 'El viaje debe llevar al menos un producto terminado',
+            'products.*.finishedProductId.required' => 'El producto terminado es obligatorio',
+            'products.*.finishedProductId.integer' => 'El producto terminado debe ser un identificador válido',
+            'products.*.finishedProductId.distinct' => 'El producto terminado está repetido en el viaje',
+            'products.*.finishedProductId.exists' => 'El producto terminado seleccionado no existe',
+            'products.*.boxes.required' => 'Las cajas son obligatorias',
+            'products.*.boxes.integer' => 'Las cajas deben ser un número entero',
+            'products.*.boxes.min' => 'Las cajas deben ser al menos 1',
+            'products.*.boxes.max' => 'Las cajas no pueden superar 999999',
         ];
     }
 }
