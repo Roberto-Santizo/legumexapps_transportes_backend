@@ -358,6 +358,17 @@ class TripService implements TripServiceInterface
             ...array_intersect_key($payload, array_flip($catalogColumns)),
         ]);
 
+        /**
+         * Las líneas de SPEC 37 son del cliente del viaje: cambiarlo las dejaría de otro
+         * cliente. Reenviar el mismo clientId no es cambio. `products` no está en
+         * UPDATABLE_FIELDS, así que en el cuerpo se ignora en silencio.
+         */
+        if (array_key_exists('client_id', $payload)
+            && (int) $payload['client_id'] !== $trip->client_id
+            && $trip->finishedProducts()->exists()) {
+            throw new BadRequestError('No se puede cambiar el cliente de un viaje con productos terminados');
+        }
+
         /** Un cuerpo vacío es un no-op que igualmente responde 200. */
         if ($payload !== []) {
             $trip->update($payload);
