@@ -6972,6 +6972,166 @@
                 ]
             }
         },
+        "/api/reports/trips": {
+            "get": {
+                "tags": [
+                    "Reports"
+                ],
+                "summary": "Descargar el reporte de viajes (.xlsx)",
+                "description": "Devuelve un .xlsx con los viajes cuya recolection_date cae entre dateFrom y dateTo, ambos INCLUSIVOS y por día completo. Mismo ámbito, filtros y orden que GET /api/trips (recolection_date desc, id desc); los viajes borrados nunca salen. limit se ignora: el archivo trae TODOS los viajes del rango.\n\nCABECERAS: Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet y Content-Disposition attachment; filename=\"viajes-{dateFrom}_{dateTo}.xlsx\". El frontend hace blob() y descarga con ese nombre.\n\nCOLUMNAS BASE (22, en este orden): Id, Orden, Estado, Cliente, Naviera, Punto de partida, Puerto, Destino final, Transporte, Contenedor, Fecha recolección, Fecha embarque, Inicio, Fin, Km estimados, Horas estimadas, Km reales, Horas reales, Observaciones, Piloto, Placa, Registrado por. Estado en español (Pendiente / En ruta / Finalizado); fechas en d-m-Y h:i:s A (NO ISO 8601); km y horas como celdas NUMÉRICAS; cualquier null es una celda vacía (un viaje de la bolsa trae vacíos Piloto y Placa).\n\nSOLO PARA administrator, manager, export Y shipment se añaden al final «Productos» —texto «CODE × N cajas; CODE × N cajas» en el orden de las líneas, vacío sin líneas; un SKU borrado sigue saliendo— y «Total de cajas» —número, 0 sin líneas—.\n\nUn rango sin viajes responde 200 con un archivo que solo trae la fila de encabezados. Con MÁS DE 5000 viajes responde 400 y no genera archivo: acota el rango.",
+                "operationId": "downloadTripsReport",
+                "parameters": [
+                    {
+                        "name": "dateFrom",
+                        "in": "query",
+                        "description": "Primer día del rango sobre recolection_date, inclusive. OBLIGATORIO, Y-m-d estricto.",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-09-01"
+                        }
+                    },
+                    {
+                        "name": "dateTo",
+                        "in": "query",
+                        "description": "Último día del rango, inclusive y por día completo. OBLIGATORIO, Y-m-d estricto y no anterior a dateFrom. Sin rango máximo.",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-09-30"
+                        }
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Opcional y TOLERANTE: pending, in_route o finished; cualquier otro valor se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "pending",
+                                "in_route",
+                                "finished"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "clientId",
+                        "in": "query",
+                        "description": "Opcional y tolerante: no numérico se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "shippingLineId",
+                        "in": "query",
+                        "description": "Opcional y tolerante: no numérico se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "locationId",
+                        "in": "query",
+                        "description": "Opcional y tolerante: no numérico se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "pilotId",
+                        "in": "query",
+                        "description": "Opcional y tolerante: no numérico se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "vehicleId",
+                        "in": "query",
+                        "description": "Opcional y tolerante: no numérico se ignora.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Opcional: LIKE sobre order y container, insensible a mayúsculas.",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "El .xlsx en binario, con Content-Disposition attachment; filename=\"viajes-{dateFrom}_{dateTo}.xlsx\". Sin sobre JSON.",
+                        "content": {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El rango trae más de 5000 viajes. Mensaje: El reporte excede 5000 viajes; acota el rango de fechas",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Token ausente, manipulado o expirado. Mensaje: El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "El rol es pilot. Mensaje: No tienes permisos para acceder a este recurso",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "dateFrom o dateTo ausentes, fuera de Y-m-d o dateTo anterior a dateFrom.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/shipping-lines": {
             "get": {
                 "tags": [
@@ -12473,6 +12633,26 @@
                 },
                 "type": "object"
             },
+            "ExportTripsReportQuery": {
+                "description": "Query string de GET /api/reports/trips. Solo el rango se valida: los dos extremos son obligatorios, Y-m-d estricto y dateTo no anterior a dateFrom. Sin rango máximo; el freno es el tope de 5000 viajes. Los demás filtros de GET /api/trips son opcionales y tolerantes y no se validan.",
+                "required": [
+                    "dateFrom",
+                    "dateTo"
+                ],
+                "properties": {
+                    "dateFrom": {
+                        "type": "string",
+                        "format": "date",
+                        "example": "2026-09-01"
+                    },
+                    "dateTo": {
+                        "type": "string",
+                        "format": "date",
+                        "example": "2026-09-30"
+                    }
+                },
+                "type": "object"
+            },
             "StoreShippingLineRequest": {
                 "title": "Alta de naviera",
                 "description": "Cuerpo JSON para dar de alta una naviera del catálogo nacional. SOLO SE ACEPTA UN CAMPO, name, y es OBLIGATORIO. No hay sigla, ni contacto, ni teléfono, ni correo, ni país, ni web, ni notas, ni logo, ni status: es el alta más pequeña del proyecto, por debajo incluso de la de un Cliente. Cualquier otra clave que se envíe se descarta en silencio, sin error.\n\nEl registeredBy NO se envía: se resuelve desde el usuario autenticado, que por el middleware role:administrator es siempre un administrador. Mandarlo en el cuerpo no cambia nada y la naviera queda registrada a nombre de quien hizo la petición.\n\nATENCIÓN — NO HAY status Y NO SE PUEDE CREAR UNA NAVIERA «INACTIVA». Este catálogo no tiene el booleano de publicación que sí tienen Products, Locations, Zones y Departure Points: una naviera existe o está borrada, y el borrado no se deshace por la API.\n\nATENCIÓN — EL ÚNICO DUPLICADO POSIBLE SE RESPONDE CON 400 DESDE EL SERVICE, NUNCA CON 422, y es lo contrario de lo que hacen los otros catálogos. El campo no lleva regla unique a propósito: la de Laravel NO VE LAS FILAS BORRADAS y dejaría pasar un nombre ocupado por una naviera eliminada, que después chocaría contra el índice único con un 500. El mensaje es «Ya existe una naviera con ese nombre, que puede haber sido eliminada».\n\nATENCIÓN — EL BORRADO NO LIBERA EL NOMBRE. Una naviera eliminada lo sigue reservando para siempre, así que el 400 puede venir de una fila que NO APARECE EN NINGÚN ENDPOINT: por eso el mensaje avisa de que la ocupante «puede haber sido eliminada». No existe forma de listar las borradas para averiguar cuál es, y como el nombre es el único identificador del dominio, no queda ningún otro dato por el que reconocerla.\n\nEL NOMBRE SE NORMALIZA ANTES DE VALIDARSE: se recorta, se le colapsan los espacios internos y se pasa a mayúsculas. El cliente debe pintar el name de la respuesta, no el que tecleó el usuario.",
@@ -17141,6 +17321,10 @@
         {
             "name": "Products",
             "description": "Catálogo nacional de productos: la mercancía que se transporta. El producto NO pertenece a ninguna empresa transportista —es un dato de Legumex, común a todos los transportistas—, por eso NINGUNA ruta lleva el middleware carrier.required y el recurso no expone carrierId. Los seis endpoints exigen token JWT (Authorization: Bearer {token}), pero el reparto de permisos es asimétrico: la LECTURA (listado y detalle) está abierta a los cuatro roles —administrator, carrier, pilot y manager—, incluso a un carrier que todavía no ha registrado su empresa; la ESCRITURA (alta, actualización, toggle de estado y baja) es exclusiva del administrator (middleware role:administrator) y los otros tres roles reciben 403. Dos reglas atraviesan todo el dominio: el name se guarda SIEMPRE normalizado y en MAYÚSCULAS, con unicidad global insensible a mayúsculas, y el status es un BOOLEANO cuya baja es LÓGICA —DELETE pone status en false, la fila nunca desaparece—, al contrario que el DELETE de FuelPrices, que borra de verdad."
+        },
+        {
+            "name": "Reports",
+            "description": "Reportes descargables. Un solo endpoint, GET /api/reports/trips, que devuelve EN BINARIO un .xlsx con los viajes cuya recolection_date cae en el rango. ES LA ÚNICA RESPUESTA DE LA API QUE NO ES EL SOBRE JSON: en éxito el cuerpo es el archivo; los errores 400, 401 y 403 salen por el sobre { statusCode, message, data } y el 422 con el formato de validación de Laravel.\n\nPERMISOS — todo rol salvo pilot (403). Sin carrier.required. EL ÁMBITO ES EL DE GET /api/trips: el carrier recibe la bolsa libre más lo que tomó su empresa; administrator, manager, export, user y shipment, todos los viajes.\n\nCOLUMNAS POR ROL — 22 columnas base para todos; administrator, manager, export y shipment reciben además «Productos» y «Total de cajas» al final (24). carrier y user NO las reciben aunque GET /api/trip-finished-products sí les responda: el reporte tiene su propia matriz.\n\nNada se guarda en el bucket: el archivo se genera en la petición y no hay URL ni historial."
         },
         {
             "name": "ShippingLines",

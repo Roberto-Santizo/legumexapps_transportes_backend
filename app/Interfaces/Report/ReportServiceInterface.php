@@ -42,4 +42,20 @@ interface ReportServiceInterface
      * @throws BadRequestError when the spreadsheet cannot be written or stored
      */
     public function exportVehicleExpenses(User $user, array $filters): array;
+
+    /**
+     * Build the downloadable trips report and hand back its bytes.
+     *
+     * The scope and the filters are exactly those of `TripServiceInterface::getTrips()`
+     * —`limit` is dropped—, so the report lists what the listing would. The columns
+     * depend on the role: every authorized role gets the base columns and only some
+     * roles get the finished products. Nothing is stored: `contents` are the bytes of
+     * the spreadsheet and `fileName` is `viajes-{dateFrom}_{dateTo}.xlsx`.
+     *
+     * @param  array{dateFrom: string, dateTo: string, status?: string|null, clientId?: string|null, shippingLineId?: string|null, locationId?: string|null, pilotId?: string|null, vehicleId?: string|null, search?: string|null}  $filters
+     * @return array{fileName: string, contents: string}
+     *
+     * @throws BadRequestError when the result exceeds MAX_ROWS or the spreadsheet cannot be written
+     */
+    public function downloadTrips(User $user, array $filters): array;
 }

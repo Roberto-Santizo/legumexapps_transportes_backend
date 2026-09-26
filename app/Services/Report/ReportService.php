@@ -3,7 +3,9 @@
 namespace App\Services\Report;
 
 use App\Enums\TripStatus;
+use App\Enums\UserRole;
 use App\Enums\VehicleExpenseNature;
+use App\Errors\BadRequestError;
 use App\Http\Resources\Trip\TripListResource;
 use App\Http\Resources\VehicleExpense\VehicleExpenseResource;
 use App\Interfaces\Report\ReportServiceInterface;
@@ -11,6 +13,7 @@ use App\Interfaces\Report\SpreadsheetWriterInterface;
 use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\Trip\TripServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
+use App\Models\Trip;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Override;
@@ -26,6 +29,11 @@ use Override;
  *
  * The file goes to the default disk through `FileStorageServiceInterface`, under a
  * uuid key: the human file name is returned for display, not used as the key.
+ *
+ * `downloadTrips()` (SPEC 38) is the exception on both counts: it shapes its rows
+ * from the `Trip` model —completing the relations the listing does not load with one
+ * query per relation— and stores nothing, handing the bytes back for the endpoint to
+ * send as an attachment.
  */
 final class ReportService implements ReportServiceInterface
 {
@@ -64,6 +72,43 @@ final class ReportService implements ReportServiceInterface
         'Id', 'Orden', 'Estado', 'Naviera', 'Punto de partida', 'Puerto', 'Contenedor',
         'Fecha recolección', 'Fecha embarque', 'Inicio', 'Fin', 'Km estimados',
         'Horas estimadas', 'Observaciones', 'Piloto', 'Placa', 'Registrado por',
+    ];
+
+    /**
+     * Headers of the downloadable trips report (`downloadTrips()`): every authorized
+     * role gets these 22 columns.
+     *
+     * @var list<string>
+     */
+    private const array TRIP_REPORT_HEADERS = [
+        'Id', 'Orden', 'Estado', 'Cliente', 'Naviera', 'Punto de partida', 'Puerto',
+        'Destino final', 'Transporte', 'Contenedor', 'Fecha recolección', 'Fecha embarque',
+        'Inicio', 'Fin', 'Km estimados', 'Horas estimadas', 'Km reales', 'Horas reales',
+        'Observaciones', 'Piloto', 'Placa', 'Registrado por',
+    ];
+
+    /**
+     * Format of the dates in the downloadable report, the project's own and not ISO 8601.
+     */
+    private const string REPORT_DATE_FORMAT = 'd-m-Y h:i:s A';
+
+    /**
+     * Headers appended at the end of the downloadable report, only for `PRODUCT_ROLES`.
+     *
+     * @var list<string>
+     */
+    private const array TRIP_PRODUCT_HEADERS = ['Productos', 'Total de cajas'];
+
+    /**
+     * Roles whose downloadable report carries the finished products of each trip.
+     *
+     * The report keeps its own matrix and does not inherit the one of each endpoint:
+     * `carrier` and `user` read `GET /api/trip-finished-products` but stay out of here.
+     *
+     * @var list<UserRole>
+     */
+    private const array PRODUCT_ROLES = [
+        UserRole::Administrator, UserRole::Manager, UserRole::Export, UserRole::Shipment,
     ];
 
     /**
@@ -170,6 +215,102 @@ final class ReportService implements ReportServiceInterface
         ];
     }
 
+    #[Override]
+    public function downloadTrips(User $user, array $filters): array
+    {
+        /** @var Collection<int, Trip> $trips */
+        $trips = $this->trips->getTrips($user, $this->withoutLimit($filters));
+
+        /**
+         * Por encima del tope, error y no archivo cortado: una descarga truncada sin aviso
+         * visible es peor que un 400 claro. El mensaje cita la constante, no el valor
+         * inyectado, porque el usuario solo conoce el tope de producción.
+         */
+        if ($trips->count() > $this->maxRows) {
+            throw new BadRequestError('El reporte excede '.self::MAX_ROWS.' viajes; acota el rango de fechas');
+        }
+
+        /** Una consulta por relación sobre la colección: `LIST_RELATIONS` no trae el cliente. */
+        $trips->load('client');
+
+        $withProducts = in_array($user->role, self::PRODUCT_ROLES, true);
+
+        if ($withProducts) {
+            /** Solo quien ve los productos paga su consulta; `finishedProduct()` ya lee `withTrashed()`. */
+            $trips->load([
+                'finishedProducts' => static fn ($query) => $query->orderBy('id'),
+                'finishedProducts.finishedProduct',
+            ]);
+        }
+
+        $rows = $trips
+            ->map(static fn (Trip $trip): array => $withProducts
+                ? [...self::tripReportRow($trip), ...self::tripProductCells($trip)]
+                : self::tripReportRow($trip))
+            ->values()
+            ->all();
+
+        $headers = $withProducts
+            ? [...self::TRIP_REPORT_HEADERS, ...self::TRIP_PRODUCT_HEADERS]
+            : self::TRIP_REPORT_HEADERS;
+
+        return [
+            'fileName' => 'viajes-'.$filters['dateFrom'].'_'.$filters['dateTo'].'.'.self::EXTENSION,
+            'contents' => $this->writer->write($headers, $rows),
+        ];
+    }
+
+    /**
+     * The two product cells of the downloadable report: `CODE × N cajas; …` in the order
+     * of the line ids —empty without lines— and the total of boxes, `0` without lines.
+     *
+     * @return array{0: string|null, 1: int}
+     */
+    private static function tripProductCells(Trip $trip): array
+    {
+        $lines = $trip->finishedProducts;
+
+        $summary = $lines
+            ->map(static fn ($line): string => $line->finishedProduct->code.' × '.$line->boxes.' cajas')
+            ->implode('; ');
+
+        return [$summary === '' ? null : $summary, (int) $lines->sum('boxes')];
+    }
+
+    /**
+     * The base columns of the downloadable report, built from the model and not from
+     * `TripListResource`, which lacks the client, the final destination and the transport.
+     *
+     * @return list<scalar|null>
+     */
+    private static function tripReportRow(Trip $trip): array
+    {
+        return [
+            $trip->id,
+            $trip->order,
+            self::STATUS_LABELS[$trip->status->value] ?? $trip->status->value,
+            $trip->client?->name,
+            $trip->shippingLine?->name,
+            $trip->departurePoint?->name,
+            $trip->location?->name,
+            $trip->destination,
+            $trip->transport,
+            $trip->container,
+            $trip->recolection_date?->format(self::REPORT_DATE_FORMAT),
+            $trip->ship_date?->format(self::REPORT_DATE_FORMAT),
+            $trip->start_date?->format(self::REPORT_DATE_FORMAT),
+            $trip->end_date?->format(self::REPORT_DATE_FORMAT),
+            self::toNumber($trip->estimated_kilometers),
+            self::toNumber($trip->estimated_hours),
+            self::toNumber($trip->traveled_kilometers),
+            self::toNumber($trip->traveled_hours),
+            $trip->observations,
+            $trip->pilot?->name,
+            $trip->vehicle?->plate,
+            $trip->registeredBy?->name,
+        ];
+    }
+
     /**
      * Write the sheet, store it and describe the result.
      *
@@ -213,7 +354,7 @@ final class ReportService implements ReportServiceInterface
      * Money and measures leave the Resources as strings with two decimals; the sheet
      * wants a number Excel can add up.
      */
-    private static function toNumber(?string $value): ?float
+    private static function toNumber(string|int|float|null $value): ?float
     {
         return $value === null ? null : (float) $value;
     }
