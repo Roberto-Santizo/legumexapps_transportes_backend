@@ -50,7 +50,14 @@ return [
              *
              */
 
-            'credentials' => env('FIREBASE_CREDENTIALS', env('GOOGLE_APPLICATION_CREDENTIALS')),
+            /*
+             * FIREBASE_CREDENTIALS_BASE64 holds the whole service account JSON encoded
+             * in base64, for hosts whose environment editor rejects values with spaces
+             * or quotes (Laravel Cloud). It wins over the path/JSON variables below.
+             */
+            'credentials' => env('FIREBASE_CREDENTIALS_BASE64')
+                ? json_decode(base64_decode(env('FIREBASE_CREDENTIALS_BASE64')), true)
+                : env('FIREBASE_CREDENTIALS', env('GOOGLE_APPLICATION_CREDENTIALS')),
 
             /*
              * ------------------------------------------------------------------------
