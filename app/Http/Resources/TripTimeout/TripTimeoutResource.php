@@ -16,7 +16,7 @@ use OpenApi\Attributes as OA;
     description: <<<'TEXT'
     Una parada del camión: dónde se quedó quieto, desde cuándo y hasta cuándo. NUEVE CLAVES en camelCase y ninguna más, en este orden: id, latitude, longitude, startedAt, endedAt, durationMinutes, pilotId, startPositionId y endPositionId.
 
-    ATENCIÓN — NADIE CREA ESTE OBJETO. No hay POST, ni PATCH, ni DELETE de una parada: nace como efecto lateral del POST /api/trips/{trip}/positions —solo en la rama del 201, nunca en el 200 del piso de 15 segundos— cuando un punto llega a menos de 5 metros del anterior. Una parada mal detectada es historial y se queda.
+    ATENCIÓN — NADIE CREA ESTE OBJETO. No hay POST, ni PATCH, ni DELETE de una parada: nace como efecto lateral del POST /api/trips/{trip}/positions —solo en la rama del 201, nunca en el 200 del piso de 5 segundos— cuando un punto llega a menos de 5 metros del anterior. Una parada mal detectada es historial y se queda.
 
     ATENCIÓN — latitude Y longitude SON LAS DEL ANCLA, NO LAS DEL PUNTO QUE DETECTÓ LA PARADA. El ancla es el PUNTO ANTERIOR, el primero del reposo: «está parado desde las 08:14» es el dato útil, y anclar la parada en el punto que la detectó perdería el primer tramo. Salen como STRING de ocho decimales («14.62820000», «-90.52290000»), igual que en TripPosition y en Location: el frontend debe convertirlas antes de pintarlas (parseFloat) y no comparar puntos por igualdad de cadena. Van copiadas en la fila a propósito, para que el mapa pinte el pin sin un segundo viaje a la base.
 

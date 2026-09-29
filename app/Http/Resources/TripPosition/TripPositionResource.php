@@ -29,7 +29,7 @@ use OpenApi\Attributes as OA;
     properties: [
         new OA\Property(
             property: 'id',
-            description: 'Identificador numérico del punto (trip_positions.id). Sirve para deduplicar en el frontend —el mismo id puede llegar dos veces: una por la respuesta del POST y otra por el websocket— y para detectar el piso de 15 segundos comparando con el id del punto anterior. NO ES PARÁMETRO DE NINGUNA RUTA: no existe /positions/{position}.',
+            description: 'Identificador numérico del punto (trip_positions.id). Sirve para deduplicar en el frontend —el mismo id puede llegar dos veces: una por la respuesta del POST y otra por el websocket— y para detectar el piso de 5 segundos comparando con el id del punto anterior. NO ES PARÁMETRO DE NINGUNA RUTA: no existe /positions/{position}.',
             type: 'integer',
             example: 4821,
         ),
@@ -47,7 +47,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'recordedAt',
-            description: 'Momento en que el servidor recibió el punto, en el formato propio del proyecto d-m-Y h:i:s A, NO en ISO 8601. Es la clave por la que se ordena el rastro (ascendente, con desempate por id) y la que alimenta el piso de 15 segundos.',
+            description: 'Momento en que el servidor recibió el punto, en el formato propio del proyecto d-m-Y h:i:s A, NO en ISO 8601. Es la clave por la que se ordena el rastro (ascendente, con desempate por id) y la que alimenta el piso de 5 segundos.',
             type: 'string',
             example: '07-09-2026 08:14:03 AM',
         ),
@@ -66,7 +66,7 @@ use OpenApi\Attributes as OA;
     description: <<<'TEXT'
     Respuesta de GET /api/trips/{trip}/positions cuando NO se envía limit, o cuando el limit no es numérico: se devuelve EL RASTRO ENTERO del viaje y el sobre NO incluye total, currentPage ni lastPage.
 
-    ATENCIÓN — «ENTERO» PUEDE SIGNIFICAR MILES DE ELEMENTOS. Es el primer listado del proyecto donde eso es lo normal: un viaje de seis horas reportando al ritmo del piso de 15 segundos deja unas 1 440 filas, y nada se borra nunca. Un frontend que pinte el mapa sin limit sobre un viaje largo se lo traerá todo de golpe. La paginación sigue siendo opt-in por coherencia con el resto del proyecto, no forzada por la API.
+    ATENCIÓN — «ENTERO» PUEDE SIGNIFICAR MILES DE ELEMENTOS. Es el primer listado del proyecto donde eso es lo normal: un viaje de seis horas reportando al ritmo del piso de 5 segundos deja unas 4 300 filas, y nada se borra nunca. Un frontend que pinte el mapa sin limit sobre un viaje largo se lo traerá todo de golpe. La paginación sigue siendo opt-in por coherencia con el resto del proyecto, no forzada por la API.
 
     El orden es FIJO: recorded_at ASCENDENTE —el rastro se lee de principio a fin, al revés que el resto de listados del proyecto, que van del más nuevo al más viejo— con desempate por id ascendente. NO HAY FILTROS DE NINGÚN TIPO: ni dateFrom, ni dateTo, ni pilotId, ni nada. Cualquier query param que no sea limit o page se ignora.
 

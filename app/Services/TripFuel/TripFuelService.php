@@ -115,7 +115,7 @@ class TripFuelService implements TripFuelServiceInterface
         /**
          * Reconfirmar es 200 sin escribir nada: `loaded_at` es un hecho que ya ocurrió y
          * repetir la llamada no lo cambia. Un móvil con mala señal reintenta y no debe ver
-         * un error, con el precedente del piso de 15 segundos de SPEC 26.
+         * un error, con el precedente del piso de 5 segundos de SPEC 26.
          */
         if ($fuel->loaded_at !== null) {
             return $fuel;

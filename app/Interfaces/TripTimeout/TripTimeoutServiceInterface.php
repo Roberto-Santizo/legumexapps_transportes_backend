@@ -45,7 +45,7 @@ interface TripTimeoutServiceInterface
      * either here —the point that proves the truck moved— or in `TripService::finish()`.
      *
      * It is called **only when the point was actually written**, never on the 200 of the
-     * 15 second floor of SPEC 26: evaluating a discarded request would open stops out of
+     * 5 second floor of SPEC 26: evaluating a discarded request would open stops out of
      * points that never made it into the track.
      *
      * Two rules, in this order:

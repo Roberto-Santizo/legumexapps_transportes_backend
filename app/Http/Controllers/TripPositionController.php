@@ -22,7 +22,7 @@ use OpenApi\Attributes as OA;
 
     EL ÁMBITO DE LECTURA ES EL DE SPEC 24 Y NO SE REESCRIBE AQUÍ: administrator y manager alcanzan el rastro de CUALQUIER viaje; un carrier, los que asignó su empresa MÁS la bolsa libre (los pending sin tripulación); fuera de ámbito es 403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista», NO 404. Un viaje inexistente o borrado es 404 «El viaje no existe» en el GET.
 
-    ATENCIÓN — EL POST RESPONDE 201 O 200, Y SON COSAS DISTINTAS. 201 = el punto se escribió y el evento se emitió. 200 = PISO DE 15 SEGUNDOS: la petición llegó a menos de 15 s del último punto del viaje, así que NO SE ESCRIBIÓ NADA, NO SE EMITIÓ NADA y se devuelve el punto anterior tal cual. Es silencio deliberado —la app del piloto reintenta cuando la red va mal y devolverle un error la empujaría a lógica defensiva—, con el precedente del archivo ignorado de SPEC 19. LA APP DEBE DISTINGUIRLOS POR EL STATUS, no comparando coordenadas: dos puntos iguales seguidos son legítimos (un camión parado sigue reportando). El piso de 15 s es el ÚNICO freno del dominio: no hay rate limiting por IP ni por token.
+    ATENCIÓN — EL POST RESPONDE 201 O 200, Y SON COSAS DISTINTAS. 201 = el punto se escribió y el evento se emitió. 200 = PISO DE 5 SEGUNDOS: la petición llegó a menos de 5 s del último punto del viaje, así que NO SE ESCRIBIÓ NADA, NO SE EMITIÓ NADA y se devuelve el punto anterior tal cual. Es silencio deliberado —la app del piloto reintenta cuando la red va mal y devolverle un error la empujaría a lógica defensiva—, con el precedente del archivo ignorado de SPEC 19. LA APP DEBE DISTINGUIRLOS POR EL STATUS, no comparando coordenadas: dos puntos iguales seguidos son legítimos (un camión parado sigue reportando). El piso de 5 s es el ÚNICO freno del dominio: no hay rate limiting por IP ni por token.
 
     CUATRO GUARDAS DEL POST EN ORDEN FIJO, y ese orden es contrato: viaje inexistente → 404 «El viaje no existe»; viaje borrado → 400 «El viaje ya fue eliminado»; quien llama no es el pilot_id del viaje → 403 «No puedes reportar la posición de un viaje que no tienes asignado»; el viaje no está in_route → 400 «El viaje no está en ruta». CONSECUENCIA: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403 del ajeno.
 
@@ -48,7 +48,7 @@ class TripPositionController extends Controller
 
         LA RUTA NO LLEVA role:, PERO NO LA ALCANZAN LOS CUATRO ROLES. El service rechaza con 403 A CUALQUIER pilot, INCLUIDO EL ASIGNADO AL VIAJE, con «No tienes permisos para consultar el rastro de un viaje»: el piloto emite y nada más, su app ya conoce su propia posición y no gana nada escuchando el eco. Los otros tres roles entran, acotados por el ámbito de SPEC 24: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa MÁS los pending sin tripulación (la bolsa libre). Un carrier fuera de ámbito recibe 403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista», NO 404: se le confirma que el viaje existe, igual que en el detalle del viaje.
 
-        ATENCIÓN — SIN limit DEVUELVE EL RASTRO ENTERO, y es el primer listado del proyecto donde eso puede significar MILES DE ELEMENTOS: un viaje de seis horas reportando al ritmo del piso de 15 segundos deja unas 1 440 filas, y nada se borra nunca. Un frontend que pinte el mapa sin limit sobre un viaje largo se traerá todo de golpe. La paginación se mantiene opt-in por coherencia con el resto del proyecto; el aviso está aquí, no forzado por la API.
+        ATENCIÓN — SIN limit DEVUELVE EL RASTRO ENTERO, y es el primer listado del proyecto donde eso puede significar MILES DE ELEMENTOS: un viaje de seis horas reportando al ritmo del piso de 5 segundos deja unas 4 300 filas, y nada se borra nunca. Un frontend que pinte el mapa sin limit sobre un viaje largo se traerá todo de golpe. La paginación se mantiene opt-in por coherencia con el resto del proyecto; el aviso está aquí, no forzado por la API.
 
         ATENCIÓN — EL limit SE ACOTA A [10, 100], A DIFERENCIA DE GET /api/trips, que no tiene piso de 10 y respeta el tamaño pedido tal cual. Aquí limit=1 y limit=5 devuelven páginas de 10.
 
@@ -137,7 +137,7 @@ class TripPositionController extends Controller
     /**
      * Record one point of the trip's track.
      *
-     * Answers **201** when the point was written and **200** when the 15 second floor
+     * Answers **201** when the point was written and **200** when the 5 second floor
      * discarded it and the previous point is being handed back: the pilot's app can
      * tell one from the other by the status alone, without comparing coordinates.
      */
@@ -148,7 +148,7 @@ class TripPositionController extends Controller
         description: <<<'TEXT'
         Registra UN punto del rastro y lo emite por websocket a quien esté mirando el mapa. Es EXCLUSIVO del rol pilot (middleware role:pilot) y, además, SOLO DEL PILOTO ASIGNADO al viaje: un administrator, un carrier o un manager reciben 403 «No tienes permisos para acceder a este recurso» —aunque sean justo ellos quienes leen el rastro—, y otro piloto cualquiera, 403 «No puedes reportar la posición de un viaje que no tienes asignado».
 
-        ATENCIÓN — RESPONDE 201 O 200, Y SON COSAS DISTINTAS. Es la decisión con más probabilidad de confundir a quien integre. 201 «Posición registrada correctamente» = la fila se escribió y el evento se emitió. 200 «Posición recibida correctamente» = PISO DE 15 SEGUNDOS: la petición llegó a menos de 15 s del último punto de ese viaje, así que NO SE ESCRIBIÓ NADA, NO SE EMITIÓ NADA y se devuelve EL PUNTO ANTERIOR TAL CUAL —su id y su recordedAt son los de antes—. La respuesta es indistinguible de un alta salvo por el status, y COMPARAR COORDENADAS NO SIRVE PARA DISTINGUIRLAS: dos puntos idénticos seguidos son legítimos, porque un camión parado sigue reportando. LA APP DEL PILOTO DEBE MIRAR EL STATUS. Se responde 200 y no 400 a propósito: la app reintenta cuando la red va mal y devolverle un error la empujaría a lógica defensiva propia. El piso es POR VIAJE y es el ÚNICO freno del dominio: no hay rate limiting por IP ni por token.
+        ATENCIÓN — RESPONDE 201 O 200, Y SON COSAS DISTINTAS. Es la decisión con más probabilidad de confundir a quien integre. 201 «Posición registrada correctamente» = la fila se escribió y el evento se emitió. 200 «Posición recibida correctamente» = PISO DE 5 SEGUNDOS: la petición llegó a menos de 5 s del último punto de ese viaje, así que NO SE ESCRIBIÓ NADA, NO SE EMITIÓ NADA y se devuelve EL PUNTO ANTERIOR TAL CUAL —su id y su recordedAt son los de antes—. La respuesta es indistinguible de un alta salvo por el status, y COMPARAR COORDENADAS NO SIRVE PARA DISTINGUIRLAS: dos puntos idénticos seguidos son legítimos, porque un camión parado sigue reportando. LA APP DEL PILOTO DEBE MIRAR EL STATUS. Se responde 200 y no 400 a propósito: la app reintenta cuando la red va mal y devolverle un error la empujaría a lógica defensiva propia. El piso es POR VIAJE y es el ÚNICO freno del dominio: no hay rate limiting por IP ni por token.
 
         CUATRO GUARDAS EN ORDEN FIJO, Y ESE ORDEN ES CONTRATO: 1) viaje inexistente → 404 «El viaje no existe»; 2) viaje borrado → 400 «El viaje ya fue eliminado»; 3) el que llama no es el pilot_id del viaje → 403 «No puedes reportar la posición de un viaje que no tienes asignado»; 4) el viaje no está in_route → 400 «El viaje no está en ruta». CONSECUENCIA REAL: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403 del ajeno. Y NO EXISTE «posición del piloto» suelta: sin un viaje in_route asignado no hay dónde mandar nada —un viaje pending o finished es 400—.
 
@@ -190,7 +190,7 @@ class TripPositionController extends Controller
             ),
             new OA\Response(
                 response: 200,
-                description: 'PISO DE 15 SEGUNDOS — NO SE GUARDÓ NADA. La petición llegó a menos de 15 s del último punto del viaje, así que NO se escribió ninguna fila y NO se emitió ningún evento: lo que vuelve en data es EL PUNTO ANTERIOR tal cual, con su id y su recordedAt de antes. Silencio deliberado, no un error: la app reintenta cuando la red va mal. ATENCIÓN — hay que distinguirlo del 201 POR EL STATUS, no comparando coordenadas, porque dos puntos iguales seguidos son legítimos.',
+                description: 'PISO DE 5 SEGUNDOS — NO SE GUARDÓ NADA. La petición llegó a menos de 5 s del último punto del viaje, así que NO se escribió ninguna fila y NO se emitió ningún evento: lo que vuelve en data es EL PUNTO ANTERIOR tal cual, con su id y su recordedAt de antes. Silencio deliberado, no un error: la app reintenta cuando la red va mal. ATENCIÓN — hay que distinguirlo del 201 POR EL STATUS, no comparando coordenadas, porque dos puntos iguales seguidos son legítimos.',
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 200),

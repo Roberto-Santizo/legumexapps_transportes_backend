@@ -308,7 +308,7 @@ it('rechaza con 422 el cuerpo vacío señalando las dos coordenadas', function (
     expect(TripPosition::count())->toBe(0);
 });
 
-it('devuelve 200 con el punto anterior y no escribe nada antes de los quince segundos', function () {
+it('devuelve 200 con el punto anterior y no escribe nada antes de los cinco segundos', function () {
     Event::fake([TripPositionUpdated::class]);
 
     /**
@@ -325,7 +325,7 @@ it('devuelve 200 con el punto anterior y no escribe nada antes de los quince seg
         'longitude' => -90.522554,
     ])->assertCreated();
 
-    $this->travel(14)->seconds();
+    $this->travel(4)->seconds();
 
     $segundo = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
         'latitude' => 15.111111,
@@ -343,7 +343,7 @@ it('devuelve 200 con el punto anterior y no escribe nada antes de los quince seg
     Event::assertDispatchedTimes(TripPositionUpdated::class, 1);
 });
 
-it('registra y emite el segundo punto pasados los quince segundos', function () {
+it('registra y emite el segundo punto pasados los cinco segundos', function () {
     Event::fake([TripPositionUpdated::class]);
 
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
@@ -353,7 +353,7 @@ it('registra y emite el segundo punto pasados los quince segundos', function () 
         'longitude' => -90.522554,
     ])->assertCreated();
 
-    $this->travel(16)->seconds();
+    $this->travel(6)->seconds();
 
     asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
         'latitude' => 15.111111,

@@ -93,7 +93,7 @@ interface TripFuelServiceInterface
      *
      * Re-confirming is **200 without writing anything**, returning the load with its
      * original `loaded_at`: the date is a fact that already happened and repeating the
-     * call does not change it. Deliberate silence, with the precedent of the 15 second
+     * call does not change it. Deliberate silence, with the precedent of the 5 second
      * floor of SPEC 26 — a phone on a bad network retries and must not see an error.
      *
      * There is no way back: `loaded_at` never returns to `null` by any route.

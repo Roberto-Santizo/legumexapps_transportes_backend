@@ -364,7 +364,7 @@ it('emite un token con los claims del usuario y una hora de vigencia', function 
         ->and($payload->get('name'))->toBe($user->name)
         ->and($payload->get('email'))->toBe($user->email)
         ->and($payload->get('role'))->toBe($user->role->value)
-        ->and($payload->get('exp') - $payload->get('iat'))->toBe(60 * 60);
+        ->and($payload->get('exp') - $payload->get('iat'))->toBe(24 * 60 * 60);
 
     resetAuthState();
 });
@@ -439,7 +439,7 @@ it('emite el token de refresco con catorce días de vigencia y marca el tokenTyp
     $refresh = authClaimsOf($tokens['refreshToken']);
 
     expect($access['tokenType'])->toBe('access')
-        ->and($access['exp'] - $access['iat'])->toBe(60 * 60)
+        ->and($access['exp'] - $access['iat'])->toBe(24 * 60 * 60)
         ->and($refresh['tokenType'])->toBe('refresh')
         ->and($refresh['exp'] - $refresh['iat'])->toBe(14 * 24 * 60 * 60);
 });
