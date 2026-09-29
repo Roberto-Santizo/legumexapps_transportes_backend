@@ -13,12 +13,24 @@ namespace App\Enums;
  * There is no `Cancelled` case on purpose: a trip that will not happen is deleted,
  * and `SoftDeletes` already tells that story.
  *
- * It deliberately declares no `label()`: the raw English value goes out through the
- * Resource, exactly like `LocationType`, and translating it belongs to the frontend.
+ * `label()` is the Spanish name: `TripListResource` sends it instead of the raw value,
+ * and the Excel reports use it too. Filters still take the raw English value.
  */
 enum TripStatus: string
 {
     case Pending = 'pending';
     case InRoute = 'in_route';
     case Finished = 'finished';
+
+    /**
+     * Human readable status name, in Spanish, for user facing output.
+     */
+    public function label(): string
+    {
+        return match ($this) {
+            self::Pending => 'Pendiente',
+            self::InRoute => 'En ruta',
+            self::Finished => 'Finalizado',
+        };
+    }
 }

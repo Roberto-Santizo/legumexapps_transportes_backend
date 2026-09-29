@@ -16269,7 +16269,7 @@
             },
             "TripListItem": {
                 "title": "Viaje en el listado",
-                "description": "El viaje tal como sale en GET /api/trips: 19 CLAVES en camelCase, no las 42 del detalle. Es una vista de tabla, no el recurso completo.\n\nATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; traveledPolyline ni traveledPoints; totalFuelGallons ni totalExpensesAmount; vehicleImage, pilotDpiImage ni pilotLicenseImage; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.\n\nATENCIÓN — points NO SE CALCULA EN EL LISTADO. La polilínea solo se decodifica en el detalle, así que el mapa se pinta desde ahí y nunca desde una fila de la tabla.\n\nLo que SÍ trae de la ruta prevista desde SPEC 30 son sus dos números: estimatedKilometers y estimatedHours, como cadena de dos decimales o null en los viajes anteriores a esa spec. Bastan para pintar «104 km · 1.75 h» en la fila sin pedir el detalle.\n\nY desde SPEC 32 trae también los dos números de la ruta REAL: traveledKilometers y traveledHours, calculados por el servidor UNA SOLA VEZ en PATCH /api/trips/{trip}/finish (suma Haversine en crudo del rastro y endDate menos startDate, sin descontar paradas), con el mismo formato de cadena de dos decimales. Van justo después de estimatedHours para pintar «estimado vs real» por fila. ATENCIÓN — SON null EN TODO VIAJE pending O in_route, incluido el de GET /api/trips/current, y en los finalizados antes de SPEC 32 (sin backfill); un viaje que terminó sin puntos vale \"0.00\", no null. La API no los compara con los estimados: el desvío es una resta del frontend.\n\nLas cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés. Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.\n\nLas 19 claves salen siempre en este orden: id, order, status, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, estimatedKilometers, estimatedHours, traveledKilometers, traveledHours, observations, pilotName, vehiclePlate y registeredByName.",
+                "description": "El viaje tal como sale en GET /api/trips: 20 CLAVES en camelCase, no las 42 del detalle. Es una vista de tabla, no el recurso completo.\n\nATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; traveledPolyline ni traveledPoints; totalFuelGallons ni totalExpensesAmount; vehicleImage, pilotDpiImage ni pilotLicenseImage; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.\n\nATENCIÓN — points NO SE CALCULA EN EL LISTADO. La polilínea solo se decodifica en el detalle, así que el mapa se pinta desde ahí y nunca desde una fila de la tabla.\n\nLo que SÍ trae de la ruta prevista desde SPEC 30 son sus dos números: estimatedKilometers y estimatedHours, como cadena de dos decimales o null en los viajes anteriores a esa spec. Bastan para pintar «104 km · 1.75 h» en la fila sin pedir el detalle.\n\nY desde SPEC 32 trae también los dos números de la ruta REAL: traveledKilometers y traveledHours, calculados por el servidor UNA SOLA VEZ en PATCH /api/trips/{trip}/finish (suma Haversine en crudo del rastro y endDate menos startDate, sin descontar paradas), con el mismo formato de cadena de dos decimales. Van justo después de estimatedHours para pintar «estimado vs real» por fila. ATENCIÓN — SON null EN TODO VIAJE pending O in_route, incluido el de GET /api/trips/current, y en los finalizados antes de SPEC 32 (sin backfill); un viaje que terminó sin puntos vale \"0.00\", no null. La API no los compara con los estimados: el desvío es una resta del frontend.\n\nLas cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, status sale con el valor crudo del enum en inglés y statusLabel con el mismo estado en español (Pendiente, En ruta, Finalizado). Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.\n\nLas 20 claves salen siempre en este orden: id, order, status, statusLabel, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, estimatedKilometers, estimatedHours, traveledKilometers, traveledHours, observations, pilotName, vehiclePlate y registeredByName.",
                 "properties": {
                     "id": {
                         "description": "Identificador numérico del viaje (trips.id). Es el valor que va en el parámetro {trip} del detalle y de las cinco rutas de escritura: desde una fila del listado se salta al detalle con este id.",
@@ -16283,13 +16283,23 @@
                         "maxLength": 255
                     },
                     "status": {
-                        "description": "Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir. NO HAY MÁQUINA DE ESTADOS: puede contradecir a startDate y endDate, y cuando eso pase el relato lo cuentan las fechas.",
+                        "description": "Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir: es el que espera el filtro status. Para pintarlo en español está statusLabel. NO HAY MÁQUINA DE ESTADOS: puede contradecir a startDate y endDate, y cuando eso pase el relato lo cuentan las fechas.",
                         "type": "string",
                         "example": "pending",
                         "enum": [
                             "pending",
                             "in_route",
                             "finished"
+                        ]
+                    },
+                    "statusLabel": {
+                        "description": "El mismo estado que status, TRADUCIDO AL ESPAÑOL, solo para mostrar. No sirve como valor del filtro status.",
+                        "type": "string",
+                        "example": "Pendiente",
+                        "enum": [
+                            "Pendiente",
+                            "En ruta",
+                            "Finalizado"
                         ]
                     },
                     "shippingLineName": {
@@ -16390,7 +16400,7 @@
             },
             "TripListResponse": {
                 "title": "Listado de viajes sin paginar",
-                "description": "Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 19 claves, NO el Trip de 42 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.",
+                "description": "Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 20 claves, NO el Trip de 42 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.",
                 "properties": {
                     "statusCode": {
                         "type": "integer",
@@ -16411,7 +16421,7 @@
             },
             "PaginatedTripListResponse": {
                 "title": "Listado de viajes paginado",
-                "description": "Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 19 claves.",
+                "description": "Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 20 claves.",
                 "allOf": [
                     {
                         "$ref": "#/components/schemas/TripListResponse"

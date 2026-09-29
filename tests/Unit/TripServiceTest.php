@@ -154,10 +154,10 @@ it('deja las métricas reales en null por defecto y solo el estado finished de l
         ->and($finalizado->fresh()->traveled_hours)->toMatch('/^\d+\.\d{2}$/');
 });
 
-it('declara exactamente tres estados y ningún label', function () {
+it('declara exactamente tres estados con su etiqueta en español', function () {
     expect(TripStatus::cases())->toHaveCount(3)
         ->and(array_map(fn (TripStatus $case) => $case->value, TripStatus::cases()))->toBe(['pending', 'in_route', 'finished'])
-        ->and(method_exists(TripStatus::class, 'label'))->toBeFalse();
+        ->and(array_map(fn (TripStatus $case) => $case->label(), TripStatus::cases()))->toBe(['Pendiente', 'En ruta', 'Finalizado']);
 });
 
 it('normaliza una referencia trimando, colapsando espacios y pasando a mayúsculas', function (string $entrada, string $esperado) {
