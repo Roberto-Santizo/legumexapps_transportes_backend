@@ -337,7 +337,7 @@ function tripDetailKeys(): array
 function tripListResourceKeys(): array
 {
     return [
-        'id', 'order', 'status',
+        'id', 'order', 'status', 'statusLabel',
         'shippingLineName', 'departurePointName', 'locationName',
         'container',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
@@ -455,6 +455,7 @@ it('deja ver al transportista la bolsa de viajes pendientes y sin tripulación',
         ->and($data[0]['pilotName'])->toBeNull()
         ->and($data[0]['vehiclePlate'])->toBeNull()
         ->and($data[0]['status'])->toBe('pending')
+        ->and($data[0]['statusLabel'])->toBe('Pendiente')
         ->and(collect($data)->pluck('id')->all())->not->toContain($deOtraEmpresa->id);
 });
 
@@ -1635,6 +1636,7 @@ it('devuelve el viaje en ruta del piloto autenticado con las diecisiete claves d
         ->assertJsonPath('message', 'Viaje en progreso obtenido correctamente')
         ->assertJsonPath('data.id', $trip->id)
         ->assertJsonPath('data.status', TripStatus::InRoute->value)
+        ->assertJsonPath('data.statusLabel', TripStatus::InRoute->label())
         ->assertJsonPath('data.pilotName', $team['pilot']->name);
 
     expect(array_keys($response->json('data')))->toBe(tripListResourceKeys())
@@ -2124,7 +2126,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 19 claves en el listado y las 42 del detalle, y no las confunde', function () {
+it('devuelve 20 claves en el listado y las 42 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -2133,7 +2135,7 @@ it('devuelve 19 claves en el listado y las 42 del detalle, y no las confunde', f
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
     expect(tripResourceKeys())->toHaveCount(42)
-        ->and(tripListResourceKeys())->toHaveCount(19)
+        ->and(tripListResourceKeys())->toHaveCount(20)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripDetailKeys());
 });
@@ -3159,10 +3161,10 @@ it('trae las dos estimaciones entre endDate y observations en cada elemento del 
         $keys = array_keys($item);
 
         expect($keys)->toBe(tripListResourceKeys())
-            ->and($keys[10])->toBe('endDate')
-            ->and($keys[11])->toBe('estimatedKilometers')
-            ->and($keys[12])->toBe('estimatedHours')
-            ->and($keys[15])->toBe('observations')
+            ->and($keys[11])->toBe('endDate')
+            ->and($keys[12])->toBe('estimatedKilometers')
+            ->and($keys[13])->toBe('estimatedHours')
+            ->and($keys[16])->toBe('observations')
             ->and($item['estimatedKilometers'])->toMatch('/^\d+\.\d{2}$/')
             ->and($item['estimatedHours'])->toMatch('/^\d+\.\d{2}$/');
     }
@@ -3422,7 +3424,7 @@ it('suma en totalExpensesAmount solo los viáticos confirmados del detalle', fun
         ->assertJsonPath('data.totalExpensesAmount', '425.00');
 });
 
-it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el listado en 19 claves', function () {
+it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el listado en 20 claves', function () {
     $team = tripTeam();
     $trip = tripAssignedTo($team);
 
@@ -3437,7 +3439,7 @@ it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el list
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
 
     expect($delListado)->not->toHaveKey('totalExpensesAmount')
-        ->and(array_keys($delListado))->toHaveCount(19);
+        ->and(array_keys($delListado))->toHaveCount(20);
 });
 
 /*
@@ -3557,11 +3559,11 @@ it('trae las dos métricas reales entre estimatedHours y observations en cada el
         $keys = array_keys($item);
 
         expect($keys)->toBe(tripListResourceKeys())
-            ->and($keys[12])->toBe('estimatedHours')
-            ->and($keys[13])->toBe('traveledKilometers')
-            ->and($keys[14])->toBe('traveledHours')
-            ->and($keys[15])->toBe('observations')
-            ->and($keys)->toHaveCount(19);
+            ->and($keys[13])->toBe('estimatedHours')
+            ->and($keys[14])->toBe('traveledKilometers')
+            ->and($keys[15])->toBe('traveledHours')
+            ->and($keys[16])->toBe('observations')
+            ->and($keys)->toHaveCount(20);
     }
 
     $finalizado = collect($listado->json('data'))->firstWhere('status', 'finished');

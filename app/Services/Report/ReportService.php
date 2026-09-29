@@ -2,7 +2,6 @@
 
 namespace App\Services\Report;
 
-use App\Enums\TripStatus;
 use App\Enums\UserRole;
 use App\Enums\VehicleExpenseNature;
 use App\Errors\BadRequestError;
@@ -125,15 +124,6 @@ final class ReportService implements ReportServiceInterface
     /**
      * @var array<string, string>
      */
-    private const array STATUS_LABELS = [
-        TripStatus::Pending->value => 'Pendiente',
-        TripStatus::InRoute->value => 'En ruta',
-        TripStatus::Finished->value => 'Finalizado',
-    ];
-
-    /**
-     * @var array<string, string>
-     */
     private const array NATURE_LABELS = [
         VehicleExpenseNature::Preventive->value => 'Preventivo',
         VehicleExpenseNature::Corrective->value => 'Correctivo',
@@ -161,7 +151,7 @@ final class ReportService implements ReportServiceInterface
             static fn (array $trip): array => [
                 $trip['id'],
                 $trip['order'],
-                self::STATUS_LABELS[$trip['status']] ?? $trip['status'],
+                $trip['statusLabel'],
                 $trip['shippingLineName'],
                 $trip['departurePointName'],
                 $trip['locationName'],
@@ -288,7 +278,7 @@ final class ReportService implements ReportServiceInterface
         return [
             $trip->id,
             $trip->order,
-            self::STATUS_LABELS[$trip->status->value] ?? $trip->status->value,
+            $trip->status->label(),
             $trip->client?->name,
             $trip->shippingLine?->name,
             $trip->departurePoint?->name,

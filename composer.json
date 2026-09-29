@@ -18,9 +18,9 @@
         "laravel/reverb": "^1.11",
         "laravel/tinker": "^3.0",
         "league/flysystem-aws-s3-v3": "^3.35",
+        "microsoft/microsoft-graph": "^3.7",
         "openspout/openspout": "^5.11",
-        "php-open-source-saver/jwt-auth": "^2.9",
-        "resend/resend-laravel": "^1.4"
+        "php-open-source-saver/jwt-auth": "^2.9"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -93,7 +93,8 @@
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true,
-            "php-http/discovery": true
+            "php-http/discovery": true,
+            "tbachert/spi": true
         }
     },
     "minimum-stability": "stable",

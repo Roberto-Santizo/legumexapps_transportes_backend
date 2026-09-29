@@ -7,7 +7,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * El viaje como lo pinta el listado: 19 claves, la vista de tabla del frontend.
+ * El viaje como lo pinta el listado: 20 claves, la vista de tabla del frontend.
  *
  * Es la versión recortada de {@see TripResource}, que sigue siendo la de los otros siete
  * endpoints. Aquí no salen los ids de las relaciones —solo sus nombres—, ni `polyline` ni
@@ -32,7 +32,7 @@ use OpenApi\Attributes as OA;
     schema: 'TripListItem',
     title: 'Viaje en el listado',
     description: <<<'TEXT'
-    El viaje tal como sale en GET /api/trips: 19 CLAVES en camelCase, no las 42 del detalle. Es una vista de tabla, no el recurso completo.
+    El viaje tal como sale en GET /api/trips: 20 CLAVES en camelCase, no las 42 del detalle. Es una vista de tabla, no el recurso completo.
 
     ATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; traveledPolyline ni traveledPoints; totalFuelGallons ni totalExpensesAmount; vehicleImage, pilotDpiImage ni pilotLicenseImage; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.
 
@@ -42,9 +42,9 @@ use OpenApi\Attributes as OA;
 
     Y desde SPEC 32 trae también los dos números de la ruta REAL: traveledKilometers y traveledHours, calculados por el servidor UNA SOLA VEZ en PATCH /api/trips/{trip}/finish (suma Haversine en crudo del rastro y endDate menos startDate, sin descontar paradas), con el mismo formato de cadena de dos decimales. Van justo después de estimatedHours para pintar «estimado vs real» por fila. ATENCIÓN — SON null EN TODO VIAJE pending O in_route, incluido el de GET /api/trips/current, y en los finalizados antes de SPEC 32 (sin backfill); un viaje que terminó sin puntos vale "0.00", no null. La API no los compara con los estimados: el desvío es una resta del frontend.
 
-    Las cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés. Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.
+    Las cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, status sale con el valor crudo del enum en inglés y statusLabel con el mismo estado en español (Pendiente, En ruta, Finalizado). Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.
 
-    Las 19 claves salen siempre en este orden: id, order, status, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, estimatedKilometers, estimatedHours, traveledKilometers, traveledHours, observations, pilotName, vehiclePlate y registeredByName.
+    Las 20 claves salen siempre en este orden: id, order, status, statusLabel, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, estimatedKilometers, estimatedHours, traveledKilometers, traveledHours, observations, pilotName, vehiclePlate y registeredByName.
     TEXT,
     properties: [
         new OA\Property(
@@ -62,10 +62,17 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'status',
-            description: 'Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir. NO HAY MÁQUINA DE ESTADOS: puede contradecir a startDate y endDate, y cuando eso pase el relato lo cuentan las fechas.',
+            description: 'Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir: es el que espera el filtro status. Para pintarlo en español está statusLabel. NO HAY MÁQUINA DE ESTADOS: puede contradecir a startDate y endDate, y cuando eso pase el relato lo cuentan las fechas.',
             type: 'string',
             enum: ['pending', 'in_route', 'finished'],
             example: 'pending',
+        ),
+        new OA\Property(
+            property: 'statusLabel',
+            description: 'El mismo estado que status, TRADUCIDO AL ESPAÑOL, solo para mostrar. No sirve como valor del filtro status.',
+            type: 'string',
+            enum: ['Pendiente', 'En ruta', 'Finalizado'],
+            example: 'Pendiente',
         ),
         new OA\Property(
             property: 'shippingLineName',
@@ -182,7 +189,7 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'TripListResponse',
     title: 'Listado de viajes sin paginar',
-    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 19 claves, NO el Trip de 42 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
+    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 20 claves, NO el Trip de 42 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
     properties: [
         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
         new OA\Property(property: 'message', type: 'string', example: 'Viajes obtenidos correctamente'),
@@ -193,7 +200,7 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'PaginatedTripListResponse',
     title: 'Listado de viajes paginado',
-    description: 'Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 19 claves.',
+    description: 'Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 20 claves.',
     allOf: [
         new OA\Schema(ref: '#/components/schemas/TripListResponse'),
         new OA\Schema(ref: '#/components/schemas/PaginationMeta'),
@@ -214,8 +221,10 @@ class TripListResource extends JsonResource
         return [
             'id' => $this->id,
             'order' => $this->order,
-            /** El valor crudo del enum, en inglés: traducirlo es cosa del frontend. */
+            /** El valor crudo del enum, en inglés: es el que entienden los filtros. */
             'status' => $this->status?->value,
+            /** El mismo estado en español, para pintarlo sin traducir en el frontend. */
+            'statusLabel' => $this->status?->label(),
             'shippingLineName' => $this->shippingLine?->name,
             'departurePointName' => $this->departurePoint?->name,
             'locationName' => $this->location?->name,

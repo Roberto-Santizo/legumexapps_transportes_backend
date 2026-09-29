@@ -14,6 +14,7 @@ use App\Providers\FinishedProduct\FinishedProductProvider;
 use App\Providers\FreightRate\FreightRateProvider;
 use App\Providers\FuelPrice\FuelPriceProvider;
 use App\Providers\Location\LocationProvider;
+use App\Providers\Mail\MailProvider;
 use App\Providers\Pilot\PilotProvider;
 use App\Providers\Place\PlaceProvider;
 use App\Providers\Product\ProductProvider;
@@ -48,6 +49,7 @@ return [
     FreightRateProvider::class,
     FuelPriceProvider::class,
     LocationProvider::class,
+    MailProvider::class,
     PilotProvider::class,
     PlaceProvider::class,
     ProductProvider::class,
