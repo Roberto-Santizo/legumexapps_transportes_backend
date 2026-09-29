@@ -261,7 +261,7 @@ it('no toca ninguna parada con el PATCH general ni con el DELETE del administrad
 | Detección por el POST de posiciones
 |--------------------------------------------------------------------------
 |
-| Se viaja en el tiempo entre peticiones porque el piso de 15 segundos de SPEC 26
+| Se viaja en el tiempo entre peticiones porque el piso de 5 segundos de SPEC 26
 | descartaría la segunda y la tercera, y un punto descartado no abre ni cierra nada.
 |
 */
@@ -306,7 +306,7 @@ it('abre y luego cierra una parada a partir de las posiciones que reporta el pil
         ->and($closed[0]['durationMinutes'])->toBeGreaterThan(0);
 });
 
-it('no toca ninguna parada cuando el piso de quince segundos descarta la petición', function () {
+it('no toca ninguna parada cuando el piso de cinco segundos descarta la petición', function () {
     ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
 
     asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [

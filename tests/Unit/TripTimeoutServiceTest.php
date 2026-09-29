@@ -31,7 +31,7 @@ function tripTimeoutServiceUser(UserRole $role): User
  * Write one point of the given trip's track by hand, without going through the POST.
  *
  * The detection is fed with positions built here on purpose: it must be measurable
- * without the 15 second floor of SPEC 26 getting in the way.
+ * without the 5 second floor of SPEC 26 getting in the way.
  */
 function tripTimeoutPosition(Trip $trip, float $latitude, float $longitude, ?CarbonInterface $recordedAt = null): TripPosition
 {

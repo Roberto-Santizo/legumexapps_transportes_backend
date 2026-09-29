@@ -187,7 +187,7 @@ it('devuelve los dos tokens con su vigencia y su tokenType al iniciar sesión', 
     $refresh = serviceClaimsOf($result['refreshToken']);
 
     expect($access['tokenType'])->toBe('access')
-        ->and($access['exp'] - $access['iat'])->toBe(60 * 60)
+        ->and($access['exp'] - $access['iat'])->toBe(24 * 60 * 60)
         ->and($refresh['tokenType'])->toBe('refresh')
         ->and($refresh['exp'] - $refresh['iat'])->toBe(14 * 24 * 60 * 60);
 
@@ -202,7 +202,7 @@ it('restaura el TTL del factory tras emitir el par de tokens', function () {
     /** El Factory es un singleton de la petición: sin restaurar, este token saldría con catorce días. */
     $later = serviceClaimsOf(auth('api')->login($user));
 
-    expect($later['exp'] - $later['iat'])->toBe(60 * 60);
+    expect($later['exp'] - $later['iat'])->toBe(24 * 60 * 60);
 
     resetAuthState();
 });

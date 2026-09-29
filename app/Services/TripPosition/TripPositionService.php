@@ -36,11 +36,11 @@ class TripPositionService implements TripPositionServiceInterface
      * Seconds that must pass between two recorded points of the same trip.
      *
      * The only brake of the domain: there is no rate limit per IP nor per token. Below
-     * it the request is answered with the previous point and nothing is written — a
-     * five second cadence on a six hour trip is ~4 300 rows without any useful gain in
-     * precision.
+     * it the request is answered with the previous point and nothing is written. Lowered
+     * from 15 to 5 seconds for a more precise track: a six hour trip now leaves ~4 300
+     * rows instead of ~1 440.
      */
-    private const MIN_SECONDS_BETWEEN_POSITIONS = 15;
+    private const MIN_SECONDS_BETWEEN_POSITIONS = 5;
 
     /**
      * The trip domain resolves both the trip and the reading scope of SPEC 24, and the
@@ -84,7 +84,7 @@ class TripPositionService implements TripPositionServiceInterface
         $lastPosition = $this->lastPositionFor($trip->id);
 
         /**
-         * Piso de 15 segundos: se devuelve el punto anterior tal cual, sin escribir y sin
+         * Piso de 5 segundos: se devuelve el punto anterior tal cual, sin escribir y sin
          * emitir. Silencio deliberado, con el precedente del archivo ignorado de SPEC 19:
          * la app del piloto reintenta cuando la red va mal, y devolverle un error por
          * reintentar la empujaría a lógica defensiva propia.
@@ -104,7 +104,7 @@ class TripPositionService implements TripPositionServiceInterface
         ]);
 
         /**
-         * Solo aquí, nunca en la rama del piso de 15 s: evaluar una petición descartada
+         * Solo aquí, nunca en la rama del piso de 5 s: evaluar una petición descartada
          * abriría paradas a partir de puntos que no llegaron al rastro.
          *
          * Va fuera del try/catch del broadcast a propósito: perder el aviso en vivo no
@@ -175,7 +175,7 @@ class TripPositionService implements TripPositionServiceInterface
      *
      * Ordered by recorded_at desc, id desc —the same tie break as the listing, read
      * backwards— and served by the composite index of the table. Its only consumer is
-     * the 15 second floor.
+     * the 5 second floor.
      */
     private function lastPositionFor(int $tripId): ?TripPosition
     {

@@ -157,11 +157,11 @@ it('lanza 400 al reportar sobre un viaje que no está en ruta', function (string
 
 /*
 |--------------------------------------------------------------------------
-| create(): el piso de quince segundos
+| create(): el piso de cinco segundos
 |--------------------------------------------------------------------------
 */
 
-it('devuelve el punto anterior sin escribir ni emitir antes de los quince segundos', function () {
+it('devuelve el punto anterior sin escribir ni emitir antes de los cinco segundos', function () {
     Event::fake([TripPositionUpdated::class]);
 
     /**
@@ -175,7 +175,7 @@ it('devuelve el punto anterior sin escribir ni emitir antes de los quince segund
 
     $primero = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData());
 
-    $this->travel(14)->seconds();
+    $this->travel(4)->seconds();
 
     $segundo = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData([
         'latitude' => 15.111111,
@@ -189,14 +189,14 @@ it('devuelve el punto anterior sin escribir ni emitir antes de los quince segund
     Event::assertDispatchedTimes(TripPositionUpdated::class, 1);
 });
 
-it('escribe y emite el segundo punto pasados los quince segundos', function () {
+it('escribe y emite el segundo punto pasados los cinco segundos', function () {
     Event::fake([TripPositionUpdated::class]);
 
     ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
 
     $primero = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData());
 
-    $this->travel(15)->seconds();
+    $this->travel(5)->seconds();
 
     $segundo = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData([
         'latitude' => 15.111111,
