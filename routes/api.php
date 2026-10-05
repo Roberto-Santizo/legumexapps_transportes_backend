@@ -28,6 +28,7 @@ require __DIR__.'/places.php';
 require __DIR__.'/products.php';
 require __DIR__.'/reports.php';
 require __DIR__.'/shipping_lines.php';
+require __DIR__.'/trip-emergency-expenses.php';
 require __DIR__.'/trip-expenses.php';
 require __DIR__.'/trip-finished-products.php';
 require __DIR__.'/trip-fuels.php';

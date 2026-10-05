@@ -3,6 +3,7 @@
 use App\Enums\UserRole;
 use App\Http\Controllers\TripController;
 use App\Http\Controllers\TripCostController;
+use App\Http\Controllers\TripEmergencyExpenseController;
 use App\Http\Controllers\TripExpenseController;
 use App\Http\Controllers\TripFuelController;
 use App\Http\Controllers\TripPositionController;
@@ -105,6 +106,22 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
     Route::get('/{trip}/expenses', [TripExpenseController::class, 'index'])
         ->middleware(["role:{$exceptShipment}"])
         ->name('expenses.index');
+
+    /**
+     * Los gastos emergentes son hermanos de los viáticos, no su calco: mismas dos rutas
+     * anidadas y mismos roles, pero sin confirmación. La corrección y el borrado NO se
+     * anidan y viven en routes/trip-emergency-expenses.php: el id del gasto ya
+     * identifica el viaje. Registrar es del transportista que tomó el viaje o del
+     * administrador; leer lo decide el ámbito de SPEC 24 en el service, con el piloto
+     * asignado dentro y shipment fuera: es dinero.
+     */
+    Route::post('/{trip}/emergency-expenses', [TripEmergencyExpenseController::class, 'store'])
+        ->middleware(["role:{$carrier},{$administrator}"])
+        ->name('emergency-expenses.store');
+
+    Route::get('/{trip}/emergency-expenses', [TripEmergencyExpenseController::class, 'index'])
+        ->middleware(["role:{$exceptShipment}"])
+        ->name('emergency-expenses.index');
 
     /**
      * Las paradas se derivan del rastro y se leen igual que él: jwt.auth a secas, el
