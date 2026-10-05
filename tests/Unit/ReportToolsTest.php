@@ -1,6 +1,7 @@
 <?php
 
 use App\Ai\Tools\AssistantTool;
+use App\Ai\Tools\Report\ExportTripEmergencyExpensesTool;
 use App\Ai\Tools\Report\ExportTripsTool;
 use App\Ai\Tools\Report\ExportVehicleExpensesTool;
 use App\Enums\TripStatus;
@@ -9,6 +10,7 @@ use App\Interfaces\Report\ReportServiceInterface;
 use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Models\Carrier;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpense;
@@ -64,6 +66,19 @@ it('exige vehicleId en la exportación de gastos y no admite limit', function ()
     expect($schema['required'])->toBe(['vehicleId'])
         ->and($schema['properties'])->toHaveKeys(['category', 'nature', 'dateFrom', 'dateTo', 'isInvoiced'])
         ->and($schema['properties'])->not->toHaveKey('limit');
+});
+
+it('exige tripId en la exportación de gastos emergentes y no admite nada más', function () {
+    $factory = new JsonSchemaTypeFactory;
+    $schema = $factory->object(reportTool(ExportTripEmergencyExpensesTool::class, reportToolAdmin())->schema($factory))->toArray();
+
+    expect($schema['required'])->toBe(['tripId'])
+        ->and(array_keys($schema['properties']))->toBe(['tripId']);
+});
+
+it('relaya al modelo la falta de tripId en la exportación de gastos emergentes', function () {
+    expect(fn () => reportTool(ExportTripEmergencyExpensesTool::class, reportToolAdmin())->handle(new Request([])))
+        ->toThrow(ValidationException::class);
 });
 
 it('relaya al modelo la falta de vehicleId como error de validación', function () {
@@ -131,4 +146,38 @@ it('devuelve como error los gastos de un vehículo ajeno o inexistente', functio
 
     expect(callReportTool(reportTool(ExportVehicleExpensesTool::class, $owner), ['vehicleId' => $foreign->id]))->toHaveKey('error')
         ->and(callReportTool(reportTool(ExportVehicleExpensesTool::class, reportToolAdmin()), ['vehicleId' => 999999]))->toHaveKey('error');
+});
+
+/*
+|--------------------------------------------------------------------------
+| export_trip_emergency_expenses (SPEC 39)
+|--------------------------------------------------------------------------
+*/
+
+it('genera el xlsx de los gastos emergentes del viaje con su total', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->count(2)->create(['trip_id' => $trip->id, 'amount' => 175]);
+
+    $result = callReportTool(reportTool(ExportTripEmergencyExpensesTool::class, reportToolAdmin()), ['tripId' => $trip->id]);
+
+    expect($result)->toHaveKeys(['fileName', 'url', 'rows', 'total', 'truncated', 'totalAmount'])
+        ->and($result['rows'])->toBe(2)
+        ->and($result['total'])->toBe(2)
+        ->and($result['totalAmount'])->toBe('350.00')
+        ->and($result['truncated'])->toBeFalse()
+        ->and($result['fileName'])->toStartWith("gastos-emergentes-viaje-{$trip->id}-");
+
+    expect(Storage::disk(config('filesystems.default'))->allFiles('reports'))->toHaveCount(1);
+});
+
+it('devuelve como error los gastos emergentes de un viaje ajeno, inexistente o para shipment', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    $owner = User::query()->findOrFail(Carrier::factory()->create()->user_id);
+    $shipment = User::factory()->create(['role' => UserRole::Shipment]);
+
+    expect(callReportTool(reportTool(ExportTripEmergencyExpensesTool::class, $owner), ['tripId' => $trip->id]))->toHaveKey('error')
+        ->and(callReportTool(reportTool(ExportTripEmergencyExpensesTool::class, reportToolAdmin()), ['tripId' => 999999]))->toHaveKey('error')
+        ->and(callReportTool(reportTool(ExportTripEmergencyExpensesTool::class, $shipment), ['tripId' => $trip->id]))->toHaveKey('error');
+
+    expect(Storage::disk(config('filesystems.default'))->allFiles('reports'))->toBe([]);
 });
