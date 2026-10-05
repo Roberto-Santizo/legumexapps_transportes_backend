@@ -30,9 +30,11 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — REPARTO 422 / 400: el exists: convierte un id inventado en 422; que el usuario tenga rol de piloto, que tenga empresa, que el vehículo esté active y que los dos sean de la MISMA empresa son reglas de negocio y salen como 400 desde el service, cada una con su mensaje literal. Los dos campos de combustible NO añaden ningún 400: se validan solo contra el formato y el enum.
 
+    ATENCIÓN — CAMBIO INCOMPATIBLE: bonus ES OBLIGATORIO. Este cuerpo pasó de CUATRO campos obligatorios a CINCO: un cliente que no mande bonus recibe 422 «La bonificación es obligatoria» en todas sus asignaciones, sin periodo de gracia. La bonificación es UN SOLO MONTO POR VIAJE —columna trips.bonus, no una tabla—: REASIGNAR LA SOBRESCRIBE, el piloto NO la confirma y suma tal cual en el costo directo (GET /api/trips/{trip}/cost). 0 es válido («sin bonificación»).
+
     La escritura corre dentro de una transacción con bloqueo de fila, así que dos transportistas que intenten tomar el mismo viaje a la vez no se pisan: solo uno gana y el otro recibe 403 o 400.
     TEXT,
-    required: ['pilotId', 'vehicleId', 'fuelGallons', 'fuelType'],
+    required: ['pilotId', 'vehicleId', 'fuelGallons', 'fuelType', 'bonus'],
     properties: [
         new OA\Property(
             property: 'pilotId',
@@ -60,6 +62,14 @@ use OpenApi\Attributes as OA;
             type: 'string',
             enum: ['regular', 'premium', 'diesel', 'diesel_premium'],
             example: 'diesel',
+        ),
+        new OA\Property(
+            property: 'bonus',
+            description: 'Bonificación del viaje en GTQ. OBLIGATORIA —CAMBIO INCOMPATIBLE—, numérica, de 0 a 99999999.99, con los mensajes literales: La bonificación es obligatoria / La bonificación debe ser un número / La bonificación no puede ser negativa / La bonificación no puede superar 99999999.99. Se guarda en trips.bonus en el MISMO update que piloto y vehículo: reasignar la SOBRESCRIBE, sin historial. SIN CONFIRMACIÓN del piloto: suma desde ya en el costo directo del viaje. El PATCH general del viaje no la acepta.',
+            type: 'number',
+            format: 'float',
+            minimum: 0,
+            example: 250,
         ),
         new OA\Property(
             property: 'expenseAmount',
@@ -130,6 +140,9 @@ class AssignTripRequest extends FormRequest
          * los cuatro casos del enum: no se exige que ese tipo tenga un precio vigente,
          * porque aquí no se guarda ningún precio.
          *
+         * `bonus` es obligatorio y admite 0 («sin bonificación»): un solo monto por viaje,
+         * que reasignar sobrescribe y que el piloto no confirma.
+         *
          * `expenseAmount` y `expenseDescription` son OPCIONALES (SPEC 31): el viático se
          * entrega a veces en el mismo acto y a veces después por POST /{trip}/expenses,
          * así que no se impone. `null` aquí sí vale —es «sin viático»— y una descripción
@@ -140,6 +153,7 @@ class AssignTripRequest extends FormRequest
             'vehicleId' => ['required', 'integer', 'exists:vehicles,id'],
             'fuelGallons' => ['required', 'numeric', 'min:0.01'],
             'fuelType' => ['required', Rule::enum(FuelType::class)],
+            'bonus' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
             'expenseAmount' => ['sometimes', 'nullable', 'numeric', 'min:0.01', 'max:99999999.99'],
             'expenseDescription' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
@@ -162,6 +176,10 @@ class AssignTripRequest extends FormRequest
             'fuelGallons.min' => 'Los galones de combustible deben ser mayores a 0',
             'fuelType.required' => 'El tipo de combustible es obligatorio',
             'fuelType.enum' => 'El tipo de combustible seleccionado no es válido',
+            'bonus.required' => 'La bonificación es obligatoria',
+            'bonus.numeric' => 'La bonificación debe ser un número',
+            'bonus.min' => 'La bonificación no puede ser negativa',
+            'bonus.max' => 'La bonificación no puede superar 99999999.99',
             'expenseAmount.numeric' => 'El monto del viático debe ser un número',
             'expenseAmount.min' => 'El monto del viático debe ser mayor a 0',
             'expenseAmount.max' => 'El monto del viático no puede superar 99999999.99',

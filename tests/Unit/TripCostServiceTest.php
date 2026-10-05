@@ -146,10 +146,11 @@ it('devuelve los cinco bloques y el total', function () {
     $cost = tripCostService()->getTripCost($owner, $trip->id);
 
     expect(array_keys($cost))
-        ->toBe(['trip', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'pilot', 'vehicle', 'totalCost'])
+        ->toBe(['trip', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'bonus', 'pilot', 'vehicle', 'totalCost'])
         ->and(array_keys($cost['fuel']))->toBe(['gallons', 'byType', 'subtotal'])
         ->and(array_keys($cost['expenses']))->toBe(['count', 'subtotal'])
         ->and(array_keys($cost['emergencyExpenses']))->toBe(['count', 'subtotal'])
+        ->and(array_keys($cost['bonus']))->toBe(['amount', 'subtotal'])
         ->and(array_keys($cost['pilot']))->toBe(['monthlySalary', 'subtotal'])
         ->and(array_keys($cost['vehicle']))->toBe(['monthlyInsuranceCost', 'subtotal']);
 });
@@ -508,7 +509,7 @@ it('suma los cinco subtotales ya redondeados', function () {
     expect($cost['totalCost'])->toBe(2014.45)
         ->and($cost['totalCost'])->toBe(round(
             $cost['fuel']['subtotal'] + $cost['expenses']['subtotal'] + $cost['emergencyExpenses']['subtotal']
-            + $cost['pilot']['subtotal'] + $cost['vehicle']['subtotal'],
+            + $cost['bonus']['subtotal'] + $cost['pilot']['subtotal'] + $cost['vehicle']['subtotal'],
             2
         ));
 });
@@ -527,3 +528,29 @@ function tripCostSalary(Trip $trip, ?float $salary): CarrierPilot
 
     return $pivot;
 }
+
+/*
+|--------------------------------------------------------------------------
+| Bonificación
+|--------------------------------------------------------------------------
+*/
+
+it('lee la bonificación de la columna del viaje y la suma al total', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', ['bonus' => 250.75]);
+
+    $cost = tripCostService()->getTripCost($owner, $trip->id);
+
+    expect($cost['bonus'])->toBe(['amount' => 250.75, 'subtotal' => 250.75])
+        ->and($cost['totalCost'])->toBe(round(
+            $cost['fuel']['subtotal'] + $cost['expenses']['subtotal'] + $cost['emergencyExpenses']['subtotal']
+            + 250.75 + $cost['pilot']['subtotal'] + $cost['vehicle']['subtotal'],
+            2
+        ));
+});
+
+it('deja la bonificación en null y su subtotal en cero en un viaje sin ella', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    expect(tripCostService()->getTripCost($owner, $trip->id)['bonus'])
+        ->toBe(['amount' => null, 'subtotal' => 0.0]);
+});

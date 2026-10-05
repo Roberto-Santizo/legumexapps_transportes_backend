@@ -429,6 +429,11 @@ class TripService implements TripServiceInterface
                 'vehicle_id' => (int) $data['vehicleId'],
                 /** Quién asignó sale del usuario autenticado, nunca del body. */
                 'assigned_by' => $user->id,
+                /**
+                 * Un solo monto por viaje: reasignar lo sobrescribe, sin historial, y el piloto
+                 * no lo confirma — a diferencia de la carga y del viático, no es una fila aparte.
+                 */
+                'bonus' => $data['bonus'],
             ]);
 
             /**

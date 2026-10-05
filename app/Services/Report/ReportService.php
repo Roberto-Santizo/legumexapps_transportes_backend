@@ -65,7 +65,8 @@ final class ReportService implements ReportServiceInterface
     private const string FILE_NAME_TIMESTAMP = 'Y-m-d-His';
 
     /**
-     * Headers of the trips sheet, in the order of `TripListResource`.
+     * Headers of the trips sheet, in the order of `TripListResource`, plus the bonus of
+     * the trip at the end: the listing does not carry it, so it is read from the model.
      *
      * @var list<string>
      */
@@ -73,6 +74,7 @@ final class ReportService implements ReportServiceInterface
         'Id', 'Orden', 'Estado', 'Naviera', 'Punto de partida', 'Puerto', 'Contenedor',
         'Fecha recolección', 'Fecha embarque', 'Inicio', 'Fin', 'Km estimados',
         'Horas estimadas', 'Observaciones', 'Piloto', 'Placa', 'Registrado por',
+        'Bonificación (Q)',
     ];
 
     /**
@@ -87,6 +89,12 @@ final class ReportService implements ReportServiceInterface
         'Inicio', 'Fin', 'Km estimados', 'Horas estimadas', 'Km reales', 'Horas reales',
         'Observaciones', 'Piloto', 'Placa', 'Registrado por',
     ];
+
+    /**
+     * Header of the bonus column of the downloadable report, appended after the base
+     * columns for every role but `shipment`, which sees no money.
+     */
+    private const string TRIP_BONUS_HEADER = 'Bonificación (Q)';
 
     /**
      * Format of the dates in the downloadable report, the project's own and not ISO 8601.
@@ -161,8 +169,10 @@ final class ReportService implements ReportServiceInterface
         /** @var Collection $trips */
         $trips = $this->trips->getTrips($user, $this->withoutLimit($filters));
 
-        $rows = array_map(
-            static fn (array $trip): array => [
+        $rows = $trips->take($this->maxRows)->map(static function (Trip $model): array {
+            $trip = new TripListResource($model)->resolve();
+
+            return [
                 $trip['id'],
                 $trip['order'],
                 $trip['statusLabel'],
@@ -180,9 +190,9 @@ final class ReportService implements ReportServiceInterface
                 $trip['pilotName'],
                 $trip['vehiclePlate'],
                 $trip['registeredByName'],
-            ],
-            TripListResource::collection($trips->take($this->maxRows))->resolve(),
-        );
+                self::toNumber($model->bonus),
+            ];
+        })->values()->all();
 
         return $this->publish('viajes', self::TRIP_HEADERS, $rows, $trips->count());
     }
@@ -268,6 +278,9 @@ final class ReportService implements ReportServiceInterface
 
         $withProducts = in_array($user->role, self::PRODUCT_ROLES, true);
 
+        /** Shipment no ve dinero: su reporte se queda sin la columna de bonificación. */
+        $withBonus = $user->role !== UserRole::Shipment;
+
         if ($withProducts) {
             /** Solo quien ve los productos paga su consulta; `finishedProduct()` ya lee `withTrashed()`. */
             $trips->load([
@@ -277,15 +290,19 @@ final class ReportService implements ReportServiceInterface
         }
 
         $rows = $trips
-            ->map(static fn (Trip $trip): array => $withProducts
-                ? [...self::tripReportRow($trip), ...self::tripProductCells($trip)]
-                : self::tripReportRow($trip))
+            ->map(static fn (Trip $trip): array => [
+                ...self::tripReportRow($trip),
+                ...($withBonus ? [self::toNumber($trip->bonus)] : []),
+                ...($withProducts ? self::tripProductCells($trip) : []),
+            ])
             ->values()
             ->all();
 
-        $headers = $withProducts
-            ? [...self::TRIP_REPORT_HEADERS, ...self::TRIP_PRODUCT_HEADERS]
-            : self::TRIP_REPORT_HEADERS;
+        $headers = [
+            ...self::TRIP_REPORT_HEADERS,
+            ...($withBonus ? [self::TRIP_BONUS_HEADER] : []),
+            ...($withProducts ? self::TRIP_PRODUCT_HEADERS : []),
+        ];
 
         return [
             'fileName' => 'viajes-'.$filters['dateFrom'].'_'.$filters['dateTo'].'.'.self::EXTENSION,

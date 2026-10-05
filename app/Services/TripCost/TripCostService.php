@@ -49,6 +49,7 @@ class TripCostService implements TripCostServiceInterface
         $fuel = $this->resolveFuel($trip);
         $expenses = $this->resolveExpenses($trip);
         $emergencyExpenses = $this->resolveEmergencyExpenses($trip);
+        $bonus = $this->resolveBonus($trip);
         $pilot = $this->resolvePilot($trip, $traveledHours);
         $vehicle = $this->resolveVehicle($trip, $traveledHours);
 
@@ -58,14 +59,15 @@ class TripCostService implements TripCostServiceInterface
             'fuel' => $fuel,
             'expenses' => $expenses,
             'emergencyExpenses' => $emergencyExpenses,
+            'bonus' => $bonus,
             'pilot' => $pilot,
             'vehicle' => $vehicle,
             /**
-             * La suma de los cinco subtotales YA redondeados, nunca el redondeo de una
+             * La suma de los seis subtotales YA redondeados, nunca el redondeo de una
              * suma en crudo: el desglose tiene que cuadrar con el total a la vista.
              */
             'totalCost' => round(
-                $fuel['subtotal'] + $expenses['subtotal'] + $emergencyExpenses['subtotal'] + $pilot['subtotal'] + $vehicle['subtotal'],
+                $fuel['subtotal'] + $expenses['subtotal'] + $emergencyExpenses['subtotal'] + $bonus['subtotal'] + $pilot['subtotal'] + $vehicle['subtotal'],
                 2,
             ),
         ];
@@ -201,6 +203,26 @@ class TripCostService implements TripCostServiceInterface
         return [
             'count' => (int) ($aggregate?->rows_count ?? 0),
             'subtotal' => round((float) ($aggregate?->rows_amount ?? 0), 2),
+        ];
+    }
+
+    /**
+     * Read the bonus the carrier company set when it took the trip.
+     *
+     * No query of its own: it is a column of the trip that is already loaded. There is no
+     * confirmation to filter by, so the amount counts as soon as it is set. A trip assigned
+     * before the column existed keeps it in `null`, which is shown as such while its
+     * subtotal stays at `0.00`, as every other missing input.
+     *
+     * @return array{amount: float|null, subtotal: float}
+     */
+    private function resolveBonus(Trip $trip): array
+    {
+        $amount = $trip->bonus === null ? null : round((float) $trip->bonus, 2);
+
+        return [
+            'amount' => $amount,
+            'subtotal' => $amount ?? 0.0,
         ];
     }
 

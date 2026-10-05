@@ -221,7 +221,7 @@ it('devuelve las nueve claves del desglose y la forma de los cinco bloques', fun
     $response = asUser($owner)->getJson("/api/trips/{$trip->id}/cost")->assertStatus(200);
 
     expect(array_keys($response->json('data')))->toBe([
-        'tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'pilot', 'vehicle', 'totalCost',
+        'tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'bonus', 'pilot', 'vehicle', 'totalCost',
     ]);
 
     $response
@@ -230,6 +230,7 @@ it('devuelve las nueve claves del desglose y la forma de los cinco bloques', fun
                 'fuel' => ['gallons', 'byType' => [['fuelType', 'gallons', 'pricePerGallon', 'amount']], 'subtotal'],
                 'expenses' => ['count', 'subtotal'],
                 'emergencyExpenses' => ['count', 'subtotal'],
+                'bonus' => ['amount', 'subtotal'],
                 'pilot' => ['pilotId', 'pilotName', 'monthlySalary', 'subtotal'],
                 'vehicle' => ['vehicleId', 'plate', 'monthlyInsuranceCost', 'subtotal'],
             ],
@@ -411,4 +412,28 @@ it('no crece en consultas con el número de cargas, viáticos ni posiciones', fu
     };
 
     expect($count($big->id))->toBe($count($small->id));
+});
+
+it('pinta la bonificación en su propio bloque y la suma al total', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50, 'bonus' => 300]);
+
+    seedTripCost($trip);
+
+    /** 1814.35 del desglose base + 300.00 de bonificación. */
+    asUser($owner)
+        ->getJson("/api/trips/{$trip->id}/cost")
+        ->assertOk()
+        ->assertJsonPath('data.bonus.amount', '300.00')
+        ->assertJsonPath('data.bonus.subtotal', '300.00')
+        ->assertJsonPath('data.totalCost', '2114.35');
+});
+
+it('pinta la bonificación ausente como null con subtotal en cero', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50]);
+
+    asUser($owner)
+        ->getJson("/api/trips/{$trip->id}/cost")
+        ->assertOk()
+        ->assertJsonPath('data.bonus.amount', null)
+        ->assertJsonPath('data.bonus.subtotal', '0.00');
 });

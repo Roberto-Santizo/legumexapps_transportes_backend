@@ -180,7 +180,7 @@ it('acota al carrier a la bolsa y a los viajes que tomó su empresa', function (
 */
 
 it('devuelve el detalle del viaje sin la ruta ni las imágenes', function () {
-    $trip = tripToolTripOf(Carrier::factory()->create());
+    $trip = tripToolTripOf(Carrier::factory()->create(), ['bonus' => 180]);
     TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 30]);
     TripFuel::factory()->create(['trip_id' => $trip->id, 'gallons' => 5]);
 
@@ -189,7 +189,8 @@ it('devuelve el detalle del viaje sin la ruta ni las imágenes', function () {
     expect($result['id'])->toBe($trip->id)
         ->and($result)->toHaveKeys(['order', 'clientName', 'pilotName', 'vehiclePlate', 'assignedByName', 'estimatedKilometers', 'totalFuelGallons', 'totalExpensesAmount'])
         ->and($result)->not->toHaveKeys(['polyline', 'points', 'traveledPolyline', 'traveledPoints', 'pilotDpiImage', 'pilotLicenseImage', 'vehicleImage'])
-        ->and($result['totalFuelGallons'])->toBe('30.00');
+        ->and($result['totalFuelGallons'])->toBe('30.00')
+        ->and($result['bonus'])->toBe('180.00');
 });
 
 it('devuelve como error el viaje inexistente y el ajeno', function () {
@@ -342,7 +343,7 @@ it('devuelve el mismo desglose que el endpoint para un viaje finalizado', functi
     $result = callTripTool(tripTool(TripCostTool::class, tripToolAdmin()), ['tripId' => $trip->id]);
 
     expect(array_keys($result))
-        ->toBe(['tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'pilot', 'vehicle', 'totalCost'])
+        ->toBe(['tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'bonus', 'pilot', 'vehicle', 'totalCost'])
         ->and($result['fuel']['subtotal'])->toBe('1347.50')
         ->and($result['expenses']['subtotal'])->toBe('450.00')
         ->and($result['pilot']['subtotal'])->toBe('15.63')
