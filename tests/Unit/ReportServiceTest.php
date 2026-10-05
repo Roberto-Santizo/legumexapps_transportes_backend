@@ -10,10 +10,12 @@ use App\Interfaces\Report\ReportServiceInterface;
 use App\Interfaces\Report\SpreadsheetWriterInterface;
 use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\Trip\TripServiceInterface;
+use App\Interfaces\TripEmergencyExpense\TripEmergencyExpenseServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
 use App\Models\Carrier;
 use App\Models\FinishedProduct;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\TripFinishedProduct;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -76,6 +78,7 @@ function cappedReportService(int $maxRows): ReportService
     return new ReportService(
         app(TripServiceInterface::class),
         app(VehicleExpenseServiceInterface::class),
+        app(TripEmergencyExpenseServiceInterface::class),
         app(SpreadsheetWriterInterface::class),
         app(FileStorageServiceInterface::class),
         $maxRows,
@@ -221,6 +224,59 @@ it('propaga el 403 de un vehículo ajeno y el 404 de uno inexistente', function 
 
 /*
 |--------------------------------------------------------------------------
+| exportTripEmergencyExpenses (SPEC 39)
+|--------------------------------------------------------------------------
+*/
+
+it('exporta los gastos emergentes del viaje con el monto como número, el comprobante como URL y el total', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->withReceipt()->create(['trip_id' => $trip->id, 'amount' => 300.5, 'description' => 'Llanta pinchada']);
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 200, 'description' => 'Grúa']);
+    TripEmergencyExpense::factory()->create(['amount' => 999]);
+
+    $result = app(ReportServiceInterface::class)->exportTripEmergencyExpenses(reportAdmin(), ['tripId' => $trip->id]);
+    $rows = storedReportRows($result['url']);
+
+    expect($result['rows'])->toBe(2)
+        ->and($result['total'])->toBe(2)
+        ->and($result['totalAmount'])->toBe('500.50')
+        ->and($result['truncated'])->toBeFalse()
+        ->and($result['fileName'])->toMatch("/^gastos-emergentes-viaje-{$trip->id}-\\d{4}-\\d{2}-\\d{2}-\\d{6}\\.xlsx$/")
+        ->and(reportKeyFromUrl($result['url']))->toMatch('#^reports/[0-9a-f-]{36}\.xlsx$#')
+        ->and($rows[0])->toBe(['Id', 'Monto (Q)', 'Descripción', 'Comprobante', 'Registrado por', 'Creado', 'Actualizado'])
+        ->and($rows[1][1])->toEqual(300.5)
+        ->and($rows[1][2])->toBe('Llanta pinchada')
+        ->and($rows[1][3])->toStartWith('https://')->toContain('trip-emergency-expenses/')
+        ->and($rows[2][2])->toBe('Grúa')
+        ->and($rows[2][3])->toBe('');
+});
+
+it('mantiene el total de todos los gastos emergentes aunque el tope recorte las filas', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->count(3)->create(['trip_id' => $trip->id, 'amount' => 100]);
+
+    $result = cappedReportService(1)->exportTripEmergencyExpenses(reportAdmin(), ['tripId' => $trip->id]);
+
+    expect($result['rows'])->toBe(1)
+        ->and($result['total'])->toBe(3)
+        ->and($result['totalAmount'])->toBe('300.00')
+        ->and($result['truncated'])->toBeTrue();
+});
+
+it('propaga el 404, el 403 de ámbito y el 403 de shipment sin subir nada', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    $stranger = reportCarrierOwner(Carrier::factory()->create());
+    $service = app(ReportServiceInterface::class);
+
+    expect(fn () => $service->exportTripEmergencyExpenses(reportAdmin(), ['tripId' => 999999]))->toThrow(NotFoundError::class)
+        ->and(fn () => $service->exportTripEmergencyExpenses($stranger, ['tripId' => $trip->id]))->toThrow(ForbiddenError::class)
+        ->and(fn () => $service->exportTripEmergencyExpenses(User::factory()->create(['role' => UserRole::Shipment]), ['tripId' => $trip->id]))->toThrow(ForbiddenError::class);
+
+    expect(Storage::disk(config('filesystems.default'))->allFiles('reports'))->toBe([]);
+});
+
+/*
+|--------------------------------------------------------------------------
 | Storage
 |--------------------------------------------------------------------------
 */
@@ -311,6 +367,7 @@ function downloadReportService(SpreadsheetWriterInterface $writer, int $maxRows 
     return new ReportService(
         app(TripServiceInterface::class),
         app(VehicleExpenseServiceInterface::class),
+        app(TripEmergencyExpenseServiceInterface::class),
         $writer,
         app(FileStorageServiceInterface::class),
         $maxRows,

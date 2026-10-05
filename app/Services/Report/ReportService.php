@@ -6,11 +6,13 @@ use App\Enums\UserRole;
 use App\Enums\VehicleExpenseNature;
 use App\Errors\BadRequestError;
 use App\Http\Resources\Trip\TripListResource;
+use App\Http\Resources\TripEmergencyExpense\TripEmergencyExpenseResource;
 use App\Http\Resources\VehicleExpense\VehicleExpenseResource;
 use App\Interfaces\Report\ReportServiceInterface;
 use App\Interfaces\Report\SpreadsheetWriterInterface;
 use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\Trip\TripServiceInterface;
+use App\Interfaces\TripEmergencyExpense\TripEmergencyExpenseServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
 use App\Models\Trip;
 use App\Models\User;
@@ -122,6 +124,17 @@ final class ReportService implements ReportServiceInterface
     ];
 
     /**
+     * Columns of the emergency expenses export (SPEC 39): the nine keys of
+     * `TripEmergencyExpenseResource` minus `tripId` (every row shares it) and
+     * `receiptType` (implied by the URL).
+     *
+     * @var list<string>
+     */
+    private const array TRIP_EMERGENCY_EXPENSE_HEADERS = [
+        'Id', 'Monto (Q)', 'Descripción', 'Comprobante', 'Registrado por', 'Creado', 'Actualizado',
+    ];
+
+    /**
      * @var array<string, string>
      */
     private const array NATURE_LABELS = [
@@ -136,6 +149,7 @@ final class ReportService implements ReportServiceInterface
     public function __construct(
         private readonly TripServiceInterface $trips,
         private readonly VehicleExpenseServiceInterface $vehicleExpenses,
+        private readonly TripEmergencyExpenseServiceInterface $tripEmergencyExpenses,
         private readonly SpreadsheetWriterInterface $writer,
         private readonly FileStorageServiceInterface $storage,
         private readonly int $maxRows = self::MAX_ROWS,
@@ -201,6 +215,35 @@ final class ReportService implements ReportServiceInterface
 
         return [
             ...$this->publish($prefix, self::VEHICLE_EXPENSE_HEADERS, $rows, $expenses->count()),
+            'totalAmount' => $result['totalAmount'],
+        ];
+    }
+
+    #[Override]
+    public function exportTripEmergencyExpenses(User $user, array $filters): array
+    {
+        $result = $this->tripEmergencyExpenses->getTripEmergencyExpenses($user, (int) $filters['tripId'], []);
+
+        /** @var Collection $expenses */
+        $expenses = $result['emergencyExpenses'];
+
+        $rows = array_map(
+            static fn (array $expense): array => [
+                $expense['id'],
+                self::toNumber($expense['amount']),
+                $expense['description'],
+                $expense['receiptUrl'],
+                $expense['registeredByName'],
+                $expense['createdAt'],
+                $expense['updatedAt'],
+            ],
+            TripEmergencyExpenseResource::collection($expenses->take($this->maxRows))->resolve(),
+        );
+
+        $prefix = 'gastos-emergentes-viaje-'.$filters['tripId'];
+
+        return [
+            ...$this->publish($prefix, self::TRIP_EMERGENCY_EXPENSE_HEADERS, $rows, $expenses->count()),
             'totalAmount' => $result['totalAmount'],
         ];
     }
