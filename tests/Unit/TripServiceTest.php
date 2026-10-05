@@ -137,7 +137,7 @@ it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyl
             'recolection_date', 'ship_date', 'start_date', 'end_date',
             'polyline', 'estimated_kilometers', 'estimated_hours',
             'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
-            'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by', 'bonus',
+            'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by', 'bonus', 'cargo_insurance',
             'created_at', 'updated_at', 'deleted_at',
         ]);
 });
@@ -636,6 +636,7 @@ it('escribe piloto, vehículo y autor de la asignación juntos', function () {
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 
     expect($asignado->pilot_id)->toBe($team['pilot']->id)
@@ -656,6 +657,7 @@ it('lanza ForbiddenError cuando quien asigna no tiene empresa', function () {
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 })->throws(ForbiddenError::class, 'Necesitas pertenecer a una empresa transportista para asignar un viaje');
 
@@ -675,6 +677,7 @@ it('lanza ForbiddenError cuando el viaje ya lo tomó otra empresa', function () 
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 })->throws(ForbiddenError::class, 'No puedes asignar un viaje que ya tomó otra empresa transportista');
 
@@ -695,6 +698,7 @@ it('lanza BadRequestError al reasignar un viaje que ya no está pendiente', func
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 })->with([
     'en ruta' => TripStatus::InRoute,
@@ -711,6 +715,7 @@ it('lanza BadRequestError cuando el usuario elegido no es piloto', function () {
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 })->throws(BadRequestError::class, 'El usuario seleccionado no es un piloto');
 
@@ -724,6 +729,7 @@ it('lanza BadRequestError cuando el piloto no pertenece a ninguna empresa', func
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 })->throws(BadRequestError::class, 'El piloto seleccionado no pertenece a ninguna empresa transportista');
 
@@ -737,6 +743,7 @@ it('lanza BadRequestError cuando el vehículo no está activo', function (Vehicl
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 })->with([
     'inactivo' => VehicleStatus::Inactive,
@@ -754,12 +761,13 @@ it('lanza BadRequestError cuando el piloto y el vehículo son de empresas distin
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 })->throws(BadRequestError::class, 'El piloto y el vehículo deben pertenecer a la misma empresa transportista');
 
 it('lanza NotFoundError al asignar un id inexistente y BadRequestError sobre uno borrado', function () {
     $team = tripServiceTeam();
-    $data = ['pilotId' => $team['pilot']->id, 'vehicleId' => $team['vehicle']->id, 'fuelGallons' => 45.5, 'fuelType' => 'diesel', 'bonus' => 250];
+    $data = ['pilotId' => $team['pilot']->id, 'vehicleId' => $team['vehicle']->id, 'fuelGallons' => 45.5, 'fuelType' => 'diesel', 'bonus' => 250, 'cargoInsurance' => 100];
     $borrado = Trip::factory()->trashed()->create();
 
     expect(fn () => tripService()->assign($team['owner'], 999999, $data))
@@ -784,6 +792,7 @@ it('no toca las estimaciones al asignar, arrancar ni cerrar el viaje', function 
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
     TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id]);
     tripService()->start($team['pilot'], $trip->id);
@@ -1024,6 +1033,7 @@ it('inserta la primera carga sin confirmar dentro de la transacción de la asign
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]);
 
     $fuel = TripFuel::query()->where('trip_id', '=', $trip->id)->sole();
@@ -1055,6 +1065,7 @@ it('añade otra carga al reasignar, sin pisar ni borrar la anterior', function (
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ];
 
     tripService()->assign($team['owner'], $trip->id, $data);
@@ -1075,6 +1086,7 @@ it('no deja ninguna carga cuando la asignación se cae por una de sus guardas', 
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ]))->toThrow(BadRequestError::class);
 
     expect(TripFuel::count())->toBe(0)
@@ -1350,6 +1362,7 @@ it('inserta el primer viático sin confirmar cuando la asignación trae expenseA
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
         'expenseAmount' => 350.5,
         'expenseDescription' => 'Alimentación y peajes',
     ]);
@@ -1377,6 +1390,7 @@ it('no inserta ningún viático cuando la asignación no trae expenseAmount', fu
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
         ...$extra,
     ]);
 
@@ -1403,6 +1417,7 @@ it('añade otro viático al reasignar con monto, sin pisar ni borrar el anterior
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
         'expenseAmount' => 350,
     ];
 
@@ -1424,6 +1439,7 @@ it('no deja ningún viático cuando la asignación se cae por una de sus guardas
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
         'expenseAmount' => 350,
     ]))->toThrow(BadRequestError::class);
 

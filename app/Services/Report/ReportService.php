@@ -65,8 +65,9 @@ final class ReportService implements ReportServiceInterface
     private const string FILE_NAME_TIMESTAMP = 'Y-m-d-His';
 
     /**
-     * Headers of the trips sheet, in the order of `TripListResource`, plus the bonus of
-     * the trip at the end: the listing does not carry it, so it is read from the model.
+     * Headers of the trips sheet, in the order of `TripListResource`, plus the bonus and
+     * the cargo insurance of the trip at the end: the listing does not carry them, so they
+     * are read from the model.
      *
      * @var list<string>
      */
@@ -74,7 +75,7 @@ final class ReportService implements ReportServiceInterface
         'Id', 'Orden', 'Estado', 'Naviera', 'Punto de partida', 'Puerto', 'Contenedor',
         'Fecha recolección', 'Fecha embarque', 'Inicio', 'Fin', 'Km estimados',
         'Horas estimadas', 'Observaciones', 'Piloto', 'Placa', 'Registrado por',
-        'Bonificación (Q)',
+        'Bonificación (Q)', 'Seguro de carga (Q)',
     ];
 
     /**
@@ -91,10 +92,13 @@ final class ReportService implements ReportServiceInterface
     ];
 
     /**
-     * Header of the bonus column of the downloadable report, appended after the base
-     * columns for every role but `shipment`, which sees no money.
+     * Headers of the money columns of the downloadable report —the bonus and the cargo
+     * insurance set on `/assignment`—, appended after the base columns for every role but
+     * `shipment`, which sees no money.
+     *
+     * @var list<string>
      */
-    private const string TRIP_BONUS_HEADER = 'Bonificación (Q)';
+    private const array TRIP_MONEY_HEADERS = ['Bonificación (Q)', 'Seguro de carga (Q)'];
 
     /**
      * Format of the dates in the downloadable report, the project's own and not ISO 8601.
@@ -191,6 +195,7 @@ final class ReportService implements ReportServiceInterface
                 $trip['vehiclePlate'],
                 $trip['registeredByName'],
                 self::toNumber($model->bonus),
+                self::toNumber($model->cargo_insurance),
             ];
         })->values()->all();
 
@@ -278,8 +283,8 @@ final class ReportService implements ReportServiceInterface
 
         $withProducts = in_array($user->role, self::PRODUCT_ROLES, true);
 
-        /** Shipment no ve dinero: su reporte se queda sin la columna de bonificación. */
-        $withBonus = $user->role !== UserRole::Shipment;
+        /** Shipment no ve dinero: su reporte se queda sin bonificación ni seguro de la carga. */
+        $withMoney = $user->role !== UserRole::Shipment;
 
         if ($withProducts) {
             /** Solo quien ve los productos paga su consulta; `finishedProduct()` ya lee `withTrashed()`. */
@@ -292,7 +297,7 @@ final class ReportService implements ReportServiceInterface
         $rows = $trips
             ->map(static fn (Trip $trip): array => [
                 ...self::tripReportRow($trip),
-                ...($withBonus ? [self::toNumber($trip->bonus)] : []),
+                ...($withMoney ? [self::toNumber($trip->bonus), self::toNumber($trip->cargo_insurance)] : []),
                 ...($withProducts ? self::tripProductCells($trip) : []),
             ])
             ->values()
@@ -300,7 +305,7 @@ final class ReportService implements ReportServiceInterface
 
         $headers = [
             ...self::TRIP_REPORT_HEADERS,
-            ...($withBonus ? [self::TRIP_BONUS_HEADER] : []),
+            ...($withMoney ? self::TRIP_MONEY_HEADERS : []),
             ...($withProducts ? self::TRIP_PRODUCT_HEADERS : []),
         ];
 

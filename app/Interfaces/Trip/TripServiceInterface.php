@@ -144,15 +144,16 @@ interface TripServiceInterface
      *
      * The same `update()` that writes the crew also writes the trip's `bonus`, required:
      * a single amount per trip that reassigning **overwrites** —it is a column, not a
-     * table— and that the pilot never confirms.
+     * table— and that the pilot never confirms. `cargoInsurance`, also required, lands in
+     * that same `update()` under the very same rules, as a concept of its own.
      *
-     * @param  array{pilotId: int, vehicleId: int, fuelGallons: float|string, fuelType: string, bonus: float|string, expenseAmount?: float|string|null, expenseDescription?: string|null}  $data
-     *                                                                                                                                                                                            the first four are required since SPEC 27 —a breaking change with no grace
-     *                                                                                                                                                                                            period—: a trip is never assigned a pilot without a vehicle, nor a crew without
-     *                                                                                                                                                                                            fuel. fuelGallons is a positive amount crossed against nothing, and fuelType one
-     *                                                                                                                                                                                            of the four FuelType cases, which is not required to have an active FuelPrice.
-     *                                                                                                                                                                                            expenseAmount, when present and not null, is a positive amount crossed against
-     *                                                                                                                                                                                            nothing; expenseDescription is already trimmed, null when blank.
+     * @param  array{pilotId: int, vehicleId: int, fuelGallons: float|string, fuelType: string, bonus: float|string, cargoInsurance: float|string, expenseAmount?: float|string|null, expenseDescription?: string|null}  $data
+     *                                                                                                                                                                                                                          the first four are required since SPEC 27 —a breaking change with no grace
+     *                                                                                                                                                                                                                          period—: a trip is never assigned a pilot without a vehicle, nor a crew without
+     *                                                                                                                                                                                                                          fuel. fuelGallons is a positive amount crossed against nothing, and fuelType one
+     *                                                                                                                                                                                                                          of the four FuelType cases, which is not required to have an active FuelPrice.
+     *                                                                                                                                                                                                                          expenseAmount, when present and not null, is a positive amount crossed against
+     *                                                                                                                                                                                                                          nothing; expenseDescription is already trimmed, null when blank.
      */
     public function assign(User $user, int $id, array $data): Trip;
 

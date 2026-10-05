@@ -15,7 +15,7 @@ use OpenApi\Attributes as OA;
 
     PERMISOS — todo rol salvo pilot (403). Sin carrier.required. EL ÁMBITO ES EL DE GET /api/trips: el carrier recibe la bolsa libre más lo que tomó su empresa; administrator, manager, export, user y shipment, todos los viajes.
 
-    COLUMNAS POR ROL — 22 columnas base para todos; administrator, manager, export y shipment reciben además «Productos» y «Total de cajas» al final (24). carrier y user NO las reciben aunque GET /api/trip-finished-products sí les responda: el reporte tiene su propia matriz.
+    COLUMNAS POR ROL — 22 columnas base para todos; todos salvo shipment reciben después «Bonificación (Q)» y «Seguro de carga (Q)»; administrator, manager, export y shipment reciben además «Productos» y «Total de cajas» al final. Total: 26 para administrator, manager y export; 24 para carrier y user; 24 para shipment. carrier y user NO reciben los productos aunque GET /api/trip-finished-products sí les responda: el reporte tiene su propia matriz.
 
     Nada se guarda en el bucket: el archivo se genera en la petición y no hay URL ni historial.
     TEXT,
@@ -43,6 +43,8 @@ class ReportController extends Controller
         CABECERAS: Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet y Content-Disposition attachment; filename="viajes-{dateFrom}_{dateTo}.xlsx". El frontend hace blob() y descarga con ese nombre.
 
         COLUMNAS BASE (22, en este orden): Id, Orden, Estado, Cliente, Naviera, Punto de partida, Puerto, Destino final, Transporte, Contenedor, Fecha recolección, Fecha embarque, Inicio, Fin, Km estimados, Horas estimadas, Km reales, Horas reales, Observaciones, Piloto, Placa, Registrado por. Estado en español (Pendiente / En ruta / Finalizado); fechas en d-m-Y h:i:s A (NO ISO 8601); km y horas como celdas NUMÉRICAS; cualquier null es una celda vacía (un viaje de la bolsa trae vacíos Piloto y Placa).
+
+        SALVO PARA shipment, que no ve dinero, siguen a las base «Bonificación (Q)» y «Seguro de carga (Q)»: los dos montos que la empresa fijó en /assignment, como celdas NUMÉRICAS, vacías si el viaje no se asignó o se asignó antes de existir el dato.
 
         SOLO PARA administrator, manager, export Y shipment se añaden al final «Productos» —texto «CODE × N cajas; CODE × N cajas» en el orden de las líneas, vacío sin líneas; un SKU borrado sigue saliendo— y «Total de cajas» —número, 0 sin líneas—.
 

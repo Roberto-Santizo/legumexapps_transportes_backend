@@ -166,7 +166,7 @@ it('entrega el xlsx con las cabeceras exactas y la matriz de columnas de cada ro
 
     expect($headers)->toBe([
         ...tripsReportBaseHeaders(),
-        ...($withBonus ? ['Bonificación (Q)'] : []),
+        ...($withBonus ? ['Bonificación (Q)', 'Seguro de carga (Q)'] : []),
         ...($withProducts ? ['Productos', 'Total de cajas'] : []),
     ])
         ->and(Storage::disk(config('filesystems.default'))->allFiles('reports'))->toBeEmpty();
@@ -342,8 +342,8 @@ it('resume los productos en orden de línea, suma las cajas y conserva el SKU bo
 
     [, $withLines, $withoutLines] = tripsReportRows(asUser(userWithRole(UserRole::Export))->get(tripsReportUri()));
 
-    expect(array_slice($withLines, 23))->toBe(['CODE1 × 120 cajas; CODE2 × 40 cajas', 160])
-        ->and(array_slice($withoutLines, 23))->toBe(['', 0]);
+    expect(array_slice($withLines, 24))->toBe(['CODE1 × 120 cajas; CODE2 × 40 cajas', 160])
+        ->and(array_slice($withoutLines, 24))->toBe(['', 0]);
 });
 
 /*

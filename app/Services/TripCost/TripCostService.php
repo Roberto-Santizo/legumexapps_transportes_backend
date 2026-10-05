@@ -50,6 +50,7 @@ class TripCostService implements TripCostServiceInterface
         $expenses = $this->resolveExpenses($trip);
         $emergencyExpenses = $this->resolveEmergencyExpenses($trip);
         $bonus = $this->resolveBonus($trip);
+        $cargoInsurance = $this->resolveCargoInsurance($trip);
         $pilot = $this->resolvePilot($trip, $traveledHours);
         $vehicle = $this->resolveVehicle($trip, $traveledHours);
 
@@ -60,14 +61,15 @@ class TripCostService implements TripCostServiceInterface
             'expenses' => $expenses,
             'emergencyExpenses' => $emergencyExpenses,
             'bonus' => $bonus,
+            'cargoInsurance' => $cargoInsurance,
             'pilot' => $pilot,
             'vehicle' => $vehicle,
             /**
-             * La suma de los seis subtotales YA redondeados, nunca el redondeo de una
+             * La suma de los siete subtotales YA redondeados, nunca el redondeo de una
              * suma en crudo: el desglose tiene que cuadrar con el total a la vista.
              */
             'totalCost' => round(
-                $fuel['subtotal'] + $expenses['subtotal'] + $emergencyExpenses['subtotal'] + $bonus['subtotal'] + $pilot['subtotal'] + $vehicle['subtotal'],
+                $fuel['subtotal'] + $expenses['subtotal'] + $emergencyExpenses['subtotal'] + $bonus['subtotal'] + $cargoInsurance['subtotal'] + $pilot['subtotal'] + $vehicle['subtotal'],
                 2,
             ),
         ];
@@ -219,6 +221,25 @@ class TripCostService implements TripCostServiceInterface
     private function resolveBonus(Trip $trip): array
     {
         $amount = $trip->bonus === null ? null : round((float) $trip->bonus, 2);
+
+        return [
+            'amount' => $amount,
+            'subtotal' => $amount ?? 0.0,
+        ];
+    }
+
+    /**
+     * Read the cargo insurance the carrier company set when it took the trip.
+     *
+     * The twin of `resolveBonus()`: a column of the already loaded trip, no confirmation,
+     * `null` before the column existed with its subtotal at `0.00`. A block of its own,
+     * never folded into the bonus.
+     *
+     * @return array{amount: float|null, subtotal: float}
+     */
+    private function resolveCargoInsurance(Trip $trip): array
+    {
+        $amount = $trip->cargo_insurance === null ? null : round((float) $trip->cargo_insurance, 2);
 
         return [
             'amount' => $amount,

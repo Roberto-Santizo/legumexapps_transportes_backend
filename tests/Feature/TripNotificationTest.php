@@ -99,6 +99,7 @@ function tripNotificationAssignmentBody(array $team): array
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
         'bonus' => 250,
+        'cargoInsurance' => 100,
     ];
 }
 

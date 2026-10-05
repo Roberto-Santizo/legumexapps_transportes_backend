@@ -10,7 +10,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 44 keys in camelCase, the largest resource of the
+ * The trip as the API paints it: 45 keys in camelCase, the largest resource of the
  * project.
  *
  * The six relations go out **flat**, as an id plus its name side by side, never as a
@@ -40,6 +40,8 @@ use OpenApi\Attributes as OA;
  * `bonus` follows them: the amount the carrier company set when it took the trip, read
  * straight from the column —no sum, no confirmation— and `null` while nobody has taken
  * it. `shipment` sees it as `null`: the key keeps its place, the money does not.
+ * `cargoInsurance` comes right after it under the very same rules: the cargo insurance
+ * set in that same `/assignment`, never folded into the bonus.
  *
  * `traveledPolyline` and `traveledPoints` (SPEC 28) are the real route, the mirror of
  * `polyline` and `points`: the `trip_positions` trail encoded by `/finish` and decoded
@@ -64,7 +66,7 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 44 CLAVES en camelCase (45 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 19 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 45 CLAVES en camelCase (46 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 19 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
@@ -90,7 +92,9 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — bonus es la clave 41, entre totalEmergencyExpensesAmount y createdAt: la bonificación en GTQ que la empresa fijó al tomar el viaje con /assignment. Es UN SOLO MONTO —columna, no suma—, SIN CONFIRMACIÓN del piloto, que reasignar sobrescribe. null mientras el viaje no se asigne (o si se asignó antes de existir la columna) y SIEMPRE null para shipment.
 
-    Las 44 claves salen siempre en este orden (45 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, createdAt, updatedAt y deletedAt.
+    ATENCIÓN — cargoInsurance es la clave 42, entre bonus y createdAt: el seguro de la carga en GTQ que la empresa fijó en el mismo /assignment. Mismas reglas que bonus —un solo monto, sin confirmación, reasignar lo sobrescribe, null sin asignar y SIEMPRE null para shipment— pero concepto propio: nunca se suma con la bonificación.
+
+    Las 45 claves salen siempre en este orden (46 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, cargoInsurance, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -369,6 +373,13 @@ use OpenApi\Attributes as OA;
             example: '250.00',
         ),
         new OA\Property(
+            property: 'cargoInsurance',
+            description: 'Seguro de la carga del viaje en GTQ, como CADENA con dos decimales. Lo fija la empresa transportista al tomar el viaje (PATCH /api/trips/{trip}/assignment, obligatorio) y REASIGNAR LO SOBRESCRIBE: es un solo monto y el piloto NO lo confirma. Suma tal cual en el costo directo (GET /api/trips/{trip}/cost), en su propio bloque: nunca se mezcla con bonus. ATENCIÓN — null mientras el viaje siga en la bolsa, en viajes asignados antes de existir la columna, y SIEMPRE para el rol shipment, que no ve dinero.',
+            type: 'string',
+            nullable: true,
+            example: '150.00',
+        ),
+        new OA\Property(
             property: 'createdAt',
             description: 'Fecha de alta del viaje. Formato propio d-m-Y h:i:s A, NO ISO 8601, por eso se documenta como string sin format date-time. No cambia nunca y no tiene nada que ver con recolectionDate.',
             type: 'string',
@@ -492,6 +503,10 @@ class TripResource extends JsonResource
             'bonus' => $this->bonus === null || $request->user('api')?->role === UserRole::Shipment
                 ? null
                 : number_format((float) $this->bonus, 2, '.', ''),
+            /** El seguro de la carga de la asignación, con la misma regla que la bonificación. */
+            'cargoInsurance' => $this->cargo_insurance === null || $request->user('api')?->role === UserRole::Shipment
+                ? null
+                : number_format((float) $this->cargo_insurance, 2, '.', ''),
             'createdAt' => $this->created_at?->format('d-m-Y h:i:s A'),
             'updatedAt' => $this->updated_at?->format('d-m-Y h:i:s A'),
             'deletedAt' => $this->deleted_at?->format('d-m-Y h:i:s A'),

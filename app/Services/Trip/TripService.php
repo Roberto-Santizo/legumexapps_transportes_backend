@@ -434,6 +434,8 @@ class TripService implements TripServiceInterface
                  * no lo confirma — a diferencia de la carga y del viático, no es una fila aparte.
                  */
                 'bonus' => $data['bonus'],
+                /** El seguro de la carga sigue la misma regla que la bonificación. */
+                'cargo_insurance' => $data['cargoInsurance'],
             ]);
 
             /**
