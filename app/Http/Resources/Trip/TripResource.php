@@ -10,7 +10,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 42 keys in camelCase, the largest resource of the
+ * The trip as the API paints it: 43 keys in camelCase, the largest resource of the
  * project.
  *
  * The six relations go out **flat**, as an id plus its name side by side, never as a
@@ -33,6 +33,9 @@ use OpenApi\Attributes as OA;
  * after it. Unlike fuel, nothing about it blocks `/start`. A `shipment` reader sees
  * it pinned to "0.00": that role sees no money, and the key keeps its place so the
  * shape does not depend on who asks.
+ *
+ * `totalEmergencyExpensesAmount` (SPEC 39) follows it with the emergency expenses:
+ * every row counts, since they have no confirmation, and `shipment` sees "0.00" too.
  *
  * `traveledPolyline` and `traveledPoints` (SPEC 28) are the real route, the mirror of
  * `polyline` and `points`: the `trip_positions` trail encoded by `/finish` and decoded
@@ -57,7 +60,7 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 42 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 19 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 43 CLAVES en camelCase (44 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 19 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
@@ -79,7 +82,9 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — totalExpensesAmount SOLO CUENTA LOS VIÁTICOS CONFIRMADOS (SPEC 31), y es la clave 39, añadida entre totalFuelGallons y createdAt. Sale como CADENA de dos decimales y vale "0.00" hasta que el piloto confirme haber recibido el dinero. A diferencia del combustible, NO bloquea nada: /start no exige viáticos. Los viáticos en sí NO viajan en este recurso —no hay clave expenses— y se piden aparte con GET /api/trips/{trip}/expenses.
 
-    Las 42 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, createdAt, updatedAt y deletedAt.
+    ATENCIÓN — totalEmergencyExpensesAmount (SPEC 39) es la clave 40, entre totalExpensesAmount y createdAt: la suma de TODOS los gastos emergentes del viaje, sin confirmación. Va SEPARADA de los viáticos. "0.00" para shipment. Los gastos en sí se piden con GET /api/trips/{trip}/emergency-expenses.
+
+    Las 43 claves salen siempre en este orden (44 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -345,6 +350,12 @@ use OpenApi\Attributes as OA;
             example: '850.00',
         ),
         new OA\Property(
+            property: 'totalEmergencyExpensesAmount',
+            description: 'Gastos emergentes del viaje en GTQ (SPEC 39), como CADENA con dos decimales: la suma de TODOS los imprevistos registrados —no hay confirmación—. Es el MISMO número que el totalAmount de GET /api/trips/{trip}/emergency-expenses. NO SE MEZCLA con totalExpensesAmount, que son los viáticos. Vale "0.00" sin gastos y SIEMPRE "0.00" para el rol shipment, que no ve dinero. ATENCIÓN — en la respuesta de /finish sale "0.00" aunque haya gastos, como totalFuelGallons y totalExpensesAmount: /finish no recarga las sumas; el detalle GET /api/trips/{trip} sí. NO APARECE EN EL LISTADO.',
+            type: 'string',
+            example: '350.00',
+        ),
+        new OA\Property(
             property: 'createdAt',
             description: 'Fecha de alta del viaje. Formato propio d-m-Y h:i:s A, NO ISO 8601, por eso se documenta como string sin format date-time. No cambia nunca y no tiene nada que ver con recolectionDate.',
             type: 'string',
@@ -460,6 +471,10 @@ class TripResource extends JsonResource
             'totalExpensesAmount' => $request->user('api')?->role === UserRole::Shipment
                 ? '0.00'
                 : number_format((float) ($this->total_expenses_amount ?? 0), 2, '.', ''),
+            /** Los gastos emergentes del viaje (SPEC 39): todos, sin confirmación, y fijados a cero para shipment. */
+            'totalEmergencyExpensesAmount' => $request->user('api')?->role === UserRole::Shipment
+                ? '0.00'
+                : number_format((float) ($this->total_emergency_expenses_amount ?? 0), 2, '.', ''),
             'createdAt' => $this->created_at?->format('d-m-Y h:i:s A'),
             'updatedAt' => $this->updated_at?->format('d-m-Y h:i:s A'),
             'deletedAt' => $this->deleted_at?->format('d-m-Y h:i:s A'),

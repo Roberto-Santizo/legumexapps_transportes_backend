@@ -12,6 +12,7 @@ use App\Models\Location;
 use App\Models\PilotDocument;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\TripExpense;
 use App\Models\TripFinishedProduct;
 use App\Models\TripFuel;
@@ -284,13 +285,14 @@ function tripPayloadProductLine(mixed $clientId): array
 }
 
 /**
- * The 42 keys `TripResource` promises, in the order the resource declares them.
+ * The 43 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
  * its name —the vehicle adds a third key, `vehicleImage`—, `points` is derived from
  * `polyline` on every read and, since SPEC 28, `traveledPoints` from `traveledPolyline`.
  * SPEC 30 slid `estimatedKilometers` and `estimatedHours` between `points` and the real route,
  * and SPEC 32 closed the mirror with `traveledKilometers` and `traveledHours` right after it.
+ * SPEC 39 added `totalEmergencyExpensesAmount` right after `totalExpensesAmount`.
  *
  * @return array<int, string>
  */
@@ -309,7 +311,7 @@ function tripResourceKeys(): array
         'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
         'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
-        'totalFuelGallons', 'totalExpensesAmount',
+        'totalFuelGallons', 'totalExpensesAmount', 'totalEmergencyExpensesAmount',
         'createdAt', 'updatedAt', 'deletedAt',
     ];
 }
@@ -2126,7 +2128,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 20 claves en el listado y las 42 del detalle, y no las confunde', function () {
+it('devuelve 20 claves en el listado y las 43 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -2134,7 +2136,7 @@ it('devuelve 20 claves en el listado y las 42 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(42)
+    expect(tripResourceKeys())->toHaveCount(43)
         ->and(tripListResourceKeys())->toHaveCount(20)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripDetailKeys());
@@ -3019,7 +3021,7 @@ it('coloca las dos claves del recorrido justo después de las estimaciones de SP
     $indexOfPoints = array_search('points', $keys, true);
 
     expect(array_slice($keys, $indexOfPoints, 8))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations'])
-        ->and($keys)->toHaveCount(43);
+        ->and($keys)->toHaveCount(44);
 });
 
 it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
@@ -3433,8 +3435,8 @@ it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el list
     $keys = array_keys(asUser($admin)->getJson("/api/trips/{$trip->id}")->json('data'));
     $indexOfFuel = array_search('totalFuelGallons', $keys, true);
 
-    expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'createdAt'])
-        ->and($keys)->toHaveCount(43);
+    expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'totalEmergencyExpensesAmount'])
+        ->and($keys)->toHaveCount(44);
 
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
 
@@ -3518,7 +3520,7 @@ it('coloca traveledKilometers y traveledHours justo después de traveledPoints y
         ->and($keys[24])->toBe('traveledKilometers')
         ->and($keys[25])->toBe('traveledHours')
         ->and($keys[26])->toBe('observations')
-        ->and($keys)->toHaveCount(43);
+        ->and($keys)->toHaveCount(44);
 });
 
 it('devuelve null en las dos métricas reales de un viaje pending o in_route, presentes y no ausentes', function (TripStatus $status) {
@@ -3881,4 +3883,74 @@ it('deja cambiar el cliente de un viaje sin líneas', function () {
     asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['clientId' => $client->id])
         ->assertOk()
         ->assertJsonPath('data.clientId', $client->id);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 39 — totalEmergencyExpensesAmount
+|--------------------------------------------------------------------------
+|
+| La clave 40 del detalle: la suma de TODOS los gastos emergentes del viaje, sin
+| confirmación, separada de los viáticos y fijada a "0.00" para shipment.
+|
+*/
+
+it('suma en totalEmergencyExpensesAmount todos los gastos emergentes del viaje y no los viáticos', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 300.25]);
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 49.75]);
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 1000]);
+
+    /** El gasto emergente de otro viaje no se suma en este. */
+    TripEmergencyExpense::factory()->create(['amount' => 5000]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '350.00')
+        ->assertJsonPath('data.totalExpensesAmount', '1000.00');
+});
+
+it('devuelve totalEmergencyExpensesAmount en 0.00 sin gastos emergentes', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '0.00');
+});
+
+it('fija en cero los gastos emergentes del detalle para shipment y los muestra a user', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 850]);
+
+    asUser(userWithRole(UserRole::Shipment))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '0.00');
+
+    asUser(userWithRole(UserRole::User))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '850.00');
+});
+
+it('pinta 44 claves en el detalle y 43 para el piloto asignado, con el listado en 20', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    $admin = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $pilot = asUser(User::findOrFail($trip->pilot_id))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $listado = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips')->assertOk()->json('data.0');
+
+    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(44)
+        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(43)
+        ->and($listado)->not->toHaveKey('totalEmergencyExpensesAmount')
+        ->and(array_keys($listado))->toHaveCount(20);
+});
+
+it('trae totalEmergencyExpensesAmount en la respuesta de una escritura del viaje', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 120]);
+
+    /** Las escrituras recargan las sumas con loadSum, igual que los viáticos. */
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['observations' => 'Revisar'])
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '120.00');
 });
