@@ -180,6 +180,20 @@ class Trip extends Model
     }
 
     /**
+     * The unforeseen expenses registered on this trip (SPEC 39).
+     *
+     * Same reason to exist as `expenses()`: no Resource exposes the rows, but
+     * `totalEmergencyExpensesAmount` is resolved with `withSum` —unrestricted, since these
+     * expenses have no confirmation— and that needs the relation to hang off.
+     *
+     * @return HasMany<TripEmergencyExpense, $this>
+     */
+    public function emergencyExpenses(): HasMany
+    {
+        return $this->hasMany(TripEmergencyExpense::class);
+    }
+
+    /**
      * The live track reported by the pilot (SPEC 26), in `recorded_at asc, id asc` order.
      *
      * Only `GET /api/trips/{trip}` loads it, so the listing never drags the trail along.
