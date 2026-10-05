@@ -153,7 +153,7 @@ it('rechaza con 403 al piloto', function () {
         ]);
 });
 
-it('entrega el xlsx con las cabeceras exactas y la matriz de columnas de cada rol', function (UserRole $role, bool $withProducts) {
+it('entrega el xlsx con las cabeceras exactas y la matriz de columnas de cada rol', function (UserRole $role, bool $withBonus, bool $withProducts) {
     septemberTrip();
 
     $response = asUser(tripsReportUser($role))->get(tripsReportUri());
@@ -164,17 +164,19 @@ it('entrega el xlsx con las cabeceras exactas y la matriz de columnas de cada ro
 
     $headers = tripsReportRows($response)[0];
 
-    expect($headers)->toBe($withProducts
-        ? [...tripsReportBaseHeaders(), 'Productos', 'Total de cajas']
-        : tripsReportBaseHeaders())
+    expect($headers)->toBe([
+        ...tripsReportBaseHeaders(),
+        ...($withBonus ? ['Bonificación (Q)', 'Seguro de carga (Q)'] : []),
+        ...($withProducts ? ['Productos', 'Total de cajas'] : []),
+    ])
         ->and(Storage::disk(config('filesystems.default'))->allFiles('reports'))->toBeEmpty();
 })->with([
-    'administrator' => [UserRole::Administrator, true],
-    'manager' => [UserRole::Manager, true],
-    'export' => [UserRole::Export, true],
-    'shipment' => [UserRole::Shipment, true],
-    'carrier' => [UserRole::Carrier, false],
-    'user' => [UserRole::User, false],
+    'administrator' => [UserRole::Administrator, true, true],
+    'manager' => [UserRole::Manager, true, true],
+    'export' => [UserRole::Export, true, true],
+    'shipment' => [UserRole::Shipment, false, true],
+    'carrier' => [UserRole::Carrier, true, false],
+    'user' => [UserRole::User, true, false],
 ]);
 
 /*
@@ -340,8 +342,8 @@ it('resume los productos en orden de línea, suma las cajas y conserva el SKU bo
 
     [, $withLines, $withoutLines] = tripsReportRows(asUser(userWithRole(UserRole::Export))->get(tripsReportUri()));
 
-    expect(array_slice($withLines, 22))->toBe(['CODE1 × 120 cajas; CODE2 × 40 cajas', 160])
-        ->and(array_slice($withoutLines, 22))->toBe(['', 0]);
+    expect(array_slice($withLines, 24))->toBe(['CODE1 × 120 cajas; CODE2 × 40 cajas', 160])
+        ->and(array_slice($withoutLines, 24))->toBe(['', 0]);
 });
 
 /*

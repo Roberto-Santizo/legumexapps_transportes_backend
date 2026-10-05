@@ -227,6 +227,7 @@ class TripService implements TripServiceInterface
             ->with(self::RELATIONS)
             ->withSum($this->confirmedFuelGallonsSum(), 'gallons')
             ->withSum($this->confirmedExpensesAmountSum(), 'amount')
+            ->withSum($this->emergencyExpensesAmountSum(), 'amount')
             ->find($id);
 
         if ($trip === null) {
@@ -428,6 +429,13 @@ class TripService implements TripServiceInterface
                 'vehicle_id' => (int) $data['vehicleId'],
                 /** Quién asignó sale del usuario autenticado, nunca del body. */
                 'assigned_by' => $user->id,
+                /**
+                 * Un solo monto por viaje: reasignar lo sobrescribe, sin historial, y el piloto
+                 * no lo confirma — a diferencia de la carga y del viático, no es una fila aparte.
+                 */
+                'bonus' => $data['bonus'],
+                /** El seguro de la carga sigue la misma regla que la bonificación. */
+                'cargo_insurance' => $data['cargoInsurance'],
             ]);
 
             /**
@@ -686,6 +694,7 @@ class TripService implements TripServiceInterface
             ->with(self::RELATIONS)
             ->withSum($this->confirmedFuelGallonsSum(), 'gallons')
             ->withSum($this->confirmedExpensesAmountSum(), 'amount')
+            ->withSum($this->emergencyExpensesAmountSum(), 'amount')
             ->when($lock, fn (Builder $query) => $query->lockForUpdate())
             ->find($id);
 
@@ -1058,7 +1067,21 @@ class TripService implements TripServiceInterface
     }
 
     /**
-     * Load everything a detail read paints: the eight relations and the two sums.
+     * The withSum/loadSum spec that feeds `totalEmergencyExpensesAmount` (SPEC 39).
+     *
+     * Sibling of `confirmedExpensesAmountSum()` but **unrestricted**: an emergency expense
+     * has no confirmation, so every row counts. The value lands on the model as
+     * `total_emergency_expenses_amount`, the single attribute `TripResource` reads for it.
+     *
+     * @return array<int, string>
+     */
+    private function emergencyExpensesAmountSum(): array
+    {
+        return ['emergencyExpenses as total_emergency_expenses_amount'];
+    }
+
+    /**
+     * Load everything a detail read paints: the eight relations and the three sums.
      *
      * Used by the five writes, which already hold the row: `loadSum()` re-reads the sum
      * **after** the write, so an assignment that just inserted a load reports the truth
@@ -1068,7 +1091,8 @@ class TripService implements TripServiceInterface
     {
         return $trip->load(self::RELATIONS)
             ->loadSum($this->confirmedFuelGallonsSum(), 'gallons')
-            ->loadSum($this->confirmedExpensesAmountSum(), 'amount');
+            ->loadSum($this->confirmedExpensesAmountSum(), 'amount')
+            ->loadSum($this->emergencyExpensesAmountSum(), 'amount');
     }
 
     /**

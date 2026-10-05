@@ -6,11 +6,13 @@ use App\Enums\UserRole;
 use App\Enums\VehicleExpenseNature;
 use App\Errors\BadRequestError;
 use App\Http\Resources\Trip\TripListResource;
+use App\Http\Resources\TripEmergencyExpense\TripEmergencyExpenseResource;
 use App\Http\Resources\VehicleExpense\VehicleExpenseResource;
 use App\Interfaces\Report\ReportServiceInterface;
 use App\Interfaces\Report\SpreadsheetWriterInterface;
 use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\Trip\TripServiceInterface;
+use App\Interfaces\TripEmergencyExpense\TripEmergencyExpenseServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
 use App\Models\Trip;
 use App\Models\User;
@@ -63,7 +65,9 @@ final class ReportService implements ReportServiceInterface
     private const string FILE_NAME_TIMESTAMP = 'Y-m-d-His';
 
     /**
-     * Headers of the trips sheet, in the order of `TripListResource`.
+     * Headers of the trips sheet, in the order of `TripListResource`, plus the bonus and
+     * the cargo insurance of the trip at the end: the listing does not carry them, so they
+     * are read from the model.
      *
      * @var list<string>
      */
@@ -71,6 +75,7 @@ final class ReportService implements ReportServiceInterface
         'Id', 'Orden', 'Estado', 'Naviera', 'Punto de partida', 'Puerto', 'Contenedor',
         'Fecha recolección', 'Fecha embarque', 'Inicio', 'Fin', 'Km estimados',
         'Horas estimadas', 'Observaciones', 'Piloto', 'Placa', 'Registrado por',
+        'Bonificación (Q)', 'Seguro de carga (Q)',
     ];
 
     /**
@@ -85,6 +90,15 @@ final class ReportService implements ReportServiceInterface
         'Inicio', 'Fin', 'Km estimados', 'Horas estimadas', 'Km reales', 'Horas reales',
         'Observaciones', 'Piloto', 'Placa', 'Registrado por',
     ];
+
+    /**
+     * Headers of the money columns of the downloadable report —the bonus and the cargo
+     * insurance set on `/assignment`—, appended after the base columns for every role but
+     * `shipment`, which sees no money.
+     *
+     * @var list<string>
+     */
+    private const array TRIP_MONEY_HEADERS = ['Bonificación (Q)', 'Seguro de carga (Q)'];
 
     /**
      * Format of the dates in the downloadable report, the project's own and not ISO 8601.
@@ -122,6 +136,17 @@ final class ReportService implements ReportServiceInterface
     ];
 
     /**
+     * Columns of the emergency expenses export (SPEC 39): the nine keys of
+     * `TripEmergencyExpenseResource` minus `tripId` (every row shares it) and
+     * `receiptType` (implied by the URL).
+     *
+     * @var list<string>
+     */
+    private const array TRIP_EMERGENCY_EXPENSE_HEADERS = [
+        'Id', 'Monto (Q)', 'Descripción', 'Comprobante', 'Registrado por', 'Creado', 'Actualizado',
+    ];
+
+    /**
      * @var array<string, string>
      */
     private const array NATURE_LABELS = [
@@ -136,6 +161,7 @@ final class ReportService implements ReportServiceInterface
     public function __construct(
         private readonly TripServiceInterface $trips,
         private readonly VehicleExpenseServiceInterface $vehicleExpenses,
+        private readonly TripEmergencyExpenseServiceInterface $tripEmergencyExpenses,
         private readonly SpreadsheetWriterInterface $writer,
         private readonly FileStorageServiceInterface $storage,
         private readonly int $maxRows = self::MAX_ROWS,
@@ -147,8 +173,10 @@ final class ReportService implements ReportServiceInterface
         /** @var Collection $trips */
         $trips = $this->trips->getTrips($user, $this->withoutLimit($filters));
 
-        $rows = array_map(
-            static fn (array $trip): array => [
+        $rows = $trips->take($this->maxRows)->map(static function (Trip $model): array {
+            $trip = new TripListResource($model)->resolve();
+
+            return [
                 $trip['id'],
                 $trip['order'],
                 $trip['statusLabel'],
@@ -166,9 +194,10 @@ final class ReportService implements ReportServiceInterface
                 $trip['pilotName'],
                 $trip['vehiclePlate'],
                 $trip['registeredByName'],
-            ],
-            TripListResource::collection($trips->take($this->maxRows))->resolve(),
-        );
+                self::toNumber($model->bonus),
+                self::toNumber($model->cargo_insurance),
+            ];
+        })->values()->all();
 
         return $this->publish('viajes', self::TRIP_HEADERS, $rows, $trips->count());
     }
@@ -206,6 +235,35 @@ final class ReportService implements ReportServiceInterface
     }
 
     #[Override]
+    public function exportTripEmergencyExpenses(User $user, array $filters): array
+    {
+        $result = $this->tripEmergencyExpenses->getTripEmergencyExpenses($user, (int) $filters['tripId'], []);
+
+        /** @var Collection $expenses */
+        $expenses = $result['emergencyExpenses'];
+
+        $rows = array_map(
+            static fn (array $expense): array => [
+                $expense['id'],
+                self::toNumber($expense['amount']),
+                $expense['description'],
+                $expense['receiptUrl'],
+                $expense['registeredByName'],
+                $expense['createdAt'],
+                $expense['updatedAt'],
+            ],
+            TripEmergencyExpenseResource::collection($expenses->take($this->maxRows))->resolve(),
+        );
+
+        $prefix = 'gastos-emergentes-viaje-'.$filters['tripId'];
+
+        return [
+            ...$this->publish($prefix, self::TRIP_EMERGENCY_EXPENSE_HEADERS, $rows, $expenses->count()),
+            'totalAmount' => $result['totalAmount'],
+        ];
+    }
+
+    #[Override]
     public function downloadTrips(User $user, array $filters): array
     {
         /** @var Collection<int, Trip> $trips */
@@ -225,6 +283,9 @@ final class ReportService implements ReportServiceInterface
 
         $withProducts = in_array($user->role, self::PRODUCT_ROLES, true);
 
+        /** Shipment no ve dinero: su reporte se queda sin bonificación ni seguro de la carga. */
+        $withMoney = $user->role !== UserRole::Shipment;
+
         if ($withProducts) {
             /** Solo quien ve los productos paga su consulta; `finishedProduct()` ya lee `withTrashed()`. */
             $trips->load([
@@ -234,15 +295,19 @@ final class ReportService implements ReportServiceInterface
         }
 
         $rows = $trips
-            ->map(static fn (Trip $trip): array => $withProducts
-                ? [...self::tripReportRow($trip), ...self::tripProductCells($trip)]
-                : self::tripReportRow($trip))
+            ->map(static fn (Trip $trip): array => [
+                ...self::tripReportRow($trip),
+                ...($withMoney ? [self::toNumber($trip->bonus), self::toNumber($trip->cargo_insurance)] : []),
+                ...($withProducts ? self::tripProductCells($trip) : []),
+            ])
             ->values()
             ->all();
 
-        $headers = $withProducts
-            ? [...self::TRIP_REPORT_HEADERS, ...self::TRIP_PRODUCT_HEADERS]
-            : self::TRIP_REPORT_HEADERS;
+        $headers = [
+            ...self::TRIP_REPORT_HEADERS,
+            ...($withMoney ? self::TRIP_MONEY_HEADERS : []),
+            ...($withProducts ? self::TRIP_PRODUCT_HEADERS : []),
+        ];
 
         return [
             'fileName' => 'viajes-'.$filters['dateFrom'].'_'.$filters['dateTo'].'.'.self::EXTENSION,

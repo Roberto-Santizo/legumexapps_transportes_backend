@@ -98,6 +98,8 @@ function tripNotificationAssignmentBody(array $team): array
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ];
 }
 

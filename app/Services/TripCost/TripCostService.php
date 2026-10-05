@@ -12,6 +12,7 @@ use App\Models\CarrierPilot;
 use App\Models\CarrierPilotSalaryHistory;
 use App\Models\FuelPrice;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\User;
@@ -47,6 +48,9 @@ class TripCostService implements TripCostServiceInterface
 
         $fuel = $this->resolveFuel($trip);
         $expenses = $this->resolveExpenses($trip);
+        $emergencyExpenses = $this->resolveEmergencyExpenses($trip);
+        $bonus = $this->resolveBonus($trip);
+        $cargoInsurance = $this->resolveCargoInsurance($trip);
         $pilot = $this->resolvePilot($trip, $traveledHours);
         $vehicle = $this->resolveVehicle($trip, $traveledHours);
 
@@ -55,13 +59,19 @@ class TripCostService implements TripCostServiceInterface
             'traveledHours' => $traveledHours,
             'fuel' => $fuel,
             'expenses' => $expenses,
+            'emergencyExpenses' => $emergencyExpenses,
+            'bonus' => $bonus,
+            'cargoInsurance' => $cargoInsurance,
             'pilot' => $pilot,
             'vehicle' => $vehicle,
             /**
-             * La suma de los cuatro subtotales YA redondeados, nunca el redondeo de una
+             * La suma de los siete subtotales YA redondeados, nunca el redondeo de una
              * suma en crudo: el desglose tiene que cuadrar con el total a la vista.
              */
-            'totalCost' => round($fuel['subtotal'] + $expenses['subtotal'] + $pilot['subtotal'] + $vehicle['subtotal'], 2),
+            'totalCost' => round(
+                $fuel['subtotal'] + $expenses['subtotal'] + $emergencyExpenses['subtotal'] + $bonus['subtotal'] + $cargoInsurance['subtotal'] + $pilot['subtotal'] + $vehicle['subtotal'],
+                2,
+            ),
         ];
     }
 
@@ -172,6 +182,68 @@ class TripCostService implements TripCostServiceInterface
         return [
             'count' => (int) ($aggregate?->rows_count ?? 0),
             'subtotal' => round((float) ($aggregate?->rows_amount ?? 0), 2),
+        ];
+    }
+
+    /**
+     * Add up **every** emergency expense of the trip, in one aggregate query (SPEC 39).
+     *
+     * Sibling of `resolveExpenses()` but without a confirmation filter: an emergency
+     * expense has none, so every row counts — the same criterion as
+     * `totalEmergencyExpensesAmount` in `TripResource`. Kept in its own block so the
+     * allowances and the unforeseen expenses never blur together in the cost.
+     *
+     * @return array{count: int, subtotal: float}
+     */
+    private function resolveEmergencyExpenses(Trip $trip): array
+    {
+        $aggregate = TripEmergencyExpense::query()
+            ->where('trip_id', '=', $trip->id)
+            ->selectRaw('count(*) as rows_count, coalesce(sum(amount), 0) as rows_amount')
+            ->first();
+
+        return [
+            'count' => (int) ($aggregate?->rows_count ?? 0),
+            'subtotal' => round((float) ($aggregate?->rows_amount ?? 0), 2),
+        ];
+    }
+
+    /**
+     * Read the bonus the carrier company set when it took the trip.
+     *
+     * No query of its own: it is a column of the trip that is already loaded. There is no
+     * confirmation to filter by, so the amount counts as soon as it is set. A trip assigned
+     * before the column existed keeps it in `null`, which is shown as such while its
+     * subtotal stays at `0.00`, as every other missing input.
+     *
+     * @return array{amount: float|null, subtotal: float}
+     */
+    private function resolveBonus(Trip $trip): array
+    {
+        $amount = $trip->bonus === null ? null : round((float) $trip->bonus, 2);
+
+        return [
+            'amount' => $amount,
+            'subtotal' => $amount ?? 0.0,
+        ];
+    }
+
+    /**
+     * Read the cargo insurance the carrier company set when it took the trip.
+     *
+     * The twin of `resolveBonus()`: a column of the already loaded trip, no confirmation,
+     * `null` before the column existed with its subtotal at `0.00`. A block of its own,
+     * never folded into the bonus.
+     *
+     * @return array{amount: float|null, subtotal: float}
+     */
+    private function resolveCargoInsurance(Trip $trip): array
+    {
+        $amount = $trip->cargo_insurance === null ? null : round((float) $trip->cargo_insurance, 2);
+
+        return [
+            'amount' => $amount,
+            'subtotal' => $amount ?? 0.0,
         ];
     }
 

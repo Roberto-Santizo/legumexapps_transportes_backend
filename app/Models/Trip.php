@@ -51,6 +51,18 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * meaning here —the trip has not finished, or finished before SPEC 32—: a trip that
  * finished with zero or one position stores `0.00`, because zero is a legitimate
  * distance while an empty string is not a polyline.
+ *
+ * `bonus` is the amount in GTQ the carrier company sets when it takes the trip, in the
+ * same `update()` of `/assignment` that writes the crew. Unlike the fuel loads it is a
+ * column and not a table: one amount per trip, overwritten on every reassignment, and
+ * with no confirmation by the pilot. It adds to the direct cost of the trip. `null`
+ * means the trip has not been assigned yet, or was assigned before the column existed.
+ *
+ * `cargo_insurance` is the twin of `bonus`: the amount in GTQ of the cargo insurance
+ * the carrier company sets in that very same `update()` of `/assignment`. Same rules —one
+ * amount per trip, overwritten on every reassignment, never confirmed by the pilot, part
+ * of the direct cost— and the same `null`, but a concept of its own: it is never folded
+ * into the bonus.
  */
 #[Fillable([
     'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
@@ -58,7 +70,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'recolection_date', 'ship_date', 'start_date', 'end_date',
     'polyline', 'estimated_kilometers', 'estimated_hours',
     'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
-    'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by',
+    'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by', 'bonus', 'cargo_insurance',
 ])]
 class Trip extends Model
 {
@@ -177,6 +189,20 @@ class Trip extends Model
     public function expenses(): HasMany
     {
         return $this->hasMany(TripExpense::class);
+    }
+
+    /**
+     * The unforeseen expenses registered on this trip (SPEC 39).
+     *
+     * Same reason to exist as `expenses()`: no Resource exposes the rows, but
+     * `totalEmergencyExpensesAmount` is resolved with `withSum` —unrestricted, since these
+     * expenses have no confirmation— and that needs the relation to hang off.
+     *
+     * @return HasMany<TripEmergencyExpense, $this>
+     */
+    public function emergencyExpenses(): HasMany
+    {
+        return $this->hasMany(TripEmergencyExpense::class);
     }
 
     /**

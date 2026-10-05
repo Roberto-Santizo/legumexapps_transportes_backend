@@ -27,7 +27,7 @@ class TripExpensesTool extends TripNestedTool
 
     public function description(): string
     {
-        return 'Los viáticos entregados al piloto en un viaje, del más antiguo al más reciente. Por viático: monto en quetzales, descripción (puede ser null), si el piloto confirmó haberlo recibido (isConfirmed), cuándo (receivedAt, null si no), quién lo confirmó y quién lo registró. totalAmount suma solo los confirmados, que es el mismo número que totalExpensesAmount en el detalle del viaje. Un viaje sin viáticos devuelve una lista vacía.';
+        return 'Los viáticos entregados al piloto en un viaje, del más antiguo al más reciente. Solo el dinero que la empresa entrega y el piloto confirma: los imprevistos pagados en carretera (llanta, grúa) son gastos emergentes y están en trip_emergency_expenses. Por viático: monto en quetzales, descripción (puede ser null), si el piloto confirmó haberlo recibido (isConfirmed), cuándo (receivedAt, null si no), quién lo confirmó y quién lo registró. totalAmount suma solo los confirmados, que es el mismo número que totalExpensesAmount en el detalle del viaje. Un viaje sin viáticos devuelve una lista vacía.';
     }
 
     public function schema(JsonSchema $schema): array

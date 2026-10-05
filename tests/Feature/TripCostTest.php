@@ -6,6 +6,7 @@ use App\Models\Carrier;
 use App\Models\CarrierPilot;
 use App\Models\FuelPrice;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\User;
@@ -212,7 +213,7 @@ it('responde 403 y no 400 sobre un viaje en curso de otra empresa', function () 
 |--------------------------------------------------------------------------
 */
 
-it('devuelve las ocho claves del desglose y la forma de los cuatro bloques', function () {
+it('devuelve las nueve claves del desglose y la forma de los cinco bloques', function () {
     ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50]);
 
     seedTripCost($trip);
@@ -220,7 +221,7 @@ it('devuelve las ocho claves del desglose y la forma de los cuatro bloques', fun
     $response = asUser($owner)->getJson("/api/trips/{$trip->id}/cost")->assertStatus(200);
 
     expect(array_keys($response->json('data')))->toBe([
-        'tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'pilot', 'vehicle', 'totalCost',
+        'tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'bonus', 'cargoInsurance', 'pilot', 'vehicle', 'totalCost',
     ]);
 
     $response
@@ -228,6 +229,9 @@ it('devuelve las ocho claves del desglose y la forma de los cuatro bloques', fun
             'data' => [
                 'fuel' => ['gallons', 'byType' => [['fuelType', 'gallons', 'pricePerGallon', 'amount']], 'subtotal'],
                 'expenses' => ['count', 'subtotal'],
+                'emergencyExpenses' => ['count', 'subtotal'],
+                'bonus' => ['amount', 'subtotal'],
+                'cargoInsurance' => ['amount', 'subtotal'],
                 'pilot' => ['pilotId', 'pilotName', 'monthlySalary', 'subtotal'],
                 'vehicle' => ['vehicleId', 'plate', 'monthlyInsuranceCost', 'subtotal'],
             ],
@@ -262,17 +266,20 @@ it('pinta el desglose completo con los cuatro componentes', function () {
         ->assertJsonPath('data.totalCost', '1814.35');
 });
 
-it('devuelve el total como suma exacta de los cuatro subtotales tal como salen', function () {
+it('devuelve el total como suma exacta de los cinco subtotales tal como salen', function () {
     ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50]);
 
     seedTripCost($trip);
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 625.40]);
 
     $data = asUser($owner)->getJson("/api/trips/{$trip->id}/cost")->json('data');
 
-    $sum = (float) $data['fuel']['subtotal'] + (float) $data['expenses']['subtotal']
+    $sum = (float) $data['fuel']['subtotal'] + (float) $data['expenses']['subtotal'] + (float) $data['emergencyExpenses']['subtotal']
         + (float) $data['pilot']['subtotal'] + (float) $data['vehicle']['subtotal'];
 
-    expect($data['totalCost'])->toBe(number_format($sum, 2, '.', ''));
+    expect($data['emergencyExpenses']['subtotal'])->toBe('625.40')
+        ->and($data['totalCost'])->toBe(number_format($sum, 2, '.', ''))
+        ->and($data['totalCost'])->toBe('2439.75');
 });
 
 it('devuelve un viaje sin cargas ni viáticos con los bloques en cero', function () {
@@ -287,6 +294,7 @@ it('devuelve un viaje sin cargas ni viáticos con los bloques en cero', function
         ->assertJsonPath('data.fuel.subtotal', '0.00')
         ->assertJsonPath('data.expenses.count', 0)
         ->assertJsonPath('data.expenses.subtotal', '0.00')
+        ->assertJsonPath('data.emergencyExpenses', ['count' => 0, 'subtotal' => '0.00'])
         ->assertJsonPath('data.pilot.subtotal', '0.00')
         ->assertJsonPath('data.vehicle.subtotal', '0.00')
         ->assertJsonPath('data.totalCost', '0.00');
@@ -384,6 +392,7 @@ it('no crece en consultas con el número de cargas, viáticos ni posiciones', fu
         'confirmed_by' => $big->pilot_id,
     ]);
     TripExpense::factory()->confirmed()->count(12)->create(['trip_id' => $big->id]);
+    TripEmergencyExpense::factory()->count(12)->create(['trip_id' => $big->id]);
 
     $count = function (int $tripId) use ($owner): int {
         resetAuthState();
@@ -404,4 +413,53 @@ it('no crece en consultas con el número de cargas, viáticos ni posiciones', fu
     };
 
     expect($count($big->id))->toBe($count($small->id));
+});
+
+it('pinta la bonificación en su propio bloque y la suma al total', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50, 'bonus' => 300]);
+
+    seedTripCost($trip);
+
+    /** 1814.35 del desglose base + 300.00 de bonificación. */
+    asUser($owner)
+        ->getJson("/api/trips/{$trip->id}/cost")
+        ->assertOk()
+        ->assertJsonPath('data.bonus.amount', '300.00')
+        ->assertJsonPath('data.bonus.subtotal', '300.00')
+        ->assertJsonPath('data.totalCost', '2114.35');
+});
+
+it('pinta la bonificación ausente como null con subtotal en cero', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50]);
+
+    asUser($owner)
+        ->getJson("/api/trips/{$trip->id}/cost")
+        ->assertOk()
+        ->assertJsonPath('data.bonus.amount', null)
+        ->assertJsonPath('data.bonus.subtotal', '0.00');
+});
+
+it('pinta el seguro de la carga en su propio bloque y lo suma al total', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50, 'bonus' => 300, 'cargo_insurance' => 125.5]);
+
+    seedTripCost($trip);
+
+    /** 1814.35 del desglose base + 300.00 de bonificación + 125.50 de seguro de la carga. */
+    asUser($owner)
+        ->getJson("/api/trips/{$trip->id}/cost")
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance.amount', '125.50')
+        ->assertJsonPath('data.cargoInsurance.subtotal', '125.50')
+        ->assertJsonPath('data.bonus.subtotal', '300.00')
+        ->assertJsonPath('data.totalCost', '2239.85');
+});
+
+it('pinta el seguro de la carga ausente como null con subtotal en cero', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripWithCost('finished', ['traveled_hours' => 2.50]);
+
+    asUser($owner)
+        ->getJson("/api/trips/{$trip->id}/cost")
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance.amount', null)
+        ->assertJsonPath('data.cargoInsurance.subtotal', '0.00');
 });

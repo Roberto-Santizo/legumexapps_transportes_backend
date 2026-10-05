@@ -2,6 +2,7 @@
 
 use App\Ai\Tools\AssistantTool;
 use App\Ai\Tools\Trip\TripCostTool;
+use App\Ai\Tools\Trip\TripEmergencyExpensesTool;
 use App\Ai\Tools\Trip\TripExpensesTool;
 use App\Ai\Tools\Trip\TripFuelsTool;
 use App\Ai\Tools\Trip\TripsTool;
@@ -12,6 +13,7 @@ use App\Enums\TripStatus;
 use App\Enums\UserRole;
 use App\Interfaces\Trip\TripServiceInterface;
 use App\Interfaces\TripCost\TripCostServiceInterface;
+use App\Interfaces\TripEmergencyExpense\TripEmergencyExpenseServiceInterface;
 use App\Interfaces\TripExpense\TripExpenseServiceInterface;
 use App\Interfaces\TripFuel\TripFuelServiceInterface;
 use App\Interfaces\TripTimeout\TripTimeoutServiceInterface;
@@ -19,6 +21,7 @@ use App\Models\Carrier;
 use App\Models\CarrierPilot;
 use App\Models\FuelPrice;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\TripTimeout;
@@ -37,6 +40,7 @@ function tripTool(string $tool, User $user): AssistantTool
         TripsTool::class, TripTool::class => new $tool($user, app(TripServiceInterface::class)),
         TripFuelsTool::class => new $tool($user, app(TripFuelServiceInterface::class)),
         TripExpensesTool::class => new $tool($user, app(TripExpenseServiceInterface::class)),
+        TripEmergencyExpensesTool::class => new $tool($user, app(TripEmergencyExpenseServiceInterface::class)),
         TripTimeoutsTool::class => new $tool($user, app(TripTimeoutServiceInterface::class)),
         TripCostTool::class => new $tool($user, app(TripCostServiceInterface::class)),
     };
@@ -90,6 +94,7 @@ it('exige tripId en las herramientas de un viaje concreto y nada más', function
     TripTool::class,
     TripFuelsTool::class,
     TripExpensesTool::class,
+    TripEmergencyExpensesTool::class,
     TripTimeoutsTool::class,
     TripCostTool::class,
 ]);
@@ -116,6 +121,7 @@ it('relaya al modelo la falta de tripId como error de validación', function (st
     TripTool::class,
     TripFuelsTool::class,
     TripExpensesTool::class,
+    TripEmergencyExpensesTool::class,
     TripTimeoutsTool::class,
     TripCostTool::class,
 ]);
@@ -174,7 +180,7 @@ it('acota al carrier a la bolsa y a los viajes que tomó su empresa', function (
 */
 
 it('devuelve el detalle del viaje sin la ruta ni las imágenes', function () {
-    $trip = tripToolTripOf(Carrier::factory()->create());
+    $trip = tripToolTripOf(Carrier::factory()->create(), ['bonus' => 180, 'cargo_insurance' => 75]);
     TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id, 'gallons' => 30]);
     TripFuel::factory()->create(['trip_id' => $trip->id, 'gallons' => 5]);
 
@@ -183,7 +189,9 @@ it('devuelve el detalle del viaje sin la ruta ni las imágenes', function () {
     expect($result['id'])->toBe($trip->id)
         ->and($result)->toHaveKeys(['order', 'clientName', 'pilotName', 'vehiclePlate', 'assignedByName', 'estimatedKilometers', 'totalFuelGallons', 'totalExpensesAmount'])
         ->and($result)->not->toHaveKeys(['polyline', 'points', 'traveledPolyline', 'traveledPoints', 'pilotDpiImage', 'pilotLicenseImage', 'vehicleImage'])
-        ->and($result['totalFuelGallons'])->toBe('30.00');
+        ->and($result['totalFuelGallons'])->toBe('30.00')
+        ->and($result['bonus'])->toBe('180.00')
+        ->and($result['cargoInsurance'])->toBe('75.00');
 });
 
 it('devuelve como error el viaje inexistente y el ajeno', function () {
@@ -230,6 +238,48 @@ it('lista los viáticos del viaje sumando solo los confirmados', function () {
         ->and($result['total'])->toBe(2)
         ->and(array_column($result['expenses'], 'isConfirmed'))->toBe([true, false])
         ->and($result['expenses'][0])->toHaveKeys(['amount', 'description', 'receivedAt']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| trip_emergency_expenses (SPEC 39)
+|--------------------------------------------------------------------------
+*/
+
+it('lista los gastos emergentes del viaje sumando todos y sin mezclar los viáticos', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->withReceipt()->create(['trip_id' => $trip->id, 'amount' => 600]);
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 150]);
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 999]);
+
+    $result = callTripTool(tripTool(TripEmergencyExpensesTool::class, tripToolAdmin()), ['tripId' => $trip->id]);
+
+    expect(array_keys($result))->toBe(['totalAmount', 'total', 'returned', 'emergencyExpenses'])
+        ->and($result['totalAmount'])->toBe('750.00')
+        ->and($result['total'])->toBe(2)
+        ->and($result['returned'])->toBe(2)
+        ->and(array_column($result['emergencyExpenses'], 'amount'))->toBe(['600.00', '150.00'])
+        ->and($result['emergencyExpenses'][0])->toHaveKeys(['description', 'receiptUrl', 'receiptType', 'registeredByName', 'createdAt', 'updatedAt'])
+        ->and($result['emergencyExpenses'][0]['receiptType'])->toBe('pdf');
+});
+
+it('pagina los gastos emergentes con el limit que pida el modelo, sin tocar el total', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->count(12)->create(['trip_id' => $trip->id, 'amount' => 10]);
+
+    $result = callTripTool(tripTool(TripEmergencyExpensesTool::class, tripToolAdmin()), ['tripId' => $trip->id, 'limit' => 10]);
+
+    expect($result['total'])->toBe(12)
+        ->and($result['returned'])->toBe(10)
+        ->and($result['totalAmount'])->toBe('120.00');
+});
+
+it('devuelve como error los gastos emergentes de un viaje fuera de ámbito o inexistente', function () {
+    $foreign = tripToolTripOf(Carrier::factory()->create(), ['status' => TripStatus::InRoute]);
+    $owner = User::query()->findOrFail(Carrier::factory()->create()->user_id);
+
+    expect(callTripTool(tripTool(TripEmergencyExpensesTool::class, $owner), ['tripId' => $foreign->id]))->toHaveKey('error')
+        ->and(callTripTool(tripTool(TripEmergencyExpensesTool::class, tripToolAdmin()), ['tripId' => 999999]))->toHaveKey('error');
 });
 
 /*
@@ -294,7 +344,7 @@ it('devuelve el mismo desglose que el endpoint para un viaje finalizado', functi
     $result = callTripTool(tripTool(TripCostTool::class, tripToolAdmin()), ['tripId' => $trip->id]);
 
     expect(array_keys($result))
-        ->toBe(['tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'pilot', 'vehicle', 'totalCost'])
+        ->toBe(['tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'bonus', 'cargoInsurance', 'pilot', 'vehicle', 'totalCost'])
         ->and($result['fuel']['subtotal'])->toBe('1347.50')
         ->and($result['expenses']['subtotal'])->toBe('450.00')
         ->and($result['pilot']['subtotal'])->toBe('15.63')

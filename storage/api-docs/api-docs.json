@@ -6978,7 +6978,7 @@
                     "Reports"
                 ],
                 "summary": "Descargar el reporte de viajes (.xlsx)",
-                "description": "Devuelve un .xlsx con los viajes cuya recolection_date cae entre dateFrom y dateTo, ambos INCLUSIVOS y por día completo. Mismo ámbito, filtros y orden que GET /api/trips (recolection_date desc, id desc); los viajes borrados nunca salen. limit se ignora: el archivo trae TODOS los viajes del rango.\n\nCABECERAS: Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet y Content-Disposition attachment; filename=\"viajes-{dateFrom}_{dateTo}.xlsx\". El frontend hace blob() y descarga con ese nombre.\n\nCOLUMNAS BASE (22, en este orden): Id, Orden, Estado, Cliente, Naviera, Punto de partida, Puerto, Destino final, Transporte, Contenedor, Fecha recolección, Fecha embarque, Inicio, Fin, Km estimados, Horas estimadas, Km reales, Horas reales, Observaciones, Piloto, Placa, Registrado por. Estado en español (Pendiente / En ruta / Finalizado); fechas en d-m-Y h:i:s A (NO ISO 8601); km y horas como celdas NUMÉRICAS; cualquier null es una celda vacía (un viaje de la bolsa trae vacíos Piloto y Placa).\n\nSOLO PARA administrator, manager, export Y shipment se añaden al final «Productos» —texto «CODE × N cajas; CODE × N cajas» en el orden de las líneas, vacío sin líneas; un SKU borrado sigue saliendo— y «Total de cajas» —número, 0 sin líneas—.\n\nUn rango sin viajes responde 200 con un archivo que solo trae la fila de encabezados. Con MÁS DE 5000 viajes responde 400 y no genera archivo: acota el rango.",
+                "description": "Devuelve un .xlsx con los viajes cuya recolection_date cae entre dateFrom y dateTo, ambos INCLUSIVOS y por día completo. Mismo ámbito, filtros y orden que GET /api/trips (recolection_date desc, id desc); los viajes borrados nunca salen. limit se ignora: el archivo trae TODOS los viajes del rango.\n\nCABECERAS: Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet y Content-Disposition attachment; filename=\"viajes-{dateFrom}_{dateTo}.xlsx\". El frontend hace blob() y descarga con ese nombre.\n\nCOLUMNAS BASE (22, en este orden): Id, Orden, Estado, Cliente, Naviera, Punto de partida, Puerto, Destino final, Transporte, Contenedor, Fecha recolección, Fecha embarque, Inicio, Fin, Km estimados, Horas estimadas, Km reales, Horas reales, Observaciones, Piloto, Placa, Registrado por. Estado en español (Pendiente / En ruta / Finalizado); fechas en d-m-Y h:i:s A (NO ISO 8601); km y horas como celdas NUMÉRICAS; cualquier null es una celda vacía (un viaje de la bolsa trae vacíos Piloto y Placa).\n\nSALVO PARA shipment, que no ve dinero, siguen a las base «Bonificación (Q)» y «Seguro de carga (Q)»: los dos montos que la empresa fijó en /assignment, como celdas NUMÉRICAS, vacías si el viaje no se asignó o se asignó antes de existir el dato.\n\nSOLO PARA administrator, manager, export Y shipment se añaden al final «Productos» —texto «CODE × N cajas; CODE × N cajas» en el orden de las líneas, vacío sin líneas; un SKU borrado sigue saliendo— y «Total de cajas» —número, 0 sin líneas—.\n\nUn rango sin viajes responde 200 con un archivo que solo trae la fila de encabezados. Con MÁS DE 5000 viajes responde 400 y no genera archivo: acota el rango.",
                 "operationId": "downloadTripsReport",
                 "parameters": [
                     {
@@ -8473,7 +8473,7 @@
                     "Trip Costs"
                 ],
                 "summary": "Consultar el costo de un viaje finalizado",
-                "description": "Devuelve el desglose del costo directo en GTQ de un viaje ya cerrado: cuánto costó el combustible que el piloto confirmó, cuánto se le entregó en viáticos, y qué parte de su salario mensual y del seguro del vehículo le corresponde por las horas que duró. NO PERSISTE NADA: se calcula al pedirlo.\n\nSOLO ATIENDE VIAJES finished. Un viaje pending o in_route es 400 «El costo solo está disponible para viajes finalizados», aunque tenga cargas y viáticos confirmados. No hay costo parcial ni bandera isFinal: si hace falta seguir el gasto de un viaje en curso, hoy se pide GET /api/trips/{trip}/fuels y GET /api/trips/{trip}/expenses y se suma en el frontend.\n\nLA RUTA LLEVA role: CON TODOS LOS ROLES SALVO shipment (403 del middleware). El service rechaza con 403 A CUALQUIER pilot, INCLUIDO EL ASIGNADO AL VIAJE, con «No tienes permisos para consultar el costo de un viaje»: el desglose revela su salario mensual. Los otros tres entran acotados por el ámbito de SPEC 24: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa. Fuera de ámbito es 403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista», NO 404.\n\nEL ORDEN DE LAS GUARDAS ES CONTRATO Y SE NOTA: 404 (inexistente o borrado) → 403 (piloto o fuera de ámbito) → 400 (no finalizado). Un viaje in_route de otra empresa responde 403 y no 400, y un viaje BORRADO responde 404 aunque además sea ajeno.\n\nNO HAY NI UN SOLO QUERY PARAM NI CUERPO: no hay limit, ni page, ni moneda, ni fecha de corte, ni bandera para incluir depreciación. Cualquier parámetro enviado SE IGNORA en silencio, nunca 422. La respuesta es un OBJETO y no un listado: sin total, sin currentPage y sin lastPage.\n\nCÓMO LEER LA RESPUESTA, en ocho claves: traveledHours sale UNA SOLA VEZ en la raíz porque es el mismo multiplicador de pilot y de vehicle; fuel.byType agrupa POR TIPO de combustible pero multiplica POR CARGA, así que dos cargas a ambos lados de un cambio de precio caen en un solo elemento con sus importes ya sumados; expenses.count es el ÚNICO entero de toda la respuesta y todo lo demás sale como CADENA de dos decimales; y totalCost es la suma EXACTA de los cuatro subtotales tal como salen, nunca el redondeo de una suma en crudo.\n\nATENCIÓN — UN TOTAL BAJO SUELE SER UN INSUMO QUE FALTA, NO UN VIAJE BARATO. Con traveledHours en null (viaje cerrado antes de SPEC 32) los DOS prorrateos salen en \"0.00\" aunque el salario y el seguro tengan valor; con pricePerGallon en null hay galones que no aportan importe porque la carga es anterior al primer precio capturado de su tipo. Los dos huecos se ven en la respuesta a propósito.\n\nLOS NÚMEROS CUADRAN CON EL RESTO DE LA API: fuel.gallons es el mismo totalFuelGallons de TripResource y expenses.subtotal el mismo totalExpensesAmount, porque los tres cuentan solo lo CONFIRMADO.",
+                "description": "Devuelve el desglose del costo directo en GTQ de un viaje ya cerrado: cuánto costó el combustible que el piloto confirmó, cuánto se le entregó en viáticos, y qué parte de su salario mensual y del seguro del vehículo le corresponde por las horas que duró. NO PERSISTE NADA: se calcula al pedirlo.\n\nSOLO ATIENDE VIAJES finished. Un viaje pending o in_route es 400 «El costo solo está disponible para viajes finalizados», aunque tenga cargas y viáticos confirmados. No hay costo parcial ni bandera isFinal: si hace falta seguir el gasto de un viaje en curso, hoy se pide GET /api/trips/{trip}/fuels y GET /api/trips/{trip}/expenses y se suma en el frontend.\n\nLA RUTA LLEVA role: CON TODOS LOS ROLES SALVO shipment (403 del middleware). El service rechaza con 403 A CUALQUIER pilot, INCLUIDO EL ASIGNADO AL VIAJE, con «No tienes permisos para consultar el costo de un viaje»: el desglose revela su salario mensual. Los otros tres entran acotados por el ámbito de SPEC 24: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa. Fuera de ámbito es 403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista», NO 404.\n\nEL ORDEN DE LAS GUARDAS ES CONTRATO Y SE NOTA: 404 (inexistente o borrado) → 403 (piloto o fuera de ámbito) → 400 (no finalizado). Un viaje in_route de otra empresa responde 403 y no 400, y un viaje BORRADO responde 404 aunque además sea ajeno.\n\nNO HAY NI UN SOLO QUERY PARAM NI CUERPO: no hay limit, ni page, ni moneda, ni fecha de corte, ni bandera para incluir depreciación. Cualquier parámetro enviado SE IGNORA en silencio, nunca 422. La respuesta es un OBJETO y no un listado: sin total, sin currentPage y sin lastPage.\n\nCÓMO LEER LA RESPUESTA, en nueve claves: traveledHours sale UNA SOLA VEZ en la raíz porque es el mismo multiplicador de pilot y de vehicle; fuel.byType agrupa POR TIPO de combustible pero multiplica POR CARGA, así que dos cargas a ambos lados de un cambio de precio caen en un solo elemento con sus importes ya sumados; expenses.count y emergencyExpenses.count son los ÚNICOS enteros de toda la respuesta y todo lo demás sale como CADENA de dos decimales; y totalCost es la suma EXACTA de los cinco subtotales tal como salen, nunca el redondeo de una suma en crudo.\n\nATENCIÓN — UN TOTAL BAJO SUELE SER UN INSUMO QUE FALTA, NO UN VIAJE BARATO. Con traveledHours en null (viaje cerrado antes de SPEC 32) los DOS prorrateos salen en \"0.00\" aunque el salario y el seguro tengan valor; con pricePerGallon en null hay galones que no aportan importe porque la carga es anterior al primer precio capturado de su tipo. Los dos huecos se ven en la respuesta a propósito.\n\nLOS NÚMEROS CUADRAN CON EL RESTO DE LA API: fuel.gallons es el mismo totalFuelGallons de TripResource y expenses.subtotal el mismo totalExpensesAmount, porque los tres cuentan solo lo CONFIRMADO.",
                 "operationId": "showTripCost",
                 "parameters": [
                     {
@@ -8489,7 +8489,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Costo obtenido correctamente. Devuelve un OBJETO con las ocho claves del desglose, sin metadatos de paginación. ATENCIÓN — un 200 NO garantiza que los cuatro componentes tengan valor: un insumo ausente sale en null con su subtotal en \"0.00\", porque el endpoint nunca falla por un dato de catálogo incompleto.",
+                        "description": "Costo obtenido correctamente. Devuelve un OBJETO con las nueve claves del desglose, sin metadatos de paginación. ATENCIÓN — un 200 NO garantiza que los cinco componentes tengan valor: un insumo ausente sale en null con su subtotal en \"0.00\", porque el endpoint nunca falla por un dato de catálogo incompleto.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -8534,6 +8534,427 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trips/{trip}/emergency-expenses": {
+            "get": {
+                "tags": [
+                    "Trip Emergency Expenses"
+                ],
+                "summary": "Listar los gastos emergentes de un viaje",
+                "description": "Lista los gastos emergentes del viaje en orden FIJO id ASCENDENTE, sin filtros, con totalAmount (suma de TODOS) en la raíz del sobre, con y sin paginación.\n\nATENCIÓN — ÁMBITO DE SPEC 24: administrator, manager, export y user ven cualquier viaje; carrier los que alcanza su empresa (fuera, 403); el PILOTO ASIGNADO SÍ LEE los de su viaje (otro piloto, 403). shipment recibe 403 del middleware: no ve dinero.\n\nUn viaje SIN GASTOS devuelve 200 con data vacío y totalAmount \"0.00\". Un viaje inexistente o BORRADO es 404 «El viaje no existe».",
+                "operationId": "listTripEmergencyExpenses",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Id numérico del viaje.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Tamaño de página. Su presencia ACTIVA la paginación; sin él (o no numérico) se devuelven todos. Acotado a [10, 100]. No cambia totalAmount.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 10,
+                            "maximum": 100,
+                            "minimum": 10
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "description": "Página solicitada, solo con limit.",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1,
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Gastos emergentes obtenidos correctamente. Sin limit, TripEmergencyExpenseListResponse; con limit numérico, PaginatedTripEmergencyExpenseListResponse. Las dos llevan totalAmount en la raíz.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "#/components/schemas/TripEmergencyExpenseListResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/PaginatedTripEmergencyExpenseListResponse"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "shipment recibe del middleware «No tienes permisos para acceder a este recurso». Un viaje fuera del ámbito de quien llama (un carrier de otra empresa, un piloto que no es el asignado) devuelve el 403 del dominio de viajes.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El viaje no existe (también si fue borrado).",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Trip Emergency Expenses"
+                ],
+                "summary": "Registrar un gasto emergente en un viaje en ruta",
+                "description": "La empresa que tomó el viaje (o el administrador) registra un gasto imprevisto. Con comprobante, el cuerpo va en multipart/form-data; sin él, sirve JSON.\n\nCUATRO GUARDAS EN ORDEN FIJO, después de la validación del cuerpo: viaje inexistente → 404 «El viaje no existe»; borrado → 400 «El viaje ya fue eliminado»; el viaje no lo tomó la empresa de quien llama, INCLUIDO UN VIAJE SIN ASIGNAR → 403 «No puedes registrar gastos emergentes en un viaje que no tomó tu empresa transportista» (el administrador recibe en su lugar 400 «El viaje aún no fue asignado»); el viaje no está in_route → 400 «Solo se pueden registrar gastos emergentes en un viaje en ruta». Un carrier sin empresa recibe 403 «No perteneces a ninguna empresa transportista».\n\nmanager, pilot, export, user y shipment reciben 403 del middleware.",
+                "operationId": "storeTripEmergencyExpense",
+                "parameters": [
+                    {
+                        "name": "trip",
+                        "in": "path",
+                        "description": "Id numérico del viaje.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreTripEmergencyExpenseRequest"
+                            }
+                        },
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoreTripEmergencyExpenseRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Gasto emergente registrado correctamente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 201
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Gasto emergente registrado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/TripEmergencyExpense"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El viaje ya fue eliminado / El viaje aún no fue asignado (administrador) / Solo se pueden registrar gastos emergentes en un viaje en ruta",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Rol no permitido (middleware), carrier sin empresa o viaje que no tomó su empresa.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El viaje no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Monto ausente, no numérico, menor o igual a 0 o mayor que 99999999.99; descripción ausente, en blanco o de más de 255 caracteres; comprobante de otro tipo o de más de 3 MB.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/trip-emergency-expenses/{tripEmergencyExpense}": {
+            "delete": {
+                "tags": [
+                    "Trip Emergency Expenses"
+                ],
+                "summary": "Borrar un gasto emergente",
+                "description": "BORRADO FÍSICO: la fila desaparece y su comprobante se borra del almacenamiento, de forma irreversible. Responde 200 con el gasto borrado (nueve claves). Un segundo DELETE del mismo id es 404.\n\nMismas cuatro guardas, en el mismo orden, que el PATCH: 404 «El gasto emergente no existe» → 400 «El viaje ya fue eliminado» → 403 empresa ajena → 400 «No se pueden modificar los gastos emergentes de un viaje pendiente». Con el viaje in_route o finished se permite.",
+                "operationId": "deleteTripEmergencyExpense",
+                "parameters": [
+                    {
+                        "name": "tripEmergencyExpense",
+                        "in": "path",
+                        "description": "Id numérico DEL GASTO EMERGENTE.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Gasto emergente eliminado correctamente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Gasto emergente eliminado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/TripEmergencyExpense"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El viaje ya fue eliminado / No se pueden modificar los gastos emergentes de un viaje pendiente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Rol no permitido (middleware), carrier sin empresa o gasto de un viaje que no tomó su empresa.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El gasto emergente no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Trip Emergency Expenses"
+                ],
+                "summary": "Corregir un gasto emergente",
+                "description": "Corrige monto, descripción o comprobante. Todos los campos son opcionales y un cuerpo vacío responde 200 sin escribir nada.\n\nATENCIÓN — CON ARCHIVO, ENVIAR POST CON _method=PATCH EN multipart/form-data: PHP no parsea archivos en un PATCH real.\n\nCUATRO GUARDAS EN ORDEN FIJO: gasto inexistente → 404 «El gasto emergente no existe»; viaje borrado → 400 «El viaje ya fue eliminado»; viaje de otra empresa → 403 «No puedes registrar gastos emergentes en un viaje que no tomó tu empresa transportista»; viaje pending → 400 «No se pueden modificar los gastos emergentes de un viaje pendiente» (solo alcanzable si el administrador devolvió el viaje a pending). Con el viaje in_route o finished se permite.\n\nreceipt reemplaza el comprobante y removeReceipt=true lo quita; el archivo anterior se borra después de guardar. Los dos a la vez son 422. tripId, trip_id y registeredBy se ignoran en silencio.",
+                "operationId": "updateTripEmergencyExpense",
+                "parameters": [
+                    {
+                        "name": "tripEmergencyExpense",
+                        "in": "path",
+                        "description": "Id numérico DEL GASTO EMERGENTE, no del viaje. Se obtiene del listado del viaje.",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "example": 3
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateTripEmergencyExpenseRequest"
+                            }
+                        },
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateTripEmergencyExpenseRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Gasto emergente actualizado correctamente.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "statusCode": {
+                                            "type": "integer",
+                                            "example": 200
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Gasto emergente actualizado correctamente"
+                                        },
+                                        "data": {
+                                            "$ref": "#/components/schemas/TripEmergencyExpense"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "El viaje ya fue eliminado / No se pueden modificar los gastos emergentes de un viaje pendiente",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "El token de sesión no es válido o ha expirado",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Rol no permitido (middleware), carrier sin empresa o gasto de un viaje que no tomó su empresa.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "El gasto emergente no existe",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiError"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Campo enviado vacío o inválido, comprobante de otro tipo o de más de 3 MB, o receipt junto con removeReceipt=true.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
                                 }
                             }
                         }
@@ -12682,6 +13103,69 @@
                 },
                 "type": "object"
             },
+            "StoreTripEmergencyExpenseRequest": {
+                "title": "Registro de un gasto emergente",
+                "description": "Cuerpo con el que la empresa transportista (o el administrador) registra UN gasto emergente —un imprevisto en carretera: una llanta pinchada, una grúa— sobre un viaje EN RUTA. TRES CAMPOS: amount y description OBLIGATORIOS, receipt OPCIONAL.\n\nATENCIÓN — SI LLEVA COMPROBANTE EL CUERPO VA EN multipart/form-data, NO EN JSON: un archivo no viaja en un cuerpo JSON. Sin comprobante sirven los dos formatos.\n\nATENCIÓN — NO SE ACEPTA tripId: el viaje va EN LA URL (/api/trips/{trip}/emergency-expenses). registeredBy tampoco: sale del token. Mandarlos se descarta en silencio, con 201.\n\nATENCIÓN — NO HAY CONFIRMACIÓN: a diferencia del viático, el gasto emergente suma en totalAmount y en totalEmergencyExpensesAmount desde el momento en que se registra.\n\nATENCIÓN — LA VALIDACIÓN DEL CUERPO CORRE ANTES QUE LAS CUATRO GUARDAS DEL SERVICE: solo el middleware role (403) va por delante. Un cuerpo inválido sobre un viaje inexistente devuelve 422, no 404.",
+                "required": [
+                    "amount",
+                    "description"
+                ],
+                "properties": {
+                    "amount": {
+                        "description": "Monto del gasto en GTQ. OBLIGATORIO, numérico, MAYOR QUE CERO (min:0.01) y como máximo 99999999.99 (el tope del decimal(10,2)). Mensajes: El monto es obligatorio / El monto debe ser un número / El monto debe ser mayor a 0 / El monto no puede superar 99999999.99. SALE COMO STRING de dos decimales en la respuesta.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 450,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "description": {
+                        "description": "Qué pasó. OBLIGATORIA —sin categorías, es lo único que explica el gasto—, texto de 255 caracteres como máximo. Se guarda TAL COMO SE TECLEA, con solo trim; solo espacios es 422 (La descripción es obligatoria).",
+                        "type": "string",
+                        "example": "Reparación de llanta pinchada en el km 85",
+                        "maxLength": 255
+                    },
+                    "receipt": {
+                        "description": "Comprobante: jpg, jpeg, png o pdf, de 3 MB (3072 KB) como máximo, límite inclusivo. OPCIONAL. Se guarda TAL CUAL, sin recorte ni recompresión. Mensajes: El comprobante debe ser un archivo / El comprobante debe ser un archivo jpg, jpeg, png o pdf / El comprobante no puede pesar más de 3 MB. Requiere upload_max_filesize y post_max_size de 4M o más en el servidor.",
+                        "type": "string",
+                        "format": "binary",
+                        "nullable": true
+                    }
+                },
+                "type": "object"
+            },
+            "UpdateTripEmergencyExpenseRequest": {
+                "title": "Corrección de un gasto emergente",
+                "description": "Cuerpo para corregir un gasto emergente. CUATRO CAMPOS, TODOS OPCIONALES: amount, description, receipt y removeReceipt. Un cuerpo vacío responde 200 SIN ESCRIBIR NADA (updatedAt no cambia).\n\nATENCIÓN — CON ARCHIVO, EL CUERPO VA EN multipart/form-data Y LA PETICIÓN DEBE SER POST CON _method=PATCH: PHP no llena $_FILES en un PATCH real. Es la misma mecánica que el PATCH de vehículos.\n\nATENCIÓN — receipt REEMPLAZA el comprobante y removeReceipt=true LO QUITA; en los dos casos el archivo anterior se borra del almacenamiento de forma irreversible, después de guardar la fila. Mandar receipt Y removeReceipt=true a la vez es 422 y no toca nada.\n\nATENCIÓN — tripId, trip_id y registeredBy son INMUTABLES: si se mandan se ignoran en silencio, con 200.",
+                "properties": {
+                    "amount": {
+                        "description": "Nuevo monto en GTQ. Si viaja, numérico, mayor que cero y como máximo 99999999.99; vacío o null es 422 (El monto no puede estar vacío).",
+                        "type": "number",
+                        "format": "float",
+                        "example": 475.5,
+                        "maximum": 99999999.99,
+                        "minimum": 0.01
+                    },
+                    "description": {
+                        "description": "Nueva descripción, de 255 caracteres como máximo, con solo trim. Si viaja no puede quedar vacía (La descripción no puede estar vacía).",
+                        "type": "string",
+                        "example": "Reparación de llanta y cambio de válvula",
+                        "maxLength": 255
+                    },
+                    "receipt": {
+                        "description": "Nuevo comprobante (jpg, jpeg, png o pdf, máximo 3 MB). REEMPLAZA al anterior, que se borra del almacenamiento. Incompatible con removeReceipt=true (422: No puedes enviar un comprobante y pedir que se quite al mismo tiempo).",
+                        "type": "string",
+                        "format": "binary",
+                        "nullable": true
+                    },
+                    "removeReceipt": {
+                        "description": "true quita el comprobante: la fila queda con receiptUrl en null y el archivo se borra del almacenamiento. Acepta true/false, 1/0 y las cadenas \"true\"/\"false\" (para multipart). false o ausente no hace nada.",
+                        "type": "boolean",
+                        "example": false
+                    }
+                },
+                "type": "object"
+            },
             "StoreTripExpenseRequest": {
                 "title": "Registro de un viático",
                 "description": "Cuerpo JSON con el que la empresa transportista registra UN viático (dinero entregado al piloto) sobre un viaje que ya tomó. DOS CAMPOS —amount y description— Y SOLO amount ES OBLIGATORIO. Un cuerpo vacío es 422 señalando amount.\n\nATENCIÓN — NO SE ACEPTA tripId: el viaje va EN LA URL (/api/trips/{trip}/expenses), igual que en las cargas de combustible de SPEC 27. Y tampoco se acepta nada del ciclo de vida del viático: receivedAt, confirmedBy ni registeredBy. La fecha la pone el servidor con now() CUANDO EL PILOTO CONFIRMA, el piloto sale de su propio token en esa otra llamada y el autor del alta sale del token de quien registra. Mandar cualquiera de ellos SE DESCARTA EN SILENCIO, con 201 y sin 422.\n\nATENCIÓN — EL VIÁTICO NACE SIN CONFIRMAR Y NO HAY FORMA DE CREARLO YA CONFIRMADO. Registrar no es confirmar: quien registra es el transportista y quien confirma haber recibido el dinero es el piloto asignado, con PATCH /api/trip-expenses/{tripExpense}/confirm. Hasta entonces isConfirmed es false, receivedAt es null y ESTE MONTO NO SUMA NI EN totalAmount NI EN totalExpensesAmount.\n\nATENCIÓN — NO HAY NINGUNA VALIDACIÓN CRUZADA SOBRE amount: ni contra un techo de negocio, ni contra la distancia del viaje, ni contra lo ya entregado. Y como la tabla es APPEND-ONLY —no hay PATCH ni DELETE de un viático—, un 3500 tecleado en vez de un 350 se queda para siempre y no se puede compensar, porque el monto no admite negativos. EL FRONTEND DEBE CONFIRMAR LA CANTIDAD ANTES DE MANDAR EL POST.\n\nATENCIÓN — LA VALIDACIÓN DEL CUERPO CORRE ANTES QUE LAS CUATRO GUARDAS DEL SERVICE: solo el middleware role:carrier (403) va por delante. Un cuerpo inválido sobre un viaje INEXISTENTE devuelve 422, no 404, y sobre un viaje borrado, ajeno o ya finalizado también 422, no 400 ni 403.",
@@ -12811,12 +13295,14 @@
             },
             "AssignTripRequest": {
                 "title": "Asignación de tripulación a un viaje",
-                "description": "Cuerpo JSON con el que una empresa transportista TOMA un viaje. CUATRO CAMPOS OBLIGATORIOS —pilotId, vehicleId, fuelGallons y fuelType—: no se puede asignar solo el piloto, solo el vehículo ni la tripulación sin combustible, y faltar cualquiera de ellos es 422. Y DOS OPCIONALES desde SPEC 31 —expenseAmount y expenseDescription—: el primer viático del viaje, si la empresa lo entrega en este mismo acto.\n\nATENCIÓN — EL VIÁTICO ES OPCIONAL Y NO ROMPE NADA (SPEC 31). Si viaja expenseAmount, la asignación inserta el primer viático en trip_expenses dentro de la MISMA TRANSACCIÓN que la carga de combustible, sin confirmar —receivedAt y confirmedBy en null—, así que el viaje sale con totalExpensesAmount en \"0.00\" hasta que el piloto pase por PATCH /api/trip-expenses/{tripExpense}/confirm. Si NO viaja, no se crea ninguna fila y la asignación queda exactamente como hasta SPEC 30. expenseDescription SIN expenseAmount SE IGNORA EN SILENCIO, con 200 y sin 422. Reasignar con monto AÑADE otro viático, como la carga. Un viaje ARRANCA CON O SIN VIÁTICOS: /start no los exige.\n\nATENCIÓN — CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA (SPEC 27). Este cuerpo pasó de DOS campos a CUATRO: un cliente que siga mandando solo pilotId y vehicleId recibe 422 EN TODAS SUS ASIGNACIONES, con «Los galones de combustible son obligatorios» y «El tipo de combustible es obligatorio». No hay periodo de convivencia ni valor por defecto, igual que el POST de vehículos en SPEC 13, el de destinos en SPEC 21 y el register de SPEC 25. Asignar tripulación y asignar combustible son el mismo acto: así ningún viaje queda asignado con cero cargas.\n\nATENCIÓN — LA ASIGNACIÓN INSERTA LA PRIMERA CARGA DE COMBUSTIBLE, dentro de la MISMA TRANSACCIÓN y detrás del mismo bloqueo de fila: si el INSERT falla, la asignación entera se deshace y NO QUEDA NINGUNA FILA en trip_fuels. Igual que si falla cualquiera de las guardas (403 o 400): no se crea nada. La carga nace SIN CONFIRMAR —loadedAt y confirmedBy en null—, así que el viaje sale de aquí con totalFuelGallons en \"0.00\" hasta que el piloto pase por PATCH /api/trip-fuels/{tripFuel}/confirm, Y NO PUEDE ARRANCAR MIENTRAS NO LO HAGA: /start responde 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje».\n\nATENCIÓN — REASIGNAR AÑADE OTRA CARGA, NO PISA LA ANTERIOR. Cada llamada válida deja una fila nueva en trip_fuels, así que reasignar dos veces un viaje pending deja DOS cargas y las dos suman en cuanto se confirmen. Es el único rastro que deja una reasignación —piloto y vehículo se sobrescriben sin dejar historial— y sale gratis. Y como la tabla es APPEND-ONLY, esa carga de más no se puede borrar ni corregir por API.\n\nATENCIÓN — ES EXCLUSIVO DEL ROL carrier Y ADEMÁS EXIGE EMPRESA. La ruta lleva role:carrier y carrier.required: un administrator, un manager o un pilot reciben 403 «No tienes permisos para acceder a este recurso», y un carrier que todavía no ha registrado su empresa recibe 403 «Debes estar vinculado a un transportista para acceder a este recurso» ANTES DE LLEGAR AL SERVICE. EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA, y el PATCH general tampoco acepta estos dos campos.\n\nATENCIÓN — NO EXISTE LA DESASIGNACIÓN. Mandar null en cualquiera de los cuatro es 422: una vez tomado, un viaje NO VUELVE NUNCA A LA BOLSA y pilot_id y vehicle_id no regresan a null por ninguna vía. Se pueden CAMBIAR —reasignar— pero solo mientras el viaje siga pending y solo desde la empresa que ya lo tomó; sobre un viaje in_route o finished la respuesta es 400 «Solo se puede asignar un viaje pendiente». Consecuencia real: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, la única salida por API es borrarlo y crearlo de nuevo.\n\nassignedBy NO SE ENVÍA, y tampoco nada del ciclo de vida de la carga —loadedAt, confirmedBy ni registeredBy—: sale del usuario autenticado, que por el middleware es siempre un transportista, y se escribe junto con los otros dos —no existe un viaje con piloto y sin assignedBy—. Guarda el USUARIO, pero el ámbito compara su EMPRESA: cualquier compañero de esa empresa ve el viaje y puede reasignarlo.\n\nATENCIÓN — REPARTO 422 / 400: el exists: convierte un id inventado en 422; que el usuario tenga rol de piloto, que tenga empresa, que el vehículo esté active y que los dos sean de la MISMA empresa son reglas de negocio y salen como 400 desde el service, cada una con su mensaje literal. Los dos campos de combustible NO añaden ningún 400: se validan solo contra el formato y el enum.\n\nLa escritura corre dentro de una transacción con bloqueo de fila, así que dos transportistas que intenten tomar el mismo viaje a la vez no se pisan: solo uno gana y el otro recibe 403 o 400.",
+                "description": "Cuerpo JSON con el que una empresa transportista TOMA un viaje. CUATRO CAMPOS OBLIGATORIOS —pilotId, vehicleId, fuelGallons y fuelType—: no se puede asignar solo el piloto, solo el vehículo ni la tripulación sin combustible, y faltar cualquiera de ellos es 422. Y DOS OPCIONALES desde SPEC 31 —expenseAmount y expenseDescription—: el primer viático del viaje, si la empresa lo entrega en este mismo acto.\n\nATENCIÓN — EL VIÁTICO ES OPCIONAL Y NO ROMPE NADA (SPEC 31). Si viaja expenseAmount, la asignación inserta el primer viático en trip_expenses dentro de la MISMA TRANSACCIÓN que la carga de combustible, sin confirmar —receivedAt y confirmedBy en null—, así que el viaje sale con totalExpensesAmount en \"0.00\" hasta que el piloto pase por PATCH /api/trip-expenses/{tripExpense}/confirm. Si NO viaja, no se crea ninguna fila y la asignación queda exactamente como hasta SPEC 30. expenseDescription SIN expenseAmount SE IGNORA EN SILENCIO, con 200 y sin 422. Reasignar con monto AÑADE otro viático, como la carga. Un viaje ARRANCA CON O SIN VIÁTICOS: /start no los exige.\n\nATENCIÓN — CAMBIO INCOMPATIBLE SIN PERIODO DE GRACIA (SPEC 27). Este cuerpo pasó de DOS campos a CUATRO: un cliente que siga mandando solo pilotId y vehicleId recibe 422 EN TODAS SUS ASIGNACIONES, con «Los galones de combustible son obligatorios» y «El tipo de combustible es obligatorio». No hay periodo de convivencia ni valor por defecto, igual que el POST de vehículos en SPEC 13, el de destinos en SPEC 21 y el register de SPEC 25. Asignar tripulación y asignar combustible son el mismo acto: así ningún viaje queda asignado con cero cargas.\n\nATENCIÓN — LA ASIGNACIÓN INSERTA LA PRIMERA CARGA DE COMBUSTIBLE, dentro de la MISMA TRANSACCIÓN y detrás del mismo bloqueo de fila: si el INSERT falla, la asignación entera se deshace y NO QUEDA NINGUNA FILA en trip_fuels. Igual que si falla cualquiera de las guardas (403 o 400): no se crea nada. La carga nace SIN CONFIRMAR —loadedAt y confirmedBy en null—, así que el viaje sale de aquí con totalFuelGallons en \"0.00\" hasta que el piloto pase por PATCH /api/trip-fuels/{tripFuel}/confirm, Y NO PUEDE ARRANCAR MIENTRAS NO LO HAGA: /start responde 400 «Debes confirmar al menos una carga de combustible antes de iniciar el viaje».\n\nATENCIÓN — REASIGNAR AÑADE OTRA CARGA, NO PISA LA ANTERIOR. Cada llamada válida deja una fila nueva en trip_fuels, así que reasignar dos veces un viaje pending deja DOS cargas y las dos suman en cuanto se confirmen. Es el único rastro que deja una reasignación —piloto y vehículo se sobrescriben sin dejar historial— y sale gratis. Y como la tabla es APPEND-ONLY, esa carga de más no se puede borrar ni corregir por API.\n\nATENCIÓN — ES EXCLUSIVO DEL ROL carrier Y ADEMÁS EXIGE EMPRESA. La ruta lleva role:carrier y carrier.required: un administrator, un manager o un pilot reciben 403 «No tienes permisos para acceder a este recurso», y un carrier que todavía no ha registrado su empresa recibe 403 «Debes estar vinculado a un transportista para acceder a este recurso» ANTES DE LLEGAR AL SERVICE. EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA, y el PATCH general tampoco acepta estos dos campos.\n\nATENCIÓN — NO EXISTE LA DESASIGNACIÓN. Mandar null en cualquiera de los cuatro es 422: una vez tomado, un viaje NO VUELVE NUNCA A LA BOLSA y pilot_id y vehicle_id no regresan a null por ninguna vía. Se pueden CAMBIAR —reasignar— pero solo mientras el viaje siga pending y solo desde la empresa que ya lo tomó; sobre un viaje in_route o finished la respuesta es 400 «Solo se puede asignar un viaje pendiente». Consecuencia real: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, la única salida por API es borrarlo y crearlo de nuevo.\n\nassignedBy NO SE ENVÍA, y tampoco nada del ciclo de vida de la carga —loadedAt, confirmedBy ni registeredBy—: sale del usuario autenticado, que por el middleware es siempre un transportista, y se escribe junto con los otros dos —no existe un viaje con piloto y sin assignedBy—. Guarda el USUARIO, pero el ámbito compara su EMPRESA: cualquier compañero de esa empresa ve el viaje y puede reasignarlo.\n\nATENCIÓN — REPARTO 422 / 400: el exists: convierte un id inventado en 422; que el usuario tenga rol de piloto, que tenga empresa, que el vehículo esté active y que los dos sean de la MISMA empresa son reglas de negocio y salen como 400 desde el service, cada una con su mensaje literal. Los dos campos de combustible NO añaden ningún 400: se validan solo contra el formato y el enum.\n\nATENCIÓN — CAMBIO INCOMPATIBLE: bonus ES OBLIGATORIO. Este cuerpo pasó de CUATRO campos obligatorios a CINCO: un cliente que no mande bonus recibe 422 «La bonificación es obligatoria» en todas sus asignaciones, sin periodo de gracia. La bonificación es UN SOLO MONTO POR VIAJE —columna trips.bonus, no una tabla—: REASIGNAR LA SOBRESCRIBE, el piloto NO la confirma y suma tal cual en el costo directo (GET /api/trips/{trip}/cost). 0 es válido («sin bonificación»).\n\nATENCIÓN — CAMBIO INCOMPATIBLE: cargoInsurance ES OBLIGATORIO. El cuerpo pasó de CINCO campos obligatorios a SEIS: sin cargoInsurance la respuesta es 422 «El seguro de la carga es obligatorio». Mismas reglas que bonus —columna trips.cargo_insurance, REASIGNAR LO SOBRESCRIBE, el piloto NO lo confirma, suma tal cual en el costo directo— pero es un concepto PROPIO: nunca se suma con la bonificación. 0 es válido («sin seguro»).\n\nLa escritura corre dentro de una transacción con bloqueo de fila, así que dos transportistas que intenten tomar el mismo viaje a la vez no se pisan: solo uno gana y el otro recibe 403 o 400.",
                 "required": [
                     "pilotId",
                     "vehicleId",
                     "fuelGallons",
-                    "fuelType"
+                    "fuelType",
+                    "bonus",
+                    "cargoInsurance"
                 ],
                 "properties": {
                     "pilotId": {
@@ -12846,6 +13332,20 @@
                             "diesel",
                             "diesel_premium"
                         ]
+                    },
+                    "bonus": {
+                        "description": "Bonificación del viaje en GTQ. OBLIGATORIA —CAMBIO INCOMPATIBLE—, numérica, de 0 a 99999999.99, con los mensajes literales: La bonificación es obligatoria / La bonificación debe ser un número / La bonificación no puede ser negativa / La bonificación no puede superar 99999999.99. Se guarda en trips.bonus en el MISMO update que piloto y vehículo: reasignar la SOBRESCRIBE, sin historial. SIN CONFIRMACIÓN del piloto: suma desde ya en el costo directo del viaje. El PATCH general del viaje no la acepta.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 250,
+                        "minimum": 0
+                    },
+                    "cargoInsurance": {
+                        "description": "Seguro de la carga del viaje en GTQ. OBLIGATORIO —CAMBIO INCOMPATIBLE—, numérico, de 0 a 99999999.99, con los mensajes literales: El seguro de la carga es obligatorio / El seguro de la carga debe ser un número / El seguro de la carga no puede ser negativo / El seguro de la carga no puede superar 99999999.99. Se guarda en trips.cargo_insurance en el MISMO update que piloto, vehículo y bonificación: reasignar lo SOBRESCRIBE, sin historial. SIN CONFIRMACIÓN del piloto: suma desde ya en el costo directo del viaje, en un bloque propio. El PATCH general del viaje no lo acepta.",
+                        "type": "number",
+                        "format": "float",
+                        "example": 150,
+                        "minimum": 0
                     },
                     "expenseAmount": {
                         "description": "Monto en GTQ del PRIMER viático del viaje, el que esta llamada inserta en trip_expenses. OPCIONAL (SPEC 31): si se omite o viaja null no se crea ninguna fila. Si viaja, numérico, MAYOR QUE CERO (min:0.01) y hasta 99999999.99, con los mensajes literales: El monto del viático debe ser un número / El monto del viático debe ser mayor a 0 / El monto del viático no puede superar 99999999.99. SIN VALIDACIÓN CRUZADA y APPEND-ONLY: un monto mal tecleado se queda para siempre. Nace SIN CONFIRMAR, así que no suma en totalExpensesAmount hasta que el piloto lo confirme.",
@@ -15682,7 +16182,7 @@
             },
             "TripCost": {
                 "title": "Desglose del costo directo de un viaje finalizado",
-                "description": "El costo en GTQ de un viaje ya cerrado, repartido en CUATRO COMPONENTES. OCHO CLAVES de primer nivel en camelCase y ninguna más, en este orden: tripId, order, traveledHours, fuel, expenses, pilot, vehicle y totalCost.\n\nATENCIÓN — ES COSTO DIRECTO, NO «LO QUE COSTÓ EL VIAJE». Los cuatro componentes son los únicos que existen: combustible confirmado, viáticos confirmados, salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo, mantenimiento (los vehicle_expenses NO se imputan al viaje: la fecha no prueba a qué viaje pertenece un cambio de llantas), peajes, administración, ni ingreso o margen —freight_rates cotiza por libra y trips no guarda peso—. Etiquetar la cifra como «costo total del viaje» en la interfaz sería engañoso.\n\nATENCIÓN — NADA DE ESTO ESTÁ GUARDADO. No hay tabla, ni columna, ni snapshot, ni caché: el número se calcula en cada lectura, como el currentValue de SPEC 17 y el durationMinutes de SPEC 27. Aun así NO CAMBIA entre dos lecturas, porque los cuatro insumos son históricos y están congelados: el precio vigente en cada loaded_at, el salario vigente en el start_date y las traveled_hours ya cerradas por /finish.\n\nATENCIÓN — TODO IMPORTE Y TODO DECIMAL SALEN COMO STRING de dos decimales (\"1347.50\"), igual que gallons en SPEC 27 y estimatedKilometers en SPEC 30: hay que parsearlos para operar. La ÚNICA excepción es expenses.count, que es un entero de verdad.\n\nUN INSUMO QUE FALTA VALE 0.00 Y SE VE COMO null. El endpoint nunca falla por un dato de catálogo incompleto: sin piloto o sin vehículo asignados, sin salario capturado, sin traveled_hours (viaje cerrado antes de SPEC 32) o sin precio de combustible para esa fecha, el insumo sale en null y su subtotal en \"0.00\", siempre con 200. El frontend puede avisar del hueco justamente porque lo ve.\n\ntotalCost ES LA SUMA DE LOS CUATRO SUBTOTALES TAL COMO SALEN, no el redondeo de una suma en crudo: el desglose SIEMPRE cuadra con el total a la vista.",
+                "description": "El costo en GTQ de un viaje ya cerrado, repartido en SIETE COMPONENTES. ONCE CLAVES de primer nivel en camelCase y ninguna más, en este orden: tripId, order, traveledHours, fuel, expenses, emergencyExpenses, bonus, cargoInsurance, pilot, vehicle y totalCost.\n\nATENCIÓN — ES COSTO DIRECTO, NO «LO QUE COSTÓ EL VIAJE». Los siete componentes son los únicos que existen: combustible confirmado, viáticos confirmados, gastos emergentes (SPEC 39, todos: no tienen confirmación), bonificación y seguro de la carga fijados al asignar, salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo, mantenimiento (los vehicle_expenses NO se imputan al viaje: la fecha no prueba a qué viaje pertenece un cambio de llantas), peajes, administración, ni ingreso o margen —freight_rates cotiza por libra y trips no guarda peso—. Etiquetar la cifra como «costo total del viaje» en la interfaz sería engañoso.\n\nATENCIÓN — NADA DE ESTO ESTÁ GUARDADO. No hay tabla, ni columna, ni snapshot, ni caché: el número se calcula en cada lectura, como el currentValue de SPEC 17 y el durationMinutes de SPEC 27. Aun así NO CAMBIA entre dos lecturas, porque los insumos son históricos y están congelados: el precio vigente en cada loaded_at, el salario vigente en el start_date, las traveled_hours ya cerradas por /finish y la bonificación y el seguro de la carga, que solo se escriben en /assignment con el viaje pendiente.\n\nATENCIÓN — TODO IMPORTE Y TODO DECIMAL SALEN COMO STRING de dos decimales (\"1347.50\"), igual que gallons en SPEC 27 y estimatedKilometers en SPEC 30: hay que parsearlos para operar. Las ÚNICAS excepciones son expenses.count y emergencyExpenses.count, que son enteros de verdad.\n\nUN INSUMO QUE FALTA VALE 0.00 Y SE VE COMO null. El endpoint nunca falla por un dato de catálogo incompleto: sin piloto o sin vehículo asignados, sin bonificación o sin seguro de la carga (viaje asignado antes de existir la columna), sin salario capturado, sin traveled_hours (viaje cerrado antes de SPEC 32) o sin precio de combustible para esa fecha, el insumo sale en null y su subtotal en \"0.00\", siempre con 200. El frontend puede avisar del hueco justamente porque lo ve.\n\ntotalCost ES LA SUMA DE LOS SIETE SUBTOTALES TAL COMO SALEN, no el redondeo de una suma en crudo: el desglose SIEMPRE cuadra con el total a la vista.",
                 "properties": {
                     "tripId": {
                         "description": "Id del viaje cuyo costo se desglosa (trips.id), el mismo que viaja en la URL. Va aquí para que un objeto de costo suelto en el estado del frontend siga sabiendo a qué viaje pertenece.",
@@ -15706,6 +16206,15 @@
                     "expenses": {
                         "$ref": "#/components/schemas/TripCostExpenses"
                     },
+                    "emergencyExpenses": {
+                        "$ref": "#/components/schemas/TripCostEmergencyExpenses"
+                    },
+                    "bonus": {
+                        "$ref": "#/components/schemas/TripCostBonus"
+                    },
+                    "cargoInsurance": {
+                        "$ref": "#/components/schemas/TripCostCargoInsurance"
+                    },
                     "pilot": {
                         "$ref": "#/components/schemas/TripCostPilot"
                     },
@@ -15713,7 +16222,7 @@
                         "$ref": "#/components/schemas/TripCostVehicle"
                     },
                     "totalCost": {
-                        "description": "Costo directo total del viaje en GTQ, como CADENA de dos decimales. Es la SUMA EXACTA de los cuatro subtotales tal como salen en esta misma respuesta —se suman ya redondeados, nunca se redondea al final—, así que el desglose siempre cuadra a la vista. ATENCIÓN — un total bajo no significa que el viaje fuera barato: mirar primero si traveledHours es null y si algún pricePerGallon salió en null.",
+                        "description": "Costo directo total del viaje en GTQ, como CADENA de dos decimales. Es la SUMA EXACTA de los siete subtotales tal como salen en esta misma respuesta —se suman ya redondeados, nunca se redondea al final—, así que el desglose siempre cuadra a la vista. ATENCIÓN — un total bajo no significa que el viaje fuera barato: mirar primero si traveledHours es null y si algún pricePerGallon salió en null.",
                         "type": "string",
                         "example": "1814.35"
                     }
@@ -15790,6 +16299,59 @@
                         "description": "Suma de los viáticos confirmados en GTQ, como CADENA de dos decimales. Es el MISMO número que totalExpensesAmount de TripResource y que el totalAmount de GET /api/trips/{trip}/expenses.",
                         "type": "string",
                         "example": "450.00"
+                    }
+                },
+                "type": "object"
+            },
+            "TripCostEmergencyExpenses": {
+                "title": "Componente de gastos emergentes",
+                "description": "Los gastos emergentes del viaje (SPEC 39): TODOS los registrados, porque no tienen confirmación. BLOQUE PROPIO, nunca sumado a expenses (los viáticos). Sin gastos vale { count: 0, subtotal: \"0.00\" }, nunca null. Ojo: como se corrigen y se borran también con el viaje finalizado, este bloque —y totalCost— puede cambiar después del cierre.",
+                "properties": {
+                    "count": {
+                        "description": "Cuántos gastos emergentes tiene el viaje. Entero, no cadena.",
+                        "type": "integer",
+                        "example": 2
+                    },
+                    "subtotal": {
+                        "description": "Suma de los gastos emergentes en GTQ, como CADENA de dos decimales. Es el MISMO número que totalEmergencyExpensesAmount de TripResource y que el totalAmount de GET /api/trips/{trip}/emergency-expenses.",
+                        "type": "string",
+                        "example": "850.00"
+                    }
+                },
+                "type": "object"
+            },
+            "TripCostBonus": {
+                "title": "Componente de bonificación del costo",
+                "description": "La bonificación que la empresa transportista fijó al tomar el viaje (PATCH /api/trips/{trip}/assignment), leída de trips.bonus. UN SOLO MONTO, sin confirmación del piloto: cuenta en cuanto se fija. BLOQUE PROPIO, nunca sumado a viáticos ni a gastos emergentes. Nunca es null como bloque.",
+                "properties": {
+                    "amount": {
+                        "description": "Bonificación del viaje en GTQ, como CADENA de dos decimales. Es el MISMO valor que bonus de TripResource. ATENCIÓN — null en un viaje asignado ANTES de existir la columna (no hubo backfill): en ese caso subtotal es \"0.00\" y la respuesta sigue siendo 200.",
+                        "type": "string",
+                        "example": "250.00",
+                        "nullable": true
+                    },
+                    "subtotal": {
+                        "description": "Bonificación imputada al viaje en GTQ, como CADENA de dos decimales: igual a amount, o \"0.00\" cuando amount es null.",
+                        "type": "string",
+                        "example": "250.00"
+                    }
+                },
+                "type": "object"
+            },
+            "TripCostCargoInsurance": {
+                "title": "Componente de seguro de la carga del costo",
+                "description": "El seguro de la carga que la empresa transportista fijó al tomar el viaje (PATCH /api/trips/{trip}/assignment), leído de trips.cargo_insurance. UN SOLO MONTO, sin confirmación del piloto: cuenta en cuanto se fija. BLOQUE PROPIO, nunca sumado a la bonificación, a viáticos ni a gastos emergentes, y distinto del seguro del vehículo (vehicle.monthlyInsuranceCost). Nunca es null como bloque.",
+                "properties": {
+                    "amount": {
+                        "description": "Seguro de la carga del viaje en GTQ, como CADENA de dos decimales. Es el MISMO valor que cargoInsurance de TripResource. ATENCIÓN — null en un viaje asignado ANTES de existir la columna (no hubo backfill): en ese caso subtotal es \"0.00\" y la respuesta sigue siendo 200.",
+                        "type": "string",
+                        "example": "150.00",
+                        "nullable": true
+                    },
+                    "subtotal": {
+                        "description": "Seguro de la carga imputado al viaje en GTQ, como CADENA de dos decimales: igual a amount, o \"0.00\" cuando amount es null.",
+                        "type": "string",
+                        "example": "150.00"
                     }
                 },
                 "type": "object"
@@ -15871,6 +16433,103 @@
                     }
                 },
                 "type": "object"
+            },
+            "TripEmergencyExpense": {
+                "title": "Gasto emergente de un viaje",
+                "description": "Un gasto imprevisto que surgió con el viaje en ruta —una llanta pinchada, una grúa— y que registró la empresa transportista (o el administrador), con un comprobante opcional. NUEVE CLAVES en camelCase y ninguna más, en este orden: id, tripId, amount, description, receiptUrl, receiptType, registeredByName, createdAt y updatedAt.\n\nATENCIÓN — NO ES UN VIÁTICO: no hay confirmación del piloto, ni isConfirmed, ni receivedAt, ni confirmedByName. Todo gasto emergente suma en totalAmount desde que se registra.\n\nATENCIÓN — amount SALE COMO STRING de dos decimales (\"450.00\"), no como número: el frontend debe convertirlo antes de sumar. GTQ por convención.\n\nATENCIÓN — createdAt y updatedAt NO SON ISO 8601: usan el formato del proyecto d-m-Y h:i:s A. createdAt es la fecha del gasto a efectos de la API (no hay occurred_at); un updatedAt distinto de createdAt delata que el gasto se corrigió.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "tripId": {
+                        "description": "Id del viaje al que pertenece. Viaja porque PATCH y DELETE se piden por /api/trip-emergency-expenses/{tripEmergencyExpense}, fuera del viaje.",
+                        "type": "integer",
+                        "example": 12
+                    },
+                    "amount": {
+                        "description": "Monto en GTQ como CADENA con dos decimales.",
+                        "type": "string",
+                        "example": "450.00"
+                    },
+                    "description": {
+                        "description": "Qué pasó, tal como se tecleó (solo trim). Nunca null.",
+                        "type": "string",
+                        "example": "Reparación de llanta pinchada en el km 85"
+                    },
+                    "receiptUrl": {
+                        "description": "URL PÚBLICA Y ABSOLUTA del comprobante, o null si no tiene. Enlace directo al almacenamiento: no lleva token y no caduca. La API guarda la key y no la URL, así que no sirve como identificador. Tras un DELETE, o tras reemplazarlo o quitarlo con el PATCH, el archivo anterior deja de existir.",
+                        "type": "string",
+                        "format": "uri",
+                        "example": "https://bucket.s3.amazonaws.com/trip-emergency-expenses/9f3a1c2e-4b5d-6e7f-8a9b-0c1d2e3f4a5b.pdf",
+                        "nullable": true
+                    },
+                    "receiptType": {
+                        "description": "Extensión real del comprobante: jpg, png o pdf, o null sin comprobante. Es lo que el cliente mira para decidir si pinta una imagen o un enlace. jpeg se guarda siempre como jpg. Derivada de la key, sin columna propia.",
+                        "type": "string",
+                        "example": "pdf",
+                        "nullable": true,
+                        "enum": [
+                            "jpg",
+                            "png",
+                            "pdf"
+                        ]
+                    },
+                    "registeredByName": {
+                        "description": "Nombre del usuario que registró el gasto. El PATCH no lo cambia.",
+                        "type": "string",
+                        "example": "Transportes del Sur"
+                    },
+                    "createdAt": {
+                        "description": "Fecha de registro, formato d-m-Y h:i:s A.",
+                        "type": "string",
+                        "example": "03-10-2026 02:15:00 PM"
+                    },
+                    "updatedAt": {
+                        "description": "Última corrección, formato d-m-Y h:i:s A. Igual a createdAt si nunca se corrigió.",
+                        "type": "string",
+                        "example": "04-10-2026 09:30:00 AM"
+                    }
+                },
+                "type": "object"
+            },
+            "TripEmergencyExpenseListResponse": {
+                "title": "Gastos emergentes sin paginar",
+                "description": "Respuesta de GET /api/trips/{trip}/emergency-expenses cuando NO se envía limit, o no es numérico: TODOS los gastos emergentes del viaje y el sobre NO incluye total, currentPage ni lastPage. totalAmount SÍ aparece: es dato de negocio, no metadata del paginador.\n\nOrden FIJO id ASCENDENTE. NO HAY FILTROS. Un viaje sin gastos devuelve 200 con data vacío y totalAmount \"0.00\", nunca 404.",
+                "properties": {
+                    "statusCode": {
+                        "type": "integer",
+                        "example": 200
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Gastos emergentes obtenidos correctamente"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TripEmergencyExpense"
+                        }
+                    },
+                    "totalAmount": {
+                        "description": "SUMA de TODOS los gastos emergentes del viaje (no hay confirmación), como CADENA con dos decimales, calculada ANTES de paginar. NO CONFUNDIR CON total, el conteo del paginador. Es el mismo número que totalEmergencyExpensesAmount del detalle del viaje.",
+                        "type": "string",
+                        "example": "850.00"
+                    }
+                },
+                "type": "object"
+            },
+            "PaginatedTripEmergencyExpenseListResponse": {
+                "title": "Gastos emergentes paginados",
+                "description": "Respuesta de GET /api/trips/{trip}/emergency-expenses con un limit numérico: total, currentPage y lastPage APLANADOS EN LA RAÍZ, junto a totalAmount. El tamaño de página se acota a [10, 100].",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/TripEmergencyExpenseListResponse"
+                    },
+                    {
+                        "$ref": "#/components/schemas/PaginationMeta"
+                    }
+                ]
             },
             "TripExpense": {
                 "title": "Viático de un viaje",
@@ -16433,7 +17092,7 @@
             },
             "Trip": {
                 "title": "Viaje de exportación",
-                "description": "El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 42 CLAVES en camelCase —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 19 claves.\n\nATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.\n\nATENCIÓN — LAS SIETE FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.\n\nATENCIÓN — EL status PUEDE CONTRADECIR A LAS FECHAS, Y EL RELATO LO CUENTAN LAS FECHAS. No hay máquina de estados: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que existen viajes finished sin startDate y viajes pending con startDate y endDate puestos (un finished devuelto a pending conserva sus dos fechas de ejecución). Cuando status y fechas se contradigan, el frontend debe pintar el relato desde startDate y endDate, no desde status.\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO. Un viaje NO tiene carrierId: nace de nadie y no hay columna de empresa dueña. La empresa entra en escena cuando toma el viaje, y el vínculo se deriva siempre de assignedById. Por eso administrator y manager ven todos los viajes; un carrier ve la bolsa —los pending con pilotId y vehicleId en null— más los asignados por su propia empresa; y un pilot ve SOLO aquellos donde pilotId es él, sin la bolsa.\n\nATENCIÓN — totalFuelGallons SOLO CUENTA LAS CARGAS CONFIRMADAS (SPEC 27), y es la clave 38, añadida entre registeredByName y totalExpensesAmount. Sale como CADENA de dos decimales y vale \"0.00\" en todo viaje recién asignado, aunque /assignment ya le haya creado su primera carga: confirmar es cosa del piloto. Mientras valga \"0.00\" el viaje NO PUEDE ARRANCAR. Las cargas en sí NO viajan en este recurso —no hay clave fuels— y se piden aparte con GET /api/trips/{trip}/fuels.\n\npoints es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.\n\nATENCIÓN — HAY DOS POLILÍNEAS Y NO SON LA MISMA (SPEC 28): polyline/points es la ruta PREVISTA que mandó el frontend, y traveledPolyline/traveledPoints es la ruta REAL, el rastro de trip_positions que la API codifica UNA SOLA VEZ, al cerrar el viaje con /finish. Van justo después de estimatedKilometers y estimatedHours, como claves 23 y 24. Mientras el viaje no esté finalizado valen null y [] —también en un viaje in_route con miles de puntos reportados: para el rastro en vivo están el websocket y GET /api/trips/{trip}/positions—, y siguen en null/[] en un viaje finalizado sin ningún punto o cerrado antes de SPEC 28. La API no distingue esos tres nulls. Las coordenadas van a CINCO decimales (formato de Google), no a los ocho de trip_positions.\n\nATENCIÓN — LA RUTA PREVISTA SON TRES DATOS, NO UNO (SPEC 30): polyline/points, estimatedKilometers y estimatedHours. Los dos números los mandó el frontend en el alta o en el PATCH, sacados de distanceKilometers/durationHours de GET /api/places/directions, y salen como CADENA con dos decimales (\"104.32\", \"1.75\"), como totalFuelGallons. Son null SOLO en viajes creados antes de SPEC 30 —sin backfill—: por la API no se puede crear ni editar un viaje que quede sin ellos. La API no los coteja con la polilínea ni con el recorrido real. Van como claves 21 y 22, entre points y traveledPolyline, y SÍ SALEN EN EL LISTADO.\n\nATENCIÓN — LA RUTA REAL TAMBIÉN SON TRES DATOS DESDE SPEC 32: traveledPolyline/traveledPoints, traveledKilometers y traveledHours, el espejo exacto de la ruta prevista. Los dos números los CALCULA EL SERVIDOR —no los manda nadie— una sola vez, en PATCH /api/trips/{trip}/finish: traveledKilometers es la suma Haversine de todos los segmentos consecutivos del rastro de trip_positions, EN CRUDO (sin filtrar el ruido GPS de un camión parado ni saltos espurios), y traveledHours es endDate menos startDate en horas decimales, SIN DESCONTAR las paradas. Salen como CADENA con dos decimales (\"111.40\", \"2.10\"), en la misma escala que estimatedKilometers/estimatedHours para comparar a ojo; la API NO los compara: desvío y retraso son una resta del frontend. Van como claves 25 y 26, entre traveledPoints y observations, y SÍ SALEN EN EL LISTADO. ATENCIÓN — null Y \"0.00\" NO SON LO MISMO: null es «no ha terminado» o «terminó antes de SPEC 32» (sin backfill); un viaje que terminó sin puntos o con uno solo vale \"0.00\", a diferencia de traveledPolyline, que ahí queda null.\n\nATENCIÓN — totalExpensesAmount SOLO CUENTA LOS VIÁTICOS CONFIRMADOS (SPEC 31), y es la clave 39, añadida entre totalFuelGallons y createdAt. Sale como CADENA de dos decimales y vale \"0.00\" hasta que el piloto confirme haber recibido el dinero. A diferencia del combustible, NO bloquea nada: /start no exige viáticos. Los viáticos en sí NO viajan en este recurso —no hay clave expenses— y se piden aparte con GET /api/trips/{trip}/expenses.\n\nLas 42 claves salen siempre en este orden: id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, createdAt, updatedAt y deletedAt.",
+                "description": "El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 45 CLAVES en camelCase (46 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 19 claves.\n\nATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.\n\nATENCIÓN — LAS SIETE FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.\n\nATENCIÓN — EL status PUEDE CONTRADECIR A LAS FECHAS, Y EL RELATO LO CUENTAN LAS FECHAS. No hay máquina de estados: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que existen viajes finished sin startDate y viajes pending con startDate y endDate puestos (un finished devuelto a pending conserva sus dos fechas de ejecución). Cuando status y fechas se contradigan, el frontend debe pintar el relato desde startDate y endDate, no desde status.\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO. Un viaje NO tiene carrierId: nace de nadie y no hay columna de empresa dueña. La empresa entra en escena cuando toma el viaje, y el vínculo se deriva siempre de assignedById. Por eso administrator y manager ven todos los viajes; un carrier ve la bolsa —los pending con pilotId y vehicleId en null— más los asignados por su propia empresa; y un pilot ve SOLO aquellos donde pilotId es él, sin la bolsa.\n\nATENCIÓN — totalFuelGallons SOLO CUENTA LAS CARGAS CONFIRMADAS (SPEC 27), y es la clave 38, añadida entre registeredByName y totalExpensesAmount. Sale como CADENA de dos decimales y vale \"0.00\" en todo viaje recién asignado, aunque /assignment ya le haya creado su primera carga: confirmar es cosa del piloto. Mientras valga \"0.00\" el viaje NO PUEDE ARRANCAR. Las cargas en sí NO viajan en este recurso —no hay clave fuels— y se piden aparte con GET /api/trips/{trip}/fuels.\n\npoints es un CAMPO CALCULADO EN LECTURA, sin columna, sin job y sin caché: se decodifica de polyline en cada respuesta. La polilínea la manda el frontend y la API NUNCA LA RECALCULA.\n\nATENCIÓN — HAY DOS POLILÍNEAS Y NO SON LA MISMA (SPEC 28): polyline/points es la ruta PREVISTA que mandó el frontend, y traveledPolyline/traveledPoints es la ruta REAL, el rastro de trip_positions que la API codifica UNA SOLA VEZ, al cerrar el viaje con /finish. Van justo después de estimatedKilometers y estimatedHours, como claves 23 y 24. Mientras el viaje no esté finalizado valen null y [] —también en un viaje in_route con miles de puntos reportados: para el rastro en vivo están el websocket y GET /api/trips/{trip}/positions—, y siguen en null/[] en un viaje finalizado sin ningún punto o cerrado antes de SPEC 28. La API no distingue esos tres nulls. Las coordenadas van a CINCO decimales (formato de Google), no a los ocho de trip_positions.\n\nATENCIÓN — LA RUTA PREVISTA SON TRES DATOS, NO UNO (SPEC 30): polyline/points, estimatedKilometers y estimatedHours. Los dos números los mandó el frontend en el alta o en el PATCH, sacados de distanceKilometers/durationHours de GET /api/places/directions, y salen como CADENA con dos decimales (\"104.32\", \"1.75\"), como totalFuelGallons. Son null SOLO en viajes creados antes de SPEC 30 —sin backfill—: por la API no se puede crear ni editar un viaje que quede sin ellos. La API no los coteja con la polilínea ni con el recorrido real. Van como claves 21 y 22, entre points y traveledPolyline, y SÍ SALEN EN EL LISTADO.\n\nATENCIÓN — LA RUTA REAL TAMBIÉN SON TRES DATOS DESDE SPEC 32: traveledPolyline/traveledPoints, traveledKilometers y traveledHours, el espejo exacto de la ruta prevista. Los dos números los CALCULA EL SERVIDOR —no los manda nadie— una sola vez, en PATCH /api/trips/{trip}/finish: traveledKilometers es la suma Haversine de todos los segmentos consecutivos del rastro de trip_positions, EN CRUDO (sin filtrar el ruido GPS de un camión parado ni saltos espurios), y traveledHours es endDate menos startDate en horas decimales, SIN DESCONTAR las paradas. Salen como CADENA con dos decimales (\"111.40\", \"2.10\"), en la misma escala que estimatedKilometers/estimatedHours para comparar a ojo; la API NO los compara: desvío y retraso son una resta del frontend. Van como claves 25 y 26, entre traveledPoints y observations, y SÍ SALEN EN EL LISTADO. ATENCIÓN — null Y \"0.00\" NO SON LO MISMO: null es «no ha terminado» o «terminó antes de SPEC 32» (sin backfill); un viaje que terminó sin puntos o con uno solo vale \"0.00\", a diferencia de traveledPolyline, que ahí queda null.\n\nATENCIÓN — totalExpensesAmount SOLO CUENTA LOS VIÁTICOS CONFIRMADOS (SPEC 31), y es la clave 39, añadida entre totalFuelGallons y createdAt. Sale como CADENA de dos decimales y vale \"0.00\" hasta que el piloto confirme haber recibido el dinero. A diferencia del combustible, NO bloquea nada: /start no exige viáticos. Los viáticos en sí NO viajan en este recurso —no hay clave expenses— y se piden aparte con GET /api/trips/{trip}/expenses.\n\nATENCIÓN — totalEmergencyExpensesAmount (SPEC 39) es la clave 40, entre totalExpensesAmount y createdAt: la suma de TODOS los gastos emergentes del viaje, sin confirmación. Va SEPARADA de los viáticos. \"0.00\" para shipment. Los gastos en sí se piden con GET /api/trips/{trip}/emergency-expenses.\n\nATENCIÓN — bonus es la clave 41, entre totalEmergencyExpensesAmount y createdAt: la bonificación en GTQ que la empresa fijó al tomar el viaje con /assignment. Es UN SOLO MONTO —columna, no suma—, SIN CONFIRMACIÓN del piloto, que reasignar sobrescribe. null mientras el viaje no se asigne (o si se asignó antes de existir la columna) y SIEMPRE null para shipment.\n\nATENCIÓN — cargoInsurance es la clave 42, entre bonus y createdAt: el seguro de la carga en GTQ que la empresa fijó en el mismo /assignment. Mismas reglas que bonus —un solo monto, sin confirmación, reasignar lo sobrescribe, null sin asignar y SIEMPRE null para shipment— pero concepto propio: nunca se suma con la bonificación.\n\nLas 45 claves salen siempre en este orden (46 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, cargoInsurance, createdAt, updatedAt y deletedAt.",
                 "properties": {
                     "id": {
                         "description": "Identificador numérico del viaje (trips.id). Es el valor que va en el parámetro {trip} de las seis rutas que lo nombran: detalle, actualización, baja, /assignment, /start y /finish. Sobrevive a la edición y a la reasignación, y sobrevive también al DELETE —la fila sigue en la base con su deleted_at puesto—, pero ese id deja de ser alcanzable: el GET responde 404 y las cinco rutas de escritura responden 400 «El viaje ya fue eliminado».",
@@ -16703,6 +17362,23 @@
                         "description": "Viáticos CONFIRMADOS del viaje en GTQ (SPEC 31), como CADENA con dos decimales. ATENCIÓN — SOLO SUMA LOS VIÁTICOS QUE EL PILOTO CONFIRMÓ HABER RECIBIDO: un viaje recién asignado con expenseAmount devuelve \"0.00\" aunque /assignment ya le haya creado su primer viático, porque nace sin confirmar. Es el MISMO número que el totalAmount de GET /api/trips/{trip}/expenses, que lista los pendientes con isConfirmed en false. Lo resuelve un withSum acotado a received_at IS NOT NULL, sin cargar ninguna fila, así que el detalle NO devuelve los viáticos: no hay clave expenses ni contador. A diferencia de totalFuelGallons, NO BLOQUEA NADA: /start no exige viáticos. PARA EL ROL shipment SIEMPRE VALE \"0.00\": ese rol no ve dinero. NO APARECE EN EL LISTADO: TripListItem sigue en 19 claves.",
                         "type": "string",
                         "example": "850.00"
+                    },
+                    "totalEmergencyExpensesAmount": {
+                        "description": "Gastos emergentes del viaje en GTQ (SPEC 39), como CADENA con dos decimales: la suma de TODOS los imprevistos registrados —no hay confirmación—. Es el MISMO número que el totalAmount de GET /api/trips/{trip}/emergency-expenses. NO SE MEZCLA con totalExpensesAmount, que son los viáticos. Vale \"0.00\" sin gastos y SIEMPRE \"0.00\" para el rol shipment, que no ve dinero. ATENCIÓN — en la respuesta de /finish sale \"0.00\" aunque haya gastos, como totalFuelGallons y totalExpensesAmount: /finish no recarga las sumas; el detalle GET /api/trips/{trip} sí. NO APARECE EN EL LISTADO.",
+                        "type": "string",
+                        "example": "350.00"
+                    },
+                    "bonus": {
+                        "description": "Bonificación del viaje en GTQ, como CADENA con dos decimales. La fija la empresa transportista al tomar el viaje (PATCH /api/trips/{trip}/assignment, obligatoria) y REASIGNAR LA SOBRESCRIBE: es un solo monto, no una suma de filas, y el piloto NO la confirma. Suma tal cual en el costo directo (GET /api/trips/{trip}/cost). ATENCIÓN — null mientras el viaje siga en la bolsa, en viajes asignados antes de existir la columna, y SIEMPRE para el rol shipment, que no ve dinero.",
+                        "type": "string",
+                        "example": "250.00",
+                        "nullable": true
+                    },
+                    "cargoInsurance": {
+                        "description": "Seguro de la carga del viaje en GTQ, como CADENA con dos decimales. Lo fija la empresa transportista al tomar el viaje (PATCH /api/trips/{trip}/assignment, obligatorio) y REASIGNAR LO SOBRESCRIBE: es un solo monto y el piloto NO lo confirma. Suma tal cual en el costo directo (GET /api/trips/{trip}/cost), en su propio bloque: nunca se mezcla con bonus. ATENCIÓN — null mientras el viaje siga en la bolsa, en viajes asignados antes de existir la columna, y SIEMPRE para el rol shipment, que no ve dinero.",
+                        "type": "string",
+                        "example": "150.00",
+                        "nullable": true
                     },
                     "createdAt": {
                         "description": "Fecha de alta del viaje. Formato propio d-m-Y h:i:s A, NO ISO 8601, por eso se documenta como string sin format date-time. No cambia nunca y no tiene nada que ver con recolectionDate.",
@@ -17278,7 +17954,7 @@
         },
         {
             "name": "Assistant",
-            "description": "Asistente conversacional del tablero: UN endpoint, POST /api/assistant/chat, que responde en lenguaje natural preguntas sobre viajes, flota y gastos de mantenimiento consultando los mismos datos de /api/dashboard, /api/trips, /api/vehicles y /api/vehicle-expenses. El modelo NUNCA toca la base: llama a trece herramientas que envuelven los services con el usuario autenticado —once de consulta (trips_summary, trips_in_route, vehicle_expenses_summary, fleet, trips, trip, trip_fuels, trip_expenses, trip_timeouts, vehicle, vehicle_expenses) y dos que generan reportes (export_trips, export_vehicle_expenses)—, así que el ámbito por rol es EXACTAMENTE el de cada endpoint: administrator y manager ven todas las empresas; carrier, solo la suya, y cualquier carrierId que el modelo intente mandar se ignora.\n\nREPORTES EXCEL — cuando el usuario pide explícitamente un archivo («genérame un reporte de Excel de los viajes terminados»), el modelo llama a export_trips o export_vehicle_expenses con los mismos filtros de trips / vehicle_expenses. La API genera el .xlsx en el servidor, lo sube al bucket bajo reports/{uuid}.xlsx con URL pública permanente (mismo mecanismo que las facturas y los documentos del piloto) y la herramienta devuelve {fileName, url, rows, total, truncated} (+ totalAmount en gastos). Esa salida viaja en el part tool-output-available (output es un string JSON: hay que parsearlo) y el modelo la cita como enlace Markdown en el texto. Tope de 5000 filas por archivo: si el filtro supera el tope, truncated es true y el archivo trae solo las primeras. El nombre real del objeto es el uuid; fileName es solo para mostrar. No hay purga de reportes ni endpoint de descarga propio.\n\nPERMISOS — mismos middlewares que el tablero: role:administrator,manager,carrier + carrier.required. pilot recibe 403; un carrier sin empresa, 403.\n\nLA RESPUESTA NO ES EL SOBRE JSON HABITUAL: es un stream Server-Sent Events con el protocolo UI Message Stream del Vercel AI SDK (cabeceras Content-Type: text/event-stream y x-vercel-ai-ui-message-stream: v1, líneas data: {...} terminadas en data: [DONE]), pensado para consumirse con useChat + DefaultChatTransport en React. Los parts posibles son start, start-step, text-start/text-delta/text-end, tool-input-available, tool-output-available, finish-step, finish y error.\n\nMEMORIA EN EL CLIENTE — la API no guarda la conversación: en cada petición el cliente manda la lista completa de mensajes (role user/assistant + content) en orden cronológico, el último es la pregunta del turno y los anteriores se pasan al modelo como contexto. Nada se persiste; si el cliente pierde la lista, el asistente no la recuerda.\n\nERRORES — todo lo que puede fallar con un código (401, 403, 422) falla ANTES de abrir el stream y sale con el sobre JSON de siempre. Una vez abierto el stream, un fallo del proveedor de IA llega DENTRO del stream como un part {\"type\":\"error\"} con 200, nunca como 5xx."
+            "description": "Asistente conversacional del tablero: UN endpoint, POST /api/assistant/chat, que responde en lenguaje natural preguntas sobre viajes, flota y gastos de mantenimiento consultando los mismos datos de /api/dashboard, /api/trips, /api/vehicles y /api/vehicle-expenses. El modelo NUNCA toca la base: llama a dieciséis herramientas que envuelven los services con el usuario autenticado —trece de consulta (trips_summary, trips_in_route, vehicle_expenses_summary, fleet, trips, trip, trip_fuels, trip_expenses, trip_emergency_expenses, trip_timeouts, trip_cost, vehicle, vehicle_expenses) y tres que generan reportes (export_trips, export_vehicle_expenses, export_trip_emergency_expenses)—, así que el ámbito por rol es EXACTAMENTE el de cada endpoint: administrator y manager ven todas las empresas; carrier, solo la suya, y cualquier carrierId que el modelo intente mandar se ignora.\n\nREPORTES EXCEL — cuando el usuario pide explícitamente un archivo («genérame un reporte de Excel de los viajes terminados»), el modelo llama a export_trips, export_vehicle_expenses o export_trip_emergency_expenses con los mismos filtros de trips / vehicle_expenses (la última solo con tripId). La API genera el .xlsx en el servidor, lo sube al bucket bajo reports/{uuid}.xlsx con URL pública permanente (mismo mecanismo que las facturas y los documentos del piloto) y la herramienta devuelve {fileName, url, rows, total, truncated} (+ totalAmount en las dos de gastos). Esa salida viaja en el part tool-output-available (output es un string JSON: hay que parsearlo) y el modelo la cita como enlace Markdown en el texto. Tope de 5000 filas por archivo: si el filtro supera el tope, truncated es true y el archivo trae solo las primeras. El nombre real del objeto es el uuid; fileName es solo para mostrar. No hay purga de reportes ni endpoint de descarga propio.\n\nPERMISOS — mismos middlewares que el tablero: role:administrator,manager,carrier + carrier.required. pilot recibe 403; un carrier sin empresa, 403.\n\nLA RESPUESTA NO ES EL SOBRE JSON HABITUAL: es un stream Server-Sent Events con el protocolo UI Message Stream del Vercel AI SDK (cabeceras Content-Type: text/event-stream y x-vercel-ai-ui-message-stream: v1, líneas data: {...} terminadas en data: [DONE]), pensado para consumirse con useChat + DefaultChatTransport en React. Los parts posibles son start, start-step, text-start/text-delta/text-end, tool-input-available, tool-output-available, finish-step, finish y error.\n\nMEMORIA EN EL CLIENTE — la API no guarda la conversación: en cada petición el cliente manda la lista completa de mensajes (role user/assistant + content) en orden cronológico, el último es la pregunta del turno y los anteriores se pasan al modelo como contexto. Nada se persiste; si el cliente pierde la lista, el asistente no la recuerda.\n\nERRORES — todo lo que puede fallar con un código (401, 403, 422) falla ANTES de abrir el stream y sale con el sobre JSON de siempre. Una vez abierto el stream, un fallo del proveedor de IA llega DENTRO del stream como un part {\"type\":\"error\"} con 200, nunca como 5xx."
         },
         {
             "name": "Auth",
@@ -17334,7 +18010,7 @@
         },
         {
             "name": "Reports",
-            "description": "Reportes descargables. Un solo endpoint, GET /api/reports/trips, que devuelve EN BINARIO un .xlsx con los viajes cuya recolection_date cae en el rango. ES LA ÚNICA RESPUESTA DE LA API QUE NO ES EL SOBRE JSON: en éxito el cuerpo es el archivo; los errores 400, 401 y 403 salen por el sobre { statusCode, message, data } y el 422 con el formato de validación de Laravel.\n\nPERMISOS — todo rol salvo pilot (403). Sin carrier.required. EL ÁMBITO ES EL DE GET /api/trips: el carrier recibe la bolsa libre más lo que tomó su empresa; administrator, manager, export, user y shipment, todos los viajes.\n\nCOLUMNAS POR ROL — 22 columnas base para todos; administrator, manager, export y shipment reciben además «Productos» y «Total de cajas» al final (24). carrier y user NO las reciben aunque GET /api/trip-finished-products sí les responda: el reporte tiene su propia matriz.\n\nNada se guarda en el bucket: el archivo se genera en la petición y no hay URL ni historial."
+            "description": "Reportes descargables. Un solo endpoint, GET /api/reports/trips, que devuelve EN BINARIO un .xlsx con los viajes cuya recolection_date cae en el rango. ES LA ÚNICA RESPUESTA DE LA API QUE NO ES EL SOBRE JSON: en éxito el cuerpo es el archivo; los errores 400, 401 y 403 salen por el sobre { statusCode, message, data } y el 422 con el formato de validación de Laravel.\n\nPERMISOS — todo rol salvo pilot (403). Sin carrier.required. EL ÁMBITO ES EL DE GET /api/trips: el carrier recibe la bolsa libre más lo que tomó su empresa; administrator, manager, export, user y shipment, todos los viajes.\n\nCOLUMNAS POR ROL — 22 columnas base para todos; todos salvo shipment reciben después «Bonificación (Q)» y «Seguro de carga (Q)»; administrator, manager, export y shipment reciben además «Productos» y «Total de cajas» al final. Total: 26 para administrator, manager y export; 24 para carrier y user; 24 para shipment. carrier y user NO reciben los productos aunque GET /api/trip-finished-products sí les responda: el reporte tiene su propia matriz.\n\nNada se guarda en el bucket: el archivo se genera en la petición y no hay URL ni historial."
         },
         {
             "name": "ShippingLines",
@@ -17342,11 +18018,15 @@
         },
         {
             "name": "Trips",
-            "description": "Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con NUEVE ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nPERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR Y NO SE PUEDE DESASIGNAR. /assignment es exclusiva del carrier, porque asignar es el acto por el que una empresa TOMA el viaje; el PATCH general NO ACEPTA pilotId ni vehicleId y mandarlos se ignora en silencio con 200. pilot_id y vehicle_id NO VUELVEN NUNCA A null —no hay desasignación, y null en /assignment es 422—. Reasignar solo se puede mientras el viaje siga pending: en in_route o finished es 400. CONSECUENCIA REAL: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta los tres valores sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y NO SE RECALCULA NUNCA. polyline es obligatoria en el alta Y en el PATCH; la resuelve el front con GET /api/places/directions (SPEC 16) y LA API NUNCA LLAMA A GOOGLE. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA y la API no avisa.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS con los espacios interiores colapsados; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan exists:, así que un id INVENTADO es 422; pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO, de modo que un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El cliente seleccionado fue eliminado», «La naviera seleccionada fue eliminada», «El destino seleccionado no es un puerto», «El puerto de destino está inactivo», «El punto de partida está inactivo», «El usuario seleccionado no es un piloto», «El piloto seleccionado no pertenece a ninguna empresa transportista», «El vehículo seleccionado no está activo» y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».\n\nATENCIÓN — IMPACTO DE SPEC 37 (PRODUCTOS TERMINADOS), Y ES INCOMPATIBLE. El POST PASA DE CATORCE CAMPOS A QUINCE: products, una lista obligatoria de al menos una línea { finishedProductId, boxes }, sin repetir producto (422). Cada línea se revalida con 400 «El producto terminado seleccionado ya fue eliminado» / «El producto terminado no pertenece al cliente del viaje», y el viaje y sus líneas se escriben en una transacción. En el PATCH products se IGNORA y cambiar clientId en un viaje con líneas es 400 «No se puede cambiar el cliente de un viaje con productos terminados». Las líneas NO salen en TripResource ni en TripListResource: se leen y editan en /api/trip-finished-products.\n\nCINCO CAMPOS SE DESCARTAN EN EL ALTA SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. El viaje nace pending, sin tripulación, y registeredBy sale del usuario autenticado. En el PATCH, además de pilotId y vehicleId, tampoco se reescriben assignedBy ni registeredBy.\n\n/start Y /finish NO TIENEN CUERPO. La fecha la pone el now() DEL SERVIDOR y mandarla en el body no se usa. start sobre un viaje ya iniciado es 400; finish sobre uno ya finalizado es 400, y sobre uno SIN startDate también es 400. Solo el piloto asignado las alcanza: otro piloto recibe 403.\n\nSOFT DELETES. El listado y el show EXCLUYEN los borrados y no hay parámetro que los devuelva —ni withTrashed, ni onlyTrashed—; un show de un borrado es 404, indistinguible de un id inexistente. En cambio PATCH, /assignment, /start, /finish y el segundo DELETE responden 400 «El viaje ya fue eliminado». NO EXISTE /restore.\n\nEL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.\n\nLA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 19 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 42 claves en camelCase —34 hasta SPEC 27, que añadió totalFuelGallons; 35 hasta SPEC 28, que añadió traveledPolyline y traveledPoints; 37 hasta SPEC 30, que añadió estimatedKilometers y estimatedHours; 39 hasta SPEC 31, que añadió totalExpensesAmount; 40 hasta SPEC 32, que añadió traveledKilometers y traveledHours—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.\n\nATENCIÓN — IMPACTO DE SPEC 27 (COMBUSTIBLE) SOBRE ESTE DOMINIO, Y UNO DE LOS DOS CAMBIOS ES INCOMPATIBLE. Uno: PATCH /api/trips/{trip}/assignment PASA DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType, los cuatro obligatorios, SIN PERIODO DE GRACIA— y crea la primera carga de combustible dentro de su propia transacción; reasignar AÑADE otra carga en vez de pisarla. Dos: PATCH /api/trips/{trip}/start gana un CUARTO 400, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje», comprobado DESPUÉS de «El viaje ya fue iniciado», así que LOS VIAJES ASIGNADOS ANTES DE SPEC 27 NO PUEDEN ARRANCAR hasta que su empresa registre una carga y el piloto la confirme —no hubo backfill y el administrador no puede desbloquearlos—. /finish NO comprueba nada de combustible. El detalle gana la clave totalFuelGallons (solo las cargas CONFIRMADAS), el PATCH general NO acepta fuelGallons ni fuelType —se ignoran en silencio con 200—, GET /api/trips no gana ningún filtro de combustible y TripListItem sigue en 15 claves. Las cargas se gestionan en su propio dominio, Trip Fuels.\n\nIMPACTO DE SPEC 31 (VIÁTICOS) SOBRE ESTE DOMINIO, SIN NADA INCOMPATIBLE: PATCH /api/trips/{trip}/assignment gana DOS CAMPOS OPCIONALES, expenseAmount y expenseDescription, y si viaja el primero crea el primer viático dentro de su misma transacción; sin él nada cambia. El detalle gana la clave totalExpensesAmount (solo los viáticos CONFIRMADOS). Ni /start ni /finish miran los viáticos, el PATCH general NO acepta expenseAmount ni expenseDescription, GET /api/trips no gana filtros y TripListItem sigue en 17 claves. Los viáticos se gestionan en su propio dominio, Trip Expenses.\n\nATENCIÓN — IMPACTO DE SPEC 30 (ESTIMACIONES), Y ES INCOMPATIBLE. El POST PASA DE DOCE CAMPOS A CATORCE —estimatedKilometers y estimatedHours, obligatorios, SIN PERIODO DE GRACIA—, y en el PATCH general los tres campos de la ruta (polyline, estimatedKilometers, estimatedHours) VIAJAN JUNTOS O NINGUNO: un PATCH con solo polyline, válido hasta SPEC 30, ahora es 422. Los dos números son el distanceKilometers y el durationHours de GET /api/places/directions, reenviados sin convertir; la API no los calcula ni los coteja con la polilínea. Salen como cadena de dos decimales en el detalle (claves 21 y 22) Y en el listado (claves 12 y 13), y son null solo en los viajes anteriores a la spec. /assignment, /start y /finish no los tocan.\n\nIMPACTO DE SPEC 32 (DISTANCIA Y TIEMPO REALES), SIN NADA INCOMPATIBLE: el cierre con PATCH /api/trips/{trip}/finish CALCULA Y PERSISTE traveledKilometers —suma Haversine EN CRUDO de los segmentos consecutivos del rastro de trip_positions, sin filtrar ruido GPS— y traveledHours —endDate menos startDate en horas decimales, SIN descontar paradas—, en el mismo UPDATE que endDate, status y traveledPolyline. Salen como cadena de dos decimales en el detalle (claves 25 y 26, tras traveledPoints) Y en el listado (claves 14 y 15, tras estimatedHours), en la misma escala que las estimaciones para comparar a ojo; la API NO las compara. Son null en todo viaje pending o in_route —también en GET /api/trips/current— y en los finalizados antes de la spec (sin backfill); un viaje que terminó con cero o un punto vale \"0.00\", no null. NINGÚN BODY LAS ACEPTA: mandarlas en el POST o en cualquier PATCH se ignora en silencio con 200. /finish no gana guardas, no hay rutas nuevas y GET /api/trips no gana filtros.\n\nIMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto."
+            "description": "Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con NUEVE ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nPERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».\n\nATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.\n\nATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR Y NO SE PUEDE DESASIGNAR. /assignment es exclusiva del carrier, porque asignar es el acto por el que una empresa TOMA el viaje; el PATCH general NO ACEPTA pilotId ni vehicleId y mandarlos se ignora en silencio con 200. pilot_id y vehicle_id NO VUELVEN NUNCA A null —no hay desasignación, y null en /assignment es 422—. Reasignar solo se puede mientras el viaje siga pending: en in_route o finished es 400. CONSECUENCIA REAL: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.\n\nATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta los tres valores sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.\n\nATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y NO SE RECALCULA NUNCA. polyline es obligatoria en el alta Y en el PATCH; la resuelve el front con GET /api/places/directions (SPEC 16) y LA API NUNCA LLAMA A GOOGLE. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA y la API no avisa.\n\nNORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS con los espacios interiores colapsados; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos.\n\nATENCIÓN — EL REPARTO 422 / 400 ES LA TRAMPA PRINCIPAL DEL ALTA. Las cuatro claves foráneas llevan exists:, así que un id INVENTADO es 422; pero esa regla lee la tabla EN CRUDO y NO VE EL BORRADO LÓGICO, de modo que un clientId o un shippingLineId de una fila BORRADA pasa la validación y lo para el service con 400. Las demás reglas de negocio también son 400 desde el service, cada una con su mensaje literal: «El cliente seleccionado fue eliminado», «La naviera seleccionada fue eliminada», «El destino seleccionado no es un puerto», «El puerto de destino está inactivo», «El punto de partida está inactivo», «El usuario seleccionado no es un piloto», «El piloto seleccionado no pertenece a ninguna empresa transportista», «El vehículo seleccionado no está activo» y «El piloto y el vehículo deben pertenecer a la misma empresa transportista».\n\nATENCIÓN — IMPACTO DE SPEC 37 (PRODUCTOS TERMINADOS), Y ES INCOMPATIBLE. El POST PASA DE CATORCE CAMPOS A QUINCE: products, una lista obligatoria de al menos una línea { finishedProductId, boxes }, sin repetir producto (422). Cada línea se revalida con 400 «El producto terminado seleccionado ya fue eliminado» / «El producto terminado no pertenece al cliente del viaje», y el viaje y sus líneas se escriben en una transacción. En el PATCH products se IGNORA y cambiar clientId en un viaje con líneas es 400 «No se puede cambiar el cliente de un viaje con productos terminados». Las líneas NO salen en TripResource ni en TripListResource: se leen y editan en /api/trip-finished-products.\n\nCINCO CAMPOS SE DESCARTAN EN EL ALTA SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. El viaje nace pending, sin tripulación, y registeredBy sale del usuario autenticado. En el PATCH, además de pilotId y vehicleId, tampoco se reescriben assignedBy ni registeredBy.\n\n/start Y /finish NO TIENEN CUERPO. La fecha la pone el now() DEL SERVIDOR y mandarla en el body no se usa. start sobre un viaje ya iniciado es 400; finish sobre uno ya finalizado es 400, y sobre uno SIN startDate también es 400. Solo el piloto asignado las alcanza: otro piloto recibe 403.\n\nSOFT DELETES. El listado y el show EXCLUYEN los borrados y no hay parámetro que los devuelva —ni withTrashed, ni onlyTrashed—; un show de un borrado es 404, indistinguible de un id inexistente. En cambio PATCH, /assignment, /start, /finish y el segundo DELETE responden 400 «El viaje ya fue eliminado». NO EXISTE /restore.\n\nEL LISTADO: ocho filtros TOLERANTES (status, clientId, shippingLineId, locationId, pilotId, vehicleId, dateFrom/dateTo sobre recolectionDate, y search sobre order Y container), donde un valor inválido SE IGNORA y nunca vacía el listado ni da 422; dateFrom y dateTo se leen en Y-m-d estricto; orden fijo recolection_date DESC, id DESC, sin sortBy; y paginación OPT-IN por limit acotado a [1, 100] —el tamaño pedido se respeta tal cual, a diferencia del piso de 10 del resto del proyecto—.\n\nLA SALIDA NO ES LA MISMA EN EL LISTADO Y EN EL DETALLE. GET /api/trips devuelve TripListItem: 19 CLAVES pensadas para una tabla —sin los ids de las relaciones, sin clientName, sin destination ni transport, sin polyline ni points y sin createdAt, updatedAt ni deletedAt—. Los otros siete endpoints devuelven Trip: 43 claves en camelCase (44 en GET /api/trips/{trip}, con positions, salvo para el piloto) —34 hasta SPEC 27, que añadió totalFuelGallons; 35 hasta SPEC 28, que añadió traveledPolyline y traveledPoints; 37 hasta SPEC 30, que añadió estimatedKilometers y estimatedHours; 39 hasta SPEC 31, que añadió totalExpensesAmount; 40 hasta SPEC 32, que añadió traveledKilometers y traveledHours; 42 tras las imágenes del piloto; 43 desde SPEC 39, que añadió totalEmergencyExpensesAmount—, con las seis relaciones como par id + nombre PLANO, nunca anidadas, y con points, un campo calculado en lectura, sin columna y sin caché, que SOLO se calcula en el detalle. En los dos esquemas las fechas usan el formato propio d-m-Y h:i:s A, NO ISO 8601, y status sale con el valor crudo del enum en inglés.\n\nATENCIÓN — IMPACTO DE SPEC 27 (COMBUSTIBLE) SOBRE ESTE DOMINIO, Y UNO DE LOS DOS CAMBIOS ES INCOMPATIBLE. Uno: PATCH /api/trips/{trip}/assignment PASA DE DOS CAMPOS A CUATRO —pilotId, vehicleId, fuelGallons y fuelType, los cuatro obligatorios, SIN PERIODO DE GRACIA— y crea la primera carga de combustible dentro de su propia transacción; reasignar AÑADE otra carga en vez de pisarla. Dos: PATCH /api/trips/{trip}/start gana un CUARTO 400, «Debes confirmar al menos una carga de combustible antes de iniciar el viaje», comprobado DESPUÉS de «El viaje ya fue iniciado», así que LOS VIAJES ASIGNADOS ANTES DE SPEC 27 NO PUEDEN ARRANCAR hasta que su empresa registre una carga y el piloto la confirme —no hubo backfill y el administrador no puede desbloquearlos—. /finish NO comprueba nada de combustible. El detalle gana la clave totalFuelGallons (solo las cargas CONFIRMADAS), el PATCH general NO acepta fuelGallons ni fuelType —se ignoran en silencio con 200—, GET /api/trips no gana ningún filtro de combustible y TripListItem sigue en 15 claves. Las cargas se gestionan en su propio dominio, Trip Fuels.\n\nIMPACTO DE SPEC 31 (VIÁTICOS) SOBRE ESTE DOMINIO, SIN NADA INCOMPATIBLE: PATCH /api/trips/{trip}/assignment gana DOS CAMPOS OPCIONALES, expenseAmount y expenseDescription, y si viaja el primero crea el primer viático dentro de su misma transacción; sin él nada cambia. El detalle gana la clave totalExpensesAmount (solo los viáticos CONFIRMADOS). Ni /start ni /finish miran los viáticos, el PATCH general NO acepta expenseAmount ni expenseDescription, GET /api/trips no gana filtros y TripListItem sigue en 17 claves. Los viáticos se gestionan en su propio dominio, Trip Expenses.\n\nATENCIÓN — IMPACTO DE SPEC 30 (ESTIMACIONES), Y ES INCOMPATIBLE. El POST PASA DE DOCE CAMPOS A CATORCE —estimatedKilometers y estimatedHours, obligatorios, SIN PERIODO DE GRACIA—, y en el PATCH general los tres campos de la ruta (polyline, estimatedKilometers, estimatedHours) VIAJAN JUNTOS O NINGUNO: un PATCH con solo polyline, válido hasta SPEC 30, ahora es 422. Los dos números son el distanceKilometers y el durationHours de GET /api/places/directions, reenviados sin convertir; la API no los calcula ni los coteja con la polilínea. Salen como cadena de dos decimales en el detalle (claves 21 y 22) Y en el listado (claves 12 y 13), y son null solo en los viajes anteriores a la spec. /assignment, /start y /finish no los tocan.\n\nIMPACTO DE SPEC 32 (DISTANCIA Y TIEMPO REALES), SIN NADA INCOMPATIBLE: el cierre con PATCH /api/trips/{trip}/finish CALCULA Y PERSISTE traveledKilometers —suma Haversine EN CRUDO de los segmentos consecutivos del rastro de trip_positions, sin filtrar ruido GPS— y traveledHours —endDate menos startDate en horas decimales, SIN descontar paradas—, en el mismo UPDATE que endDate, status y traveledPolyline. Salen como cadena de dos decimales en el detalle (claves 25 y 26, tras traveledPoints) Y en el listado (claves 14 y 15, tras estimatedHours), en la misma escala que las estimaciones para comparar a ojo; la API NO las compara. Son null en todo viaje pending o in_route —también en GET /api/trips/current— y en los finalizados antes de la spec (sin backfill); un viaje que terminó con cero o un punto vale \"0.00\", no null. NINGÚN BODY LAS ACEPTA: mandarlas en el POST o en cualquier PATCH se ignora en silencio con 200. /finish no gana guardas, no hay rutas nuevas y GET /api/trips no gana filtros.\n\nIMPACTO SOBRE SPEC 22 Y SPEC 23: este dominio es el primer consumidor de Clients y de Shipping Lines, y por eso DELETE /api/clients/{client} y DELETE /api/shipping-lines/{shippingLine} responden AHORA 400 si el cliente o la naviera tienen viajes, INCLUIDOS LOS BORRADOS. Mensajes literales: «No se puede eliminar el cliente porque tiene viajes asociados» y «No se puede eliminar la naviera porque tiene viajes asociados». El resto del contrato de esos dos dominios queda intacto."
         },
         {
             "name": "Trip Costs",
-            "description": "Costo directo en GTQ de un viaje FINALIZADO, calculado en lectura. UN SOLO ENDPOINT Y NINGUNO MÁS: GET /api/trips/{trip}/cost, con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nATENCIÓN — ES COSTO DIRECTO Y SON CUATRO COMPONENTES, NO «LO QUE COSTÓ EL VIAJE»: combustible confirmado a precio histórico, viáticos confirmados, salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo (decisión explícita: purchase_price no entra ni prorrateado), NO imputa los vehicle_expenses de mantenimiento —la fecha no prueba a qué viaje pertenece un cambio de llantas—, y NO hay ingreso, margen ni rentabilidad, porque freight_rates cotiza por libra y trips no guarda peso. Presentar la cifra como «costo total» en la interfaz sería engañoso.\n\nATENCIÓN — SOLO VIAJES finished. Un viaje pending o in_route responde 400 «El costo solo está disponible para viajes finalizados», AUNQUE YA TENGA CARGAS Y VIÁTICOS CONFIRMADOS: no existe el costo parcial ni una bandera isFinal. Un costo en curso obligaría a medir la duración contra now(), que sube en cada refresco, y el frontend tendría que distinguir «va por 1 800» de «costó 1 800».\n\nATENCIÓN — NO HAY NADA GUARDADO Y NO HAY QUE GUARDARLO. Sin tabla, sin migración, sin columna en trips, sin snapshot en /finish y sin caché: el desglose se recalcula en cada lectura, como el currentValue de SPEC 17 y el durationMinutes de SPEC 27. Aun así NO CAMBIA entre dos lecturas, porque los insumos son históricos y están congelados: el precio de combustible vigente en cada loaded_at, el salario vigente en el start_date y las traveled_hours ya cerradas.\n\nPERMISOS: la ruta lleva role: con todos los roles salvo shipment —que no ve dinero y recibe 403 del middleware— y sin carrier.required. El service da 403 A CUALQUIER pilot, INCLUIDO EL ASIGNADO AL VIAJE, con «No tienes permisos para consultar el costo de un viaje», porque el desglose revela su propio salario mensual: mismo trato que el rastro y las paradas, y AL REVÉS que /fuels y /expenses, donde el dato sí es suyo. Los otros tres roles entran acotados por el ÁMBITO DE SPEC 24, que no se reescribe aquí: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa (la bolsa libre son pending y nunca llegan a tener costo).\n\nEL ORDEN DE LAS GUARDAS ES CONTRATO: 404 viaje inexistente O BORRADO → 403 piloto o fuera de ámbito → 400 no finalizado. Un viaje in_route de otra empresa responde 403, NO 400. Un viaje borrado es 404 y no 400, porque esta es una ruta de LECTURA y sigue a GET /api/trips/{trip}, no a las rutas de escritura.\n\nATENCIÓN — UN INSUMO QUE FALTA VALE 0.00 Y SE VE COMO null, NUNCA UN ERROR: sin piloto o vehículo asignados, sin salario capturado, sin traveled_hours (viaje cerrado antes de SPEC 32) o sin precio de combustible para la fecha de una carga, el insumo sale en null, su subtotal en \"0.00\" y la respuesta sigue siendo 200. El endpoint no falla por un catálogo incompleto, y el frontend puede avisar porque ve el hueco.\n\nES UN ENDPOINT DE DETALLE, UNO POR PANTALLA: NO EXISTE GET /api/trips/costs, ni filtros u orden por costo en GET /api/trips, ni agregados de costo en /api/dashboard, ni exportación a Excel del costo. Sin caché y con seis consultas por viaje, pintar el costo de cien viajes en una tabla dispararía seiscientas consultas.\n\nLO QUE ESTE DOMINIO NO CAMBIÓ: TripResource sigue con 42 claves y TripListResource con 19 —el viaje NO gana totalCost—, la tabla trips no gana ni una columna y no hay ninguna migración nueva."
+            "description": "Costo directo en GTQ de un viaje FINALIZADO, calculado en lectura. UN SOLO ENDPOINT Y NINGUNO MÁS: GET /api/trips/{trip}/cost, con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».\n\nATENCIÓN — ES COSTO DIRECTO Y SON CINCO COMPONENTES, NO «LO QUE COSTÓ EL VIAJE»: combustible confirmado a precio histórico, viáticos confirmados, gastos emergentes (SPEC 39, todos: no tienen confirmación, y en bloque propio), salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo (decisión explícita: purchase_price no entra ni prorrateado), NO imputa los vehicle_expenses de mantenimiento —la fecha no prueba a qué viaje pertenece un cambio de llantas—, y NO hay ingreso, margen ni rentabilidad, porque freight_rates cotiza por libra y trips no guarda peso. Presentar la cifra como «costo total» en la interfaz sería engañoso.\n\nATENCIÓN — SOLO VIAJES finished. Un viaje pending o in_route responde 400 «El costo solo está disponible para viajes finalizados», AUNQUE YA TENGA CARGAS Y VIÁTICOS CONFIRMADOS: no existe el costo parcial ni una bandera isFinal. Un costo en curso obligaría a medir la duración contra now(), que sube en cada refresco, y el frontend tendría que distinguir «va por 1 800» de «costó 1 800».\n\nATENCIÓN — NO HAY NADA GUARDADO Y NO HAY QUE GUARDARLO. Sin tabla, sin migración, sin columna en trips, sin snapshot en /finish y sin caché: el desglose se recalcula en cada lectura, como el currentValue de SPEC 17 y el durationMinutes de SPEC 27. Aun así NO CAMBIA entre dos lecturas, porque los insumos son históricos y están congelados: el precio de combustible vigente en cada loaded_at, el salario vigente en el start_date y las traveled_hours ya cerradas.\n\nPERMISOS: la ruta lleva role: con todos los roles salvo shipment —que no ve dinero y recibe 403 del middleware— y sin carrier.required. El service da 403 A CUALQUIER pilot, INCLUIDO EL ASIGNADO AL VIAJE, con «No tienes permisos para consultar el costo de un viaje», porque el desglose revela su propio salario mensual: mismo trato que el rastro y las paradas, y AL REVÉS que /fuels y /expenses, donde el dato sí es suyo. Los otros tres roles entran acotados por el ÁMBITO DE SPEC 24, que no se reescribe aquí: administrator y manager alcanzan cualquier viaje; un carrier, los que asignó su empresa (la bolsa libre son pending y nunca llegan a tener costo).\n\nEL ORDEN DE LAS GUARDAS ES CONTRATO: 404 viaje inexistente O BORRADO → 403 piloto o fuera de ámbito → 400 no finalizado. Un viaje in_route de otra empresa responde 403, NO 400. Un viaje borrado es 404 y no 400, porque esta es una ruta de LECTURA y sigue a GET /api/trips/{trip}, no a las rutas de escritura.\n\nATENCIÓN — UN INSUMO QUE FALTA VALE 0.00 Y SE VE COMO null, NUNCA UN ERROR: sin piloto o vehículo asignados, sin salario capturado, sin traveled_hours (viaje cerrado antes de SPEC 32) o sin precio de combustible para la fecha de una carga, el insumo sale en null, su subtotal en \"0.00\" y la respuesta sigue siendo 200. El endpoint no falla por un catálogo incompleto, y el frontend puede avisar porque ve el hueco.\n\nES UN ENDPOINT DE DETALLE, UNO POR PANTALLA: NO EXISTE GET /api/trips/costs, ni filtros u orden por costo en GET /api/trips, ni agregados de costo en /api/dashboard, ni exportación a Excel del costo. Sin caché y con seis consultas por viaje, pintar el costo de cien viajes en una tabla dispararía seiscientas consultas.\n\nLO QUE ESTE DOMINIO NO CAMBIÓ: TripResource sigue con 42 claves y TripListResource con 19 —el viaje NO gana totalCost—, la tabla trips no gana ni una columna y no hay ninguna migración nueva."
+        },
+        {
+            "name": "Trip Emergency Expenses",
+            "description": "Gastos emergentes del viaje: los imprevistos que surgen con el viaje EN RUTA —una llanta pinchada, una grúa—, registrados por la empresa transportista cuando el piloto le avisa por fuera del sistema, con un comprobante opcional. CUATRO ENDPOINTS, todos con token JWT (Authorization: Bearer {token}); sin él, 401 «El token de sesión no es válido o ha expirado».\n\nLAS CUATRO RUTAS: POST /api/trips/{trip}/emergency-expenses (role:carrier,administrator) registra; GET /api/trips/{trip}/emergency-expenses (todos los roles salvo shipment) lista los del viaje con el ámbito de SPEC 24; PATCH /api/trip-emergency-expenses/{tripEmergencyExpense} (role:carrier,administrator) corrige; DELETE /api/trip-emergency-expenses/{tripEmergencyExpense} (role:carrier,administrator) borra de verdad. Ninguna lleva carrier.required: el ámbito lo resuelve el service.\n\nATENCIÓN — NO ES UN VIÁTICO. El viático (/expenses) es dinero que se ENTREGA y el piloto CONFIRMA; el gasto emergente es dinero que YA SE GASTÓ, sin confirmación: suma desde que se registra. Los dos totales y los dos bloques del costo van SEPARADOS.\n\nATENCIÓN — SOLO SE REGISTRA CON EL VIAJE in_route, pero SE CORRIGE Y SE BORRA TAMBIÉN CON EL VIAJE finished, porque la factura suele llegar después de terminar. No es append-only.\n\nATENCIÓN — EL COMPROBANTE SE GUARDA TAL CUAL (jpg, png o pdf, máximo 3 MB), sin recorte. Un DELETE, un reemplazo o removeReceipt borran el archivo anterior del almacenamiento de forma irreversible.\n\nNO EXISTE UN LISTADO GLOBAL (GET /api/trip-emergency-expenses) ni un detalle por id: el índice va siempre viaje → gastos."
         },
         {
             "name": "Trip Expenses",

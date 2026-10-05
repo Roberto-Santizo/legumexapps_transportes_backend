@@ -12,7 +12,7 @@ use OpenApi\Attributes as OA;
     description: <<<'TEXT'
     Costo directo en GTQ de un viaje FINALIZADO, calculado en lectura. UN SOLO ENDPOINT Y NINGUNO MÁS: GET /api/trips/{trip}/cost, con token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».
 
-    ATENCIÓN — ES COSTO DIRECTO Y SON CUATRO COMPONENTES, NO «LO QUE COSTÓ EL VIAJE»: combustible confirmado a precio histórico, viáticos confirmados, salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo (decisión explícita: purchase_price no entra ni prorrateado), NO imputa los vehicle_expenses de mantenimiento —la fecha no prueba a qué viaje pertenece un cambio de llantas—, y NO hay ingreso, margen ni rentabilidad, porque freight_rates cotiza por libra y trips no guarda peso. Presentar la cifra como «costo total» en la interfaz sería engañoso.
+    ATENCIÓN — ES COSTO DIRECTO Y SON CINCO COMPONENTES, NO «LO QUE COSTÓ EL VIAJE»: combustible confirmado a precio histórico, viáticos confirmados, gastos emergentes (SPEC 39, todos: no tienen confirmación, y en bloque propio), salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo (decisión explícita: purchase_price no entra ni prorrateado), NO imputa los vehicle_expenses de mantenimiento —la fecha no prueba a qué viaje pertenece un cambio de llantas—, y NO hay ingreso, margen ni rentabilidad, porque freight_rates cotiza por libra y trips no guarda peso. Presentar la cifra como «costo total» en la interfaz sería engañoso.
 
     ATENCIÓN — SOLO VIAJES finished. Un viaje pending o in_route responde 400 «El costo solo está disponible para viajes finalizados», AUNQUE YA TENGA CARGAS Y VIÁTICOS CONFIRMADOS: no existe el costo parcial ni una bandera isFinal. Un costo en curso obligaría a medir la duración contra now(), que sube en cada refresco, y el frontend tendría que distinguir «va por 1 800» de «costó 1 800».
 
@@ -52,7 +52,7 @@ class TripCostController extends Controller
 
         NO HAY NI UN SOLO QUERY PARAM NI CUERPO: no hay limit, ni page, ni moneda, ni fecha de corte, ni bandera para incluir depreciación. Cualquier parámetro enviado SE IGNORA en silencio, nunca 422. La respuesta es un OBJETO y no un listado: sin total, sin currentPage y sin lastPage.
 
-        CÓMO LEER LA RESPUESTA, en ocho claves: traveledHours sale UNA SOLA VEZ en la raíz porque es el mismo multiplicador de pilot y de vehicle; fuel.byType agrupa POR TIPO de combustible pero multiplica POR CARGA, así que dos cargas a ambos lados de un cambio de precio caen en un solo elemento con sus importes ya sumados; expenses.count es el ÚNICO entero de toda la respuesta y todo lo demás sale como CADENA de dos decimales; y totalCost es la suma EXACTA de los cuatro subtotales tal como salen, nunca el redondeo de una suma en crudo.
+        CÓMO LEER LA RESPUESTA, en nueve claves: traveledHours sale UNA SOLA VEZ en la raíz porque es el mismo multiplicador de pilot y de vehicle; fuel.byType agrupa POR TIPO de combustible pero multiplica POR CARGA, así que dos cargas a ambos lados de un cambio de precio caen en un solo elemento con sus importes ya sumados; expenses.count y emergencyExpenses.count son los ÚNICOS enteros de toda la respuesta y todo lo demás sale como CADENA de dos decimales; y totalCost es la suma EXACTA de los cinco subtotales tal como salen, nunca el redondeo de una suma en crudo.
 
         ATENCIÓN — UN TOTAL BAJO SUELE SER UN INSUMO QUE FALTA, NO UN VIAJE BARATO. Con traveledHours en null (viaje cerrado antes de SPEC 32) los DOS prorrateos salen en "0.00" aunque el salario y el seguro tengan valor; con pricePerGallon en null hay galones que no aportan importe porque la carga es anterior al primer precio capturado de su tipo. Los dos huecos se ven en la respuesta a propósito.
 
@@ -72,7 +72,7 @@ class TripCostController extends Controller
         responses: [
             new OA\Response(
                 response: 200,
-                description: 'Costo obtenido correctamente. Devuelve un OBJETO con las ocho claves del desglose, sin metadatos de paginación. ATENCIÓN — un 200 NO garantiza que los cuatro componentes tengan valor: un insumo ausente sale en null con su subtotal en "0.00", porque el endpoint nunca falla por un dato de catálogo incompleto.',
+                description: 'Costo obtenido correctamente. Devuelve un OBJETO con las nueve claves del desglose, sin metadatos de paginación. ATENCIÓN — un 200 NO garantiza que los cinco componentes tengan valor: un insumo ausente sale en null con su subtotal en "0.00", porque el endpoint nunca falla por un dato de catálogo incompleto.',
                 content: new OA\JsonContent(ref: '#/components/schemas/TripCostResponse'),
             ),
             new OA\Response(

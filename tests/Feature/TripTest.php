@@ -12,6 +12,7 @@ use App\Models\Location;
 use App\Models\PilotDocument;
 use App\Models\ShippingLine;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\TripExpense;
 use App\Models\TripFinishedProduct;
 use App\Models\TripFuel;
@@ -284,13 +285,15 @@ function tripPayloadProductLine(mixed $clientId): array
 }
 
 /**
- * The 42 keys `TripResource` promises, in the order the resource declares them.
+ * The 43 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
  * its name —the vehicle adds a third key, `vehicleImage`—, `points` is derived from
  * `polyline` on every read and, since SPEC 28, `traveledPoints` from `traveledPolyline`.
  * SPEC 30 slid `estimatedKilometers` and `estimatedHours` between `points` and the real route,
  * and SPEC 32 closed the mirror with `traveledKilometers` and `traveledHours` right after it.
+ * SPEC 39 added `totalEmergencyExpensesAmount` right after `totalExpensesAmount`, and the
+ * assignment bonus and cargo insurance came right after it.
  *
  * @return array<int, string>
  */
@@ -309,7 +312,7 @@ function tripResourceKeys(): array
         'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
         'vehicleId', 'vehiclePlate', 'vehicleImage',
         'assignedById', 'assignedByName', 'registeredByName',
-        'totalFuelGallons', 'totalExpensesAmount',
+        'totalFuelGallons', 'totalExpensesAmount', 'totalEmergencyExpensesAmount', 'bonus', 'cargoInsurance',
         'createdAt', 'updatedAt', 'deletedAt',
     ];
 }
@@ -473,6 +476,8 @@ it('saca el viaje del listado de la empresa B en cuanto lo asigna la A, y lo dej
         'vehicleId' => $empresaA['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk();
 
     expect(collect(asUser($empresaA['owner'])->getJson('/api/trips')->json('data'))->pluck('id')->all())->toBe([$trip->id])
@@ -1162,6 +1167,8 @@ it('asigna piloto y vehículo escribiendo los tres campos juntos', function () {
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertOk()
         ->assertJsonPath('statusCode', 200)
@@ -1248,6 +1255,8 @@ it('rechaza con 400 un usuario que no tiene rol de piloto', function (UserRole $
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertStatus(400)
         ->assertExactJson([
@@ -1273,6 +1282,8 @@ it('rechaza con 400 un piloto que no pertenece a ninguna empresa', function () {
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertStatus(400)
         ->assertJsonPath('message', 'El piloto seleccionado no pertenece a ninguna empresa transportista');
@@ -1288,6 +1299,8 @@ it('rechaza con 400 un vehículo que no está activo', function (VehicleStatus $
         'vehicleId' => $vehiculo->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertStatus(400)
         ->assertExactJson([
@@ -1312,6 +1325,8 @@ it('rechaza con 400 un piloto y un vehículo de empresas distintas', function ()
         'vehicleId' => $empresaB['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertStatus(400)
         ->assertExactJson([
@@ -1333,6 +1348,8 @@ it('rechaza con 403 al transportista B sobre un viaje que ya tomó la empresa A'
         'vehicleId' => $empresaB['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertForbidden()
         ->assertExactJson([
@@ -1366,6 +1383,8 @@ it('deja que la empresa A reasigne su propio viaje mientras siga pendiente', fun
         'vehicleId' => $otroVehiculo->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertOk()
         ->assertJsonPath('data.pilotId', $otroPiloto->id)
@@ -1396,6 +1415,8 @@ it('rechaza con 400 reasignar un viaje que ya no está pendiente', function (str
         'vehicleId' => $empresaA['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertStatus(400)
         ->assertExactJson([
@@ -1417,6 +1438,8 @@ it('deja una sola escritura cuando dos empresas se disputan el mismo viaje libre
         'vehicleId' => $empresaA['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk();
 
     asUser($empresaB['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
@@ -1424,6 +1447,8 @@ it('deja una sola escritura cuando dos empresas se disputan el mismo viaje libre
         'vehicleId' => $empresaB['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertForbidden();
 
     $fresco = $trip->fresh();
@@ -1441,6 +1466,8 @@ it('responde 404 al asignar un id inexistente', function () {
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertNotFound()
         ->assertJsonPath('message', 'El viaje no existe');
@@ -2040,6 +2067,8 @@ it('responde 400, y no 404, en las cuatro escrituras sobre un viaje borrado', fu
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertStatus(400)
         ->assertExactJson($esperado);
@@ -2126,7 +2155,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 20 claves en el listado y las 42 del detalle, y no las confunde', function () {
+it('devuelve 20 claves en el listado y las 43 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -2134,7 +2163,7 @@ it('devuelve 20 claves en el listado y las 42 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(42)
+    expect(tripResourceKeys())->toHaveCount(45)
         ->and(tripListResourceKeys())->toHaveCount(20)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripDetailKeys());
@@ -2236,6 +2265,8 @@ it('escribe vehicleImage en la respuesta de la asignación', function () {
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk()->json('data');
 
     expect($data['vehicleImage'])->toStartWith('http')
@@ -2310,6 +2341,8 @@ it('devuelve deletedAt en null en los seis endpoints que lo pintan y no son el D
             'vehicleId' => $team['vehicle']->id,
             'fuelGallons' => 45.5,
             'fuelType' => 'diesel',
+            'bonus' => 250,
+            'cargoInsurance' => 100,
         ])->assertOk()->json('data.deletedAt'))->toBeNull()
         /** El piloto confirma la carga que dejó la asignación: sin eso, /start responde 400. */
         ->and(tripFuelConfirmed($id)->loaded_at)->not->toBeNull()
@@ -2384,6 +2417,8 @@ it('devuelve las dos fotos del piloto en los siete endpoints que pintan el TripR
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk()
         ->assertJsonPath('data.pilotDpiImage', $dpi)
         ->assertJsonPath('data.pilotLicenseImage', $license);
@@ -2495,6 +2530,8 @@ it('deja a un piloto sin documentos iniciar sesión, unirse, cobrar salario y ar
         'vehicleId' => $vehicle->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk();
 
     tripFuelConfirmed($id);
@@ -2523,6 +2560,8 @@ it('rechaza con 422 una asignación sin los dos campos de combustible', function
     asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
         'pilotId' => $team['pilot']->id,
         'vehicleId' => $team['vehicle']->id,
+        'bonus' => 250,
+        'cargoInsurance' => 100,
         ...$extra,
     ])
         ->assertStatus(422)
@@ -2547,6 +2586,8 @@ it('rechaza con 422 un tipo de combustible fuera del enum al asignar', function 
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => $fuelType,
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['fuelType'])
@@ -2569,6 +2610,8 @@ it('rechaza con 422 unos galones que no son una cantidad positiva', function (mi
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => $fuelGallons,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['fuelGallons'])
@@ -2592,6 +2635,8 @@ it('deja exactamente una carga sin confirmar al asignar el viaje', function () {
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertOk()
         /** La suma solo cuenta lo confirmado, así que un viaje recién asignado sigue en 0.00. */
@@ -2623,6 +2668,8 @@ it('añade una segunda carga al reasignar el viaje, sin pisar la primera', funct
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk();
 
     asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
@@ -2630,6 +2677,8 @@ it('añade una segunda carga al reasignar el viaje, sin pisar la primera', funct
         'vehicleId' => $otroVehiculo->id,
         'fuelGallons' => 12.25,
         'fuelType' => 'premium',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk();
 
     $this->assertDatabaseCount('trip_fuels', 2);
@@ -2650,6 +2699,8 @@ it('no deja ninguna carga cuando la asignación falla por una de sus guardas', f
         'vehicleId' => $empresaB['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertForbidden();
 
     /** El viaje ya no está pendiente: 400. */
@@ -2660,6 +2711,8 @@ it('no deja ninguna carga cuando la asignación falla por una de sus guardas', f
         'vehicleId' => $empresaA['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertStatus(400);
 
     /** La tripulación no es asignable —vehículo de otra empresa—: 400. */
@@ -2670,6 +2723,8 @@ it('no deja ninguna carga cuando la asignación falla por una de sus guardas', f
         'vehicleId' => $empresaB['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertStatus(400);
 
     $this->assertDatabaseCount('trip_fuels', 0);
@@ -2718,6 +2773,8 @@ it('arranca el viaje en cuanto el piloto confirma la carga que dejó la asignaci
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk();
 
     $carga = asUser($team['pilot'])->getJson("/api/trips/{$trip->id}/fuels")->assertOk()->json('data.0');
@@ -2786,6 +2843,8 @@ it('ignora con 200 el combustible mandado al PATCH general del administrador', f
         'order' => 'ord-2026-9999',
         'fuelGallons' => 90,
         'fuelType' => 'premium',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertOk()
         ->assertJsonPath('data.order', 'ORD-2026-9999')
@@ -3019,7 +3078,7 @@ it('coloca las dos claves del recorrido justo después de las estimaciones de SP
     $indexOfPoints = array_search('points', $keys, true);
 
     expect(array_slice($keys, $indexOfPoints, 8))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations'])
-        ->and($keys)->toHaveCount(43);
+        ->and($keys)->toHaveCount(46);
 });
 
 it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
@@ -3053,6 +3112,8 @@ it('devuelve la ruta real en los siete endpoints que pintan el TripResource', fu
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 50,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])->assertOk();
 
     expect($asignado->json('data.traveledPoints'))->toBe([]);
@@ -3201,6 +3262,8 @@ it('devuelve las dos estimaciones en los siete endpoints que pintan el TripResou
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 50,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
     ])
         ->assertOk()
         ->assertJsonPath('data.estimatedKilometers', '104.32')
@@ -3259,6 +3322,8 @@ function tripAssignmentBody(array $team, array $extra = []): array
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 45.5,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
         ...$extra,
     ];
 }
@@ -3433,8 +3498,8 @@ it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el list
     $keys = array_keys(asUser($admin)->getJson("/api/trips/{$trip->id}")->json('data'));
     $indexOfFuel = array_search('totalFuelGallons', $keys, true);
 
-    expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'createdAt'])
-        ->and($keys)->toHaveCount(43);
+    expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'totalEmergencyExpensesAmount'])
+        ->and($keys)->toHaveCount(46);
 
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
 
@@ -3518,7 +3583,7 @@ it('coloca traveledKilometers y traveledHours justo después de traveledPoints y
         ->and($keys[24])->toBe('traveledKilometers')
         ->and($keys[25])->toBe('traveledHours')
         ->and($keys[26])->toBe('observations')
-        ->and($keys)->toHaveCount(43);
+        ->and($keys)->toHaveCount(46);
 });
 
 it('devuelve null en las dos métricas reales de un viaje pending o in_route, presentes y no ausentes', function (TripStatus $status) {
@@ -3633,6 +3698,8 @@ it('ignora en silencio traveledKilometers y traveledHours en el POST, el PATCH g
         'vehicleId' => $team['vehicle']->id,
         'fuelGallons' => 50,
         'fuelType' => 'diesel',
+        'bonus' => 250,
+        'cargoInsurance' => 100,
         ...$intruso,
     ])
         ->assertOk()
@@ -3881,4 +3948,326 @@ it('deja cambiar el cliente de un viaje sin líneas', function () {
     asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['clientId' => $client->id])
         ->assertOk()
         ->assertJsonPath('data.clientId', $client->id);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 39 — totalEmergencyExpensesAmount
+|--------------------------------------------------------------------------
+|
+| La clave 40 del detalle: la suma de TODOS los gastos emergentes del viaje, sin
+| confirmación, separada de los viáticos y fijada a "0.00" para shipment.
+|
+*/
+
+it('suma en totalEmergencyExpensesAmount todos los gastos emergentes del viaje y no los viáticos', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 300.25]);
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 49.75]);
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 1000]);
+
+    /** El gasto emergente de otro viaje no se suma en este. */
+    TripEmergencyExpense::factory()->create(['amount' => 5000]);
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '350.00')
+        ->assertJsonPath('data.totalExpensesAmount', '1000.00');
+});
+
+it('devuelve totalEmergencyExpensesAmount en 0.00 sin gastos emergentes', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '0.00');
+});
+
+it('fija en cero los gastos emergentes del detalle para shipment y los muestra a user', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 850]);
+
+    asUser(userWithRole(UserRole::Shipment))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '0.00');
+
+    asUser(userWithRole(UserRole::User))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '850.00');
+});
+
+it('pinta 46 claves en el detalle y 45 para el piloto asignado, con el listado en 20', function () {
+    $trip = Trip::factory()->inRoute()->create();
+
+    $admin = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $pilot = asUser(User::findOrFail($trip->pilot_id))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $listado = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips')->assertOk()->json('data.0');
+
+    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(46)
+        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(45)
+        ->and($listado)->not->toHaveKey('totalEmergencyExpensesAmount')
+        ->and(array_keys($listado))->toHaveCount(20);
+});
+
+it('trae totalEmergencyExpensesAmount en la respuesta de una escritura del viaje', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 120]);
+
+    /** Las escrituras recargan las sumas con loadSum, igual que los viáticos. */
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['observations' => 'Revisar'])
+        ->assertOk()
+        ->assertJsonPath('data.totalEmergencyExpensesAmount', '120.00');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Bonificación de la asignación
+|--------------------------------------------------------------------------
+*/
+
+it('guarda la bonificación de la asignación sin confirmación y la pinta en el detalle', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        'bonus' => 275.5,
+        'cargoInsurance' => 100,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.bonus', '275.50');
+
+    expect(number_format((float) $trip->fresh()->bonus, 2, '.', ''))->toBe('275.50');
+
+    /** El piloto la ve en su viaje sin confirmar nada. */
+    asUser($team['pilot'])->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.bonus', '275.50');
+});
+
+it('acepta una bonificación de cero', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        'bonus' => 0,
+        'cargoInsurance' => 100,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.bonus', '0.00');
+});
+
+it('rechaza con 422 una asignación con la bonificación ausente o inválida', function (array $extra, string $mensaje) {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        'cargoInsurance' => 100,
+        ...$extra,
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['bonus'])
+        ->assertJsonFragment([$mensaje]);
+
+    expect($trip->fresh()->assigned_by)->toBeNull()
+        ->and($trip->fresh()->bonus)->toBeNull();
+
+    $this->assertDatabaseCount('trip_fuels', 0);
+})->with([
+    'sin bonificación' => [[], 'La bonificación es obligatoria'],
+    'null' => [['bonus' => null], 'La bonificación es obligatoria'],
+    'negativa' => [['bonus' => -1], 'La bonificación no puede ser negativa'],
+    'no numérica' => [['bonus' => 'abc'], 'La bonificación debe ser un número'],
+    'por encima del tope' => [['bonus' => 100000000], 'La bonificación no puede superar 99999999.99'],
+]);
+
+it('sobrescribe la bonificación al reasignar, sin dejar historial', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    $payload = [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        'cargoInsurance' => 100,
+    ];
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [...$payload, 'bonus' => 100])->assertOk();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [...$payload, 'bonus' => 200])
+        ->assertOk()
+        ->assertJsonPath('data.bonus', '200.00');
+
+    /** La carga sí se acumula; la bonificación es una columna y se pisa. */
+    $this->assertDatabaseCount('trip_fuels', 2);
+});
+
+it('ignora con 200 la bonificación mandada al PATCH general del administrador', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['bonus' => 100]);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'order' => 'ord-2026-9999',
+        'bonus' => 999,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.order', 'ORD-2026-9999')
+        ->assertJsonPath('data.bonus', '100.00');
+});
+
+it('pinta la bonificación en null sin asignar y siempre en null para shipment', function () {
+    $team = tripTeam();
+    $assigned = tripAssignedTo($team, ['bonus' => 150]);
+    $pool = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$pool->id}")
+        ->assertOk()
+        ->assertJsonPath('data.bonus', null);
+
+    asUser(userWithRole(UserRole::User))->getJson("/api/trips/{$assigned->id}")
+        ->assertOk()
+        ->assertJsonPath('data.bonus', '150.00');
+
+    asUser(userWithRole(UserRole::Shipment))->getJson("/api/trips/{$assigned->id}")
+        ->assertOk()
+        ->assertJsonPath('data.bonus', null);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Seguro de la carga de la asignación
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * The assignment body with every required field but the cargo insurance.
+ *
+ * @param  array{carrier: Carrier, owner: User, pilot: User, vehicle: Vehicle}  $team
+ * @return array<string, mixed>
+ */
+function tripCargoInsurancePayload(array $team): array
+{
+    return [
+        'pilotId' => $team['pilot']->id,
+        'vehicleId' => $team['vehicle']->id,
+        'fuelGallons' => 45.5,
+        'fuelType' => 'diesel',
+        'bonus' => 250,
+    ];
+}
+
+it('guarda el seguro de la carga de la asignación sin confirmación y lo pinta en el detalle', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        ...tripCargoInsurancePayload($team),
+        'cargoInsurance' => 180.25,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance', '180.25')
+        /** Concepto propio: no se mezcla con la bonificación. */
+        ->assertJsonPath('data.bonus', '250.00');
+
+    expect(number_format((float) $trip->fresh()->cargo_insurance, 2, '.', ''))->toBe('180.25');
+
+    /** El piloto lo ve en su viaje sin confirmar nada. */
+    asUser($team['pilot'])->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance', '180.25');
+});
+
+it('acepta un seguro de la carga de cero', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        ...tripCargoInsurancePayload($team),
+        'cargoInsurance' => 0,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance', '0.00');
+});
+
+it('rechaza con 422 una asignación con el seguro de la carga ausente o inválido', function (array $extra, string $mensaje) {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [
+        ...tripCargoInsurancePayload($team),
+        ...$extra,
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['cargoInsurance'])
+        ->assertJsonFragment([$mensaje]);
+
+    expect($trip->fresh()->assigned_by)->toBeNull()
+        ->and($trip->fresh()->bonus)->toBeNull()
+        ->and($trip->fresh()->cargo_insurance)->toBeNull();
+
+    $this->assertDatabaseCount('trip_fuels', 0);
+})->with([
+    'sin seguro' => [[], 'El seguro de la carga es obligatorio'],
+    'null' => [['cargoInsurance' => null], 'El seguro de la carga es obligatorio'],
+    'negativo' => [['cargoInsurance' => -1], 'El seguro de la carga no puede ser negativo'],
+    'no numérico' => [['cargoInsurance' => 'abc'], 'El seguro de la carga debe ser un número'],
+    'por encima del tope' => [['cargoInsurance' => 100000000], 'El seguro de la carga no puede superar 99999999.99'],
+]);
+
+it('sobrescribe el seguro de la carga al reasignar, sin dejar historial', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [...tripCargoInsurancePayload($team), 'cargoInsurance' => 100])->assertOk();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", [...tripCargoInsurancePayload($team), 'cargoInsurance' => 300])
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance', '300.00');
+
+    $this->assertDatabaseCount('trip_fuels', 2);
+});
+
+it('ignora con 200 el seguro de la carga mandado al PATCH general del administrador', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['cargo_insurance' => 100]);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'order' => 'ord-2026-9999',
+        'cargoInsurance' => 999,
+        'cargo_insurance' => 999,
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.order', 'ORD-2026-9999')
+        ->assertJsonPath('data.cargoInsurance', '100.00');
+});
+
+it('pinta el seguro de la carga en null sin asignar y siempre en null para shipment', function () {
+    $team = tripTeam();
+    $assigned = tripAssignedTo($team, ['cargo_insurance' => 150]);
+    $pool = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$pool->id}")
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance', null);
+
+    asUser(userWithRole(UserRole::User))->getJson("/api/trips/{$assigned->id}")
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance', '150.00');
+
+    asUser(userWithRole(UserRole::Shipment))->getJson("/api/trips/{$assigned->id}")
+        ->assertOk()
+        ->assertJsonPath('data.cargoInsurance', null);
 });

@@ -11,17 +11,17 @@ use OpenApi\Attributes as OA;
     schema: 'TripCost',
     title: 'Desglose del costo directo de un viaje finalizado',
     description: <<<'TEXT'
-    El costo en GTQ de un viaje ya cerrado, repartido en CUATRO COMPONENTES. OCHO CLAVES de primer nivel en camelCase y ninguna más, en este orden: tripId, order, traveledHours, fuel, expenses, pilot, vehicle y totalCost.
+    El costo en GTQ de un viaje ya cerrado, repartido en SIETE COMPONENTES. ONCE CLAVES de primer nivel en camelCase y ninguna más, en este orden: tripId, order, traveledHours, fuel, expenses, emergencyExpenses, bonus, cargoInsurance, pilot, vehicle y totalCost.
 
-    ATENCIÓN — ES COSTO DIRECTO, NO «LO QUE COSTÓ EL VIAJE». Los cuatro componentes son los únicos que existen: combustible confirmado, viáticos confirmados, salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo, mantenimiento (los vehicle_expenses NO se imputan al viaje: la fecha no prueba a qué viaje pertenece un cambio de llantas), peajes, administración, ni ingreso o margen —freight_rates cotiza por libra y trips no guarda peso—. Etiquetar la cifra como «costo total del viaje» en la interfaz sería engañoso.
+    ATENCIÓN — ES COSTO DIRECTO, NO «LO QUE COSTÓ EL VIAJE». Los siete componentes son los únicos que existen: combustible confirmado, viáticos confirmados, gastos emergentes (SPEC 39, todos: no tienen confirmación), bonificación y seguro de la carga fijados al asignar, salario del piloto prorrateado y seguro del vehículo prorrateado. NO INCLUYE depreciación del vehículo, mantenimiento (los vehicle_expenses NO se imputan al viaje: la fecha no prueba a qué viaje pertenece un cambio de llantas), peajes, administración, ni ingreso o margen —freight_rates cotiza por libra y trips no guarda peso—. Etiquetar la cifra como «costo total del viaje» en la interfaz sería engañoso.
 
-    ATENCIÓN — NADA DE ESTO ESTÁ GUARDADO. No hay tabla, ni columna, ni snapshot, ni caché: el número se calcula en cada lectura, como el currentValue de SPEC 17 y el durationMinutes de SPEC 27. Aun así NO CAMBIA entre dos lecturas, porque los cuatro insumos son históricos y están congelados: el precio vigente en cada loaded_at, el salario vigente en el start_date y las traveled_hours ya cerradas por /finish.
+    ATENCIÓN — NADA DE ESTO ESTÁ GUARDADO. No hay tabla, ni columna, ni snapshot, ni caché: el número se calcula en cada lectura, como el currentValue de SPEC 17 y el durationMinutes de SPEC 27. Aun así NO CAMBIA entre dos lecturas, porque los insumos son históricos y están congelados: el precio vigente en cada loaded_at, el salario vigente en el start_date, las traveled_hours ya cerradas por /finish y la bonificación y el seguro de la carga, que solo se escriben en /assignment con el viaje pendiente.
 
-    ATENCIÓN — TODO IMPORTE Y TODO DECIMAL SALEN COMO STRING de dos decimales ("1347.50"), igual que gallons en SPEC 27 y estimatedKilometers en SPEC 30: hay que parsearlos para operar. La ÚNICA excepción es expenses.count, que es un entero de verdad.
+    ATENCIÓN — TODO IMPORTE Y TODO DECIMAL SALEN COMO STRING de dos decimales ("1347.50"), igual que gallons en SPEC 27 y estimatedKilometers en SPEC 30: hay que parsearlos para operar. Las ÚNICAS excepciones son expenses.count y emergencyExpenses.count, que son enteros de verdad.
 
-    UN INSUMO QUE FALTA VALE 0.00 Y SE VE COMO null. El endpoint nunca falla por un dato de catálogo incompleto: sin piloto o sin vehículo asignados, sin salario capturado, sin traveled_hours (viaje cerrado antes de SPEC 32) o sin precio de combustible para esa fecha, el insumo sale en null y su subtotal en "0.00", siempre con 200. El frontend puede avisar del hueco justamente porque lo ve.
+    UN INSUMO QUE FALTA VALE 0.00 Y SE VE COMO null. El endpoint nunca falla por un dato de catálogo incompleto: sin piloto o sin vehículo asignados, sin bonificación o sin seguro de la carga (viaje asignado antes de existir la columna), sin salario capturado, sin traveled_hours (viaje cerrado antes de SPEC 32) o sin precio de combustible para esa fecha, el insumo sale en null y su subtotal en "0.00", siempre con 200. El frontend puede avisar del hueco justamente porque lo ve.
 
-    totalCost ES LA SUMA DE LOS CUATRO SUBTOTALES TAL COMO SALEN, no el redondeo de una suma en crudo: el desglose SIEMPRE cuadra con el total a la vista.
+    totalCost ES LA SUMA DE LOS SIETE SUBTOTALES TAL COMO SALEN, no el redondeo de una suma en crudo: el desglose SIEMPRE cuadra con el total a la vista.
     TEXT,
     properties: [
         new OA\Property(
@@ -52,6 +52,18 @@ use OpenApi\Attributes as OA;
             ref: '#/components/schemas/TripCostExpenses',
         ),
         new OA\Property(
+            property: 'emergencyExpenses',
+            ref: '#/components/schemas/TripCostEmergencyExpenses',
+        ),
+        new OA\Property(
+            property: 'bonus',
+            ref: '#/components/schemas/TripCostBonus',
+        ),
+        new OA\Property(
+            property: 'cargoInsurance',
+            ref: '#/components/schemas/TripCostCargoInsurance',
+        ),
+        new OA\Property(
             property: 'pilot',
             ref: '#/components/schemas/TripCostPilot',
         ),
@@ -61,7 +73,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'totalCost',
-            description: 'Costo directo total del viaje en GTQ, como CADENA de dos decimales. Es la SUMA EXACTA de los cuatro subtotales tal como salen en esta misma respuesta —se suman ya redondeados, nunca se redondea al final—, así que el desglose siempre cuadra a la vista. ATENCIÓN — un total bajo no significa que el viaje fuera barato: mirar primero si traveledHours es null y si algún pricePerGallon salió en null.',
+            description: 'Costo directo total del viaje en GTQ, como CADENA de dos decimales. Es la SUMA EXACTA de los siete subtotales tal como salen en esta misma respuesta —se suman ya redondeados, nunca se redondea al final—, así que el desglose siempre cuadra a la vista. ATENCIÓN — un total bajo no significa que el viaje fuera barato: mirar primero si traveledHours es null y si algún pricePerGallon salió en null.',
             type: 'string',
             example: '1814.35',
         ),
@@ -149,6 +161,68 @@ use OpenApi\Attributes as OA;
             description: 'Suma de los viáticos confirmados en GTQ, como CADENA de dos decimales. Es el MISMO número que totalExpensesAmount de TripResource y que el totalAmount de GET /api/trips/{trip}/expenses.',
             type: 'string',
             example: '450.00',
+        ),
+    ],
+    type: 'object',
+)]
+#[OA\Schema(
+    schema: 'TripCostEmergencyExpenses',
+    title: 'Componente de gastos emergentes',
+    description: 'Los gastos emergentes del viaje (SPEC 39): TODOS los registrados, porque no tienen confirmación. BLOQUE PROPIO, nunca sumado a expenses (los viáticos). Sin gastos vale { count: 0, subtotal: "0.00" }, nunca null. Ojo: como se corrigen y se borran también con el viaje finalizado, este bloque —y totalCost— puede cambiar después del cierre.',
+    properties: [
+        new OA\Property(
+            property: 'count',
+            description: 'Cuántos gastos emergentes tiene el viaje. Entero, no cadena.',
+            type: 'integer',
+            example: 2,
+        ),
+        new OA\Property(
+            property: 'subtotal',
+            description: 'Suma de los gastos emergentes en GTQ, como CADENA de dos decimales. Es el MISMO número que totalEmergencyExpensesAmount de TripResource y que el totalAmount de GET /api/trips/{trip}/emergency-expenses.',
+            type: 'string',
+            example: '850.00',
+        ),
+    ],
+    type: 'object',
+)]
+#[OA\Schema(
+    schema: 'TripCostBonus',
+    title: 'Componente de bonificación del costo',
+    description: 'La bonificación que la empresa transportista fijó al tomar el viaje (PATCH /api/trips/{trip}/assignment), leída de trips.bonus. UN SOLO MONTO, sin confirmación del piloto: cuenta en cuanto se fija. BLOQUE PROPIO, nunca sumado a viáticos ni a gastos emergentes. Nunca es null como bloque.',
+    properties: [
+        new OA\Property(
+            property: 'amount',
+            description: 'Bonificación del viaje en GTQ, como CADENA de dos decimales. Es el MISMO valor que bonus de TripResource. ATENCIÓN — null en un viaje asignado ANTES de existir la columna (no hubo backfill): en ese caso subtotal es "0.00" y la respuesta sigue siendo 200.',
+            type: 'string',
+            nullable: true,
+            example: '250.00',
+        ),
+        new OA\Property(
+            property: 'subtotal',
+            description: 'Bonificación imputada al viaje en GTQ, como CADENA de dos decimales: igual a amount, o "0.00" cuando amount es null.',
+            type: 'string',
+            example: '250.00',
+        ),
+    ],
+    type: 'object',
+)]
+#[OA\Schema(
+    schema: 'TripCostCargoInsurance',
+    title: 'Componente de seguro de la carga del costo',
+    description: 'El seguro de la carga que la empresa transportista fijó al tomar el viaje (PATCH /api/trips/{trip}/assignment), leído de trips.cargo_insurance. UN SOLO MONTO, sin confirmación del piloto: cuenta en cuanto se fija. BLOQUE PROPIO, nunca sumado a la bonificación, a viáticos ni a gastos emergentes, y distinto del seguro del vehículo (vehicle.monthlyInsuranceCost). Nunca es null como bloque.',
+    properties: [
+        new OA\Property(
+            property: 'amount',
+            description: 'Seguro de la carga del viaje en GTQ, como CADENA de dos decimales. Es el MISMO valor que cargoInsurance de TripResource. ATENCIÓN — null en un viaje asignado ANTES de existir la columna (no hubo backfill): en ese caso subtotal es "0.00" y la respuesta sigue siendo 200.',
+            type: 'string',
+            nullable: true,
+            example: '150.00',
+        ),
+        new OA\Property(
+            property: 'subtotal',
+            description: 'Seguro de la carga imputado al viaje en GTQ, como CADENA de dos decimales: igual a amount, o "0.00" cuando amount es null.',
+            type: 'string',
+            example: '150.00',
         ),
     ],
     type: 'object',
@@ -250,8 +324,8 @@ class TripCostResource extends JsonResource
      * output order is a contract.
      *
      * Every amount and every decimal leaves as a two decimal **string**, as `gallons` in
-     * SPEC 27 and `estimatedKilometers` in SPEC 30 do. `expenses.count` is the only real
-     * number of the whole response.
+     * SPEC 27 and `estimatedKilometers` in SPEC 30 do. `expenses.count` and
+     * `emergencyExpenses.count` are the only real numbers of the whole response.
      *
      * @return array<string, mixed>
      */
@@ -273,6 +347,21 @@ class TripCostResource extends JsonResource
                 /** El único entero de la respuesta: contar no es medir dinero. */
                 'count' => $this->resource['expenses']['count'],
                 'subtotal' => $this->decimal($this->resource['expenses']['subtotal']),
+            ],
+            /** SPEC 39: bloque propio, nunca sumado a expenses. Sin gastos vale { count: 0, subtotal: "0.00" }. */
+            'emergencyExpenses' => [
+                'count' => $this->resource['emergencyExpenses']['count'],
+                'subtotal' => $this->decimal($this->resource['emergencyExpenses']['subtotal']),
+            ],
+            /** La bonificación de /assignment: amount en null si el viaje es anterior a la columna, subtotal en "0.00". */
+            'bonus' => [
+                'amount' => $this->decimal($this->resource['bonus']['amount']),
+                'subtotal' => $this->decimal($this->resource['bonus']['subtotal']),
+            ],
+            /** El seguro de la carga de /assignment, con la misma regla que la bonificación. */
+            'cargoInsurance' => [
+                'amount' => $this->decimal($this->resource['cargoInsurance']['amount']),
+                'subtotal' => $this->decimal($this->resource['cargoInsurance']['subtotal']),
             ],
             'pilot' => [
                 'pilotId' => $trip->pilot_id,

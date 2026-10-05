@@ -10,10 +10,12 @@ use App\Interfaces\Report\ReportServiceInterface;
 use App\Interfaces\Report\SpreadsheetWriterInterface;
 use App\Interfaces\Storage\FileStorageServiceInterface;
 use App\Interfaces\Trip\TripServiceInterface;
+use App\Interfaces\TripEmergencyExpense\TripEmergencyExpenseServiceInterface;
 use App\Interfaces\VehicleExpense\VehicleExpenseServiceInterface;
 use App\Models\Carrier;
 use App\Models\FinishedProduct;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\TripFinishedProduct;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -76,6 +78,7 @@ function cappedReportService(int $maxRows): ReportService
     return new ReportService(
         app(TripServiceInterface::class),
         app(VehicleExpenseServiceInterface::class),
+        app(TripEmergencyExpenseServiceInterface::class),
         app(SpreadsheetWriterInterface::class),
         app(FileStorageServiceInterface::class),
         $maxRows,
@@ -94,7 +97,7 @@ it('está bindeado en el contenedor como implementación del contrato', function
 
 it('exporta los viajes filtrados a un xlsx en el disco por defecto y devuelve su URL', function () {
     Trip::factory()->finished()->create(['order' => 'ORD-0001', 'recolection_date' => '2026-03-01 08:00:00']);
-    Trip::factory()->finished()->create(['order' => 'ORD-0002', 'recolection_date' => '2026-03-02 08:00:00']);
+    Trip::factory()->finished()->create(['order' => 'ORD-0002', 'recolection_date' => '2026-03-02 08:00:00', 'bonus' => 250.5, 'cargo_insurance' => 99.75]);
     Trip::factory()->create(['order' => 'ORD-0003']);
 
     $result = app(ReportServiceInterface::class)->exportTrips(reportAdmin(), ['status' => TripStatus::Finished->value]);
@@ -115,10 +118,15 @@ it('exporta los viajes filtrados a un xlsx en el disco por defecto y devuelve su
             'Id', 'Orden', 'Estado', 'Naviera', 'Punto de partida', 'Puerto', 'Contenedor',
             'Fecha recolección', 'Fecha embarque', 'Inicio', 'Fin', 'Km estimados',
             'Horas estimadas', 'Observaciones', 'Piloto', 'Placa', 'Registrado por',
+            'Bonificación (Q)', 'Seguro de carga (Q)',
         ])
         ->and(array_column(array_slice($rows, 1), 1))->toBe(['ORD-0002', 'ORD-0001'])
         ->and($rows[1][2])->toBe('Finalizado')
-        ->and($rows[1][11])->toBeNumeric();
+        ->and($rows[1][11])->toBeNumeric()
+        ->and($rows[1][17])->toBe(250.5)
+        ->and($rows[2][17])->toBe('')
+        ->and($rows[1][18])->toBe(99.75)
+        ->and($rows[2][18])->toBe('');
 });
 
 it('ignora el limit y exporta el conjunto completo', function () {
@@ -221,6 +229,59 @@ it('propaga el 403 de un vehículo ajeno y el 404 de uno inexistente', function 
 
 /*
 |--------------------------------------------------------------------------
+| exportTripEmergencyExpenses (SPEC 39)
+|--------------------------------------------------------------------------
+*/
+
+it('exporta los gastos emergentes del viaje con el monto como número, el comprobante como URL y el total', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->withReceipt()->create(['trip_id' => $trip->id, 'amount' => 300.5, 'description' => 'Llanta pinchada']);
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 200, 'description' => 'Grúa']);
+    TripEmergencyExpense::factory()->create(['amount' => 999]);
+
+    $result = app(ReportServiceInterface::class)->exportTripEmergencyExpenses(reportAdmin(), ['tripId' => $trip->id]);
+    $rows = storedReportRows($result['url']);
+
+    expect($result['rows'])->toBe(2)
+        ->and($result['total'])->toBe(2)
+        ->and($result['totalAmount'])->toBe('500.50')
+        ->and($result['truncated'])->toBeFalse()
+        ->and($result['fileName'])->toMatch("/^gastos-emergentes-viaje-{$trip->id}-\\d{4}-\\d{2}-\\d{2}-\\d{6}\\.xlsx$/")
+        ->and(reportKeyFromUrl($result['url']))->toMatch('#^reports/[0-9a-f-]{36}\.xlsx$#')
+        ->and($rows[0])->toBe(['Id', 'Monto (Q)', 'Descripción', 'Comprobante', 'Registrado por', 'Creado', 'Actualizado'])
+        ->and($rows[1][1])->toEqual(300.5)
+        ->and($rows[1][2])->toBe('Llanta pinchada')
+        ->and($rows[1][3])->toStartWith('https://')->toContain('trip-emergency-expenses/')
+        ->and($rows[2][2])->toBe('Grúa')
+        ->and($rows[2][3])->toBe('');
+});
+
+it('mantiene el total de todos los gastos emergentes aunque el tope recorte las filas', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    TripEmergencyExpense::factory()->count(3)->create(['trip_id' => $trip->id, 'amount' => 100]);
+
+    $result = cappedReportService(1)->exportTripEmergencyExpenses(reportAdmin(), ['tripId' => $trip->id]);
+
+    expect($result['rows'])->toBe(1)
+        ->and($result['total'])->toBe(3)
+        ->and($result['totalAmount'])->toBe('300.00')
+        ->and($result['truncated'])->toBeTrue();
+});
+
+it('propaga el 404, el 403 de ámbito y el 403 de shipment sin subir nada', function () {
+    $trip = Trip::factory()->inRoute()->create();
+    $stranger = reportCarrierOwner(Carrier::factory()->create());
+    $service = app(ReportServiceInterface::class);
+
+    expect(fn () => $service->exportTripEmergencyExpenses(reportAdmin(), ['tripId' => 999999]))->toThrow(NotFoundError::class)
+        ->and(fn () => $service->exportTripEmergencyExpenses($stranger, ['tripId' => $trip->id]))->toThrow(ForbiddenError::class)
+        ->and(fn () => $service->exportTripEmergencyExpenses(User::factory()->create(['role' => UserRole::Shipment]), ['tripId' => $trip->id]))->toThrow(ForbiddenError::class);
+
+    expect(Storage::disk(config('filesystems.default'))->allFiles('reports'))->toBe([]);
+});
+
+/*
+|--------------------------------------------------------------------------
 | Storage
 |--------------------------------------------------------------------------
 */
@@ -311,6 +372,7 @@ function downloadReportService(SpreadsheetWriterInterface $writer, int $maxRows 
     return new ReportService(
         app(TripServiceInterface::class),
         app(VehicleExpenseServiceInterface::class),
+        app(TripEmergencyExpenseServiceInterface::class),
         $writer,
         app(FileStorageServiceInterface::class),
         $maxRows,
@@ -331,6 +393,8 @@ it('descarga los viajes del rango con las 22 columnas base, sin subir nada al di
         'traveled_kilometers' => 111.4,
         'traveled_hours' => 2.1,
         'observations' => 'Frágil',
+        'bonus' => 250.5,
+        'cargo_insurance' => 99.75,
     ])->load('client', 'shippingLine', 'departurePoint', 'location', 'pilot', 'vehicle', 'registeredBy');
 
     $result = app(ReportServiceInterface::class)->downloadTrips(
@@ -343,13 +407,13 @@ it('descarga los viajes del rango con las 22 columnas base, sin subir nada al di
     expect($result['fileName'])->toBe('viajes-2026-09-01_2026-09-30.xlsx')
         ->and(Storage::disk(config('filesystems.default'))->allFiles())->toBeEmpty()
         ->and($rows)->toHaveCount(2)
-        ->and($rows[0])->toBe(tripReportBaseHeaders())
+        ->and($rows[0])->toBe([...tripReportBaseHeaders(), 'Bonificación (Q)', 'Seguro de carga (Q)'])
         ->and($rows[1])->toBe([
             $trip->id, 'ORD-0001', 'Finalizado', $trip->client->name, $trip->shippingLine->name,
             $trip->departurePoint->name, $trip->location->name, 'Bodega Rotterdam', 'Rastra 40 pies',
             $trip->container, '10-09-2026 08:30:00 AM', '12-09-2026 02:00:00 PM',
             '10-09-2026 09:00:00 AM', '10-09-2026 03:00:00 PM', 104.32, 1.75, 111.4, 2.1,
-            'Frágil', $trip->pilot->name, $trip->vehicle->plate, $trip->registeredBy->name,
+            'Frágil', $trip->pilot->name, $trip->vehicle->plate, $trip->registeredBy->name, 250.5, 99.75,
         ]);
 });
 
@@ -423,7 +487,7 @@ it('responde 400 por exceso de viajes antes de escribir el archivo, citando MAX_
         ->and($writer->calls)->toBe(0);
 });
 
-it('añade Productos y Total de cajas al final solo para los roles que los ven', function (UserRole $role, bool $withProducts) {
+it('añade la bonificación y el seguro de la carga salvo a shipment y Productos y Total de cajas solo para los roles que los ven', function (UserRole $role, bool $withBonus, bool $withProducts) {
     Trip::factory()->create(['recolection_date' => '2026-09-10 08:00:00']);
 
     $user = $role === UserRole::Carrier
@@ -432,16 +496,18 @@ it('añade Productos y Total de cajas al final solo para los roles que los ven',
 
     $headers = downloadedReportRows(app(ReportServiceInterface::class)->downloadTrips($user, septemberReport())['contents'])[0];
 
-    expect($headers)->toBe($withProducts
-        ? [...tripReportBaseHeaders(), 'Productos', 'Total de cajas']
-        : tripReportBaseHeaders());
+    expect($headers)->toBe([
+        ...tripReportBaseHeaders(),
+        ...($withBonus ? ['Bonificación (Q)', 'Seguro de carga (Q)'] : []),
+        ...($withProducts ? ['Productos', 'Total de cajas'] : []),
+    ]);
 })->with([
-    'administrator' => [UserRole::Administrator, true],
-    'manager' => [UserRole::Manager, true],
-    'export' => [UserRole::Export, true],
-    'shipment' => [UserRole::Shipment, true],
-    'carrier' => [UserRole::Carrier, false],
-    'user' => [UserRole::User, false],
+    'administrator' => [UserRole::Administrator, true, true],
+    'manager' => [UserRole::Manager, true, true],
+    'export' => [UserRole::Export, true, true],
+    'shipment' => [UserRole::Shipment, false, true],
+    'carrier' => [UserRole::Carrier, true, false],
+    'user' => [UserRole::User, true, false],
 ]);
 
 it('resume las líneas de productos en orden de línea, con su total y aunque el SKU esté borrado', function () {
@@ -457,7 +523,7 @@ it('resume las líneas de productos en orden de línea, con su total y aunque el
 
     $rows = downloadedReportRows(app(ReportServiceInterface::class)->downloadTrips(reportAdmin(), septemberReport())['contents']);
 
-    expect(array_slice($rows[1], 22))->toBe(['CODE1 × 120 cajas; CODE2 × 40 cajas', 160])
+    expect(array_slice($rows[1], 24))->toBe(['CODE1 × 120 cajas; CODE2 × 40 cajas', 160])
         ->and($rows[2][1])->toBe('ORD-EMPTY')
-        ->and(array_slice($rows[2], 22))->toBe(['', 0]);
+        ->and(array_slice($rows[2], 24))->toBe(['', 0]);
 });
