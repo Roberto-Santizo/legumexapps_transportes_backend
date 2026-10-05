@@ -11,7 +11,7 @@ use App\Models\User;
 interface TripCostServiceInterface
 {
     /**
-     * Break the direct cost of one **finished** trip down into its four components, in GTQ.
+     * Break the direct cost of one **finished** trip down into its five components, in GTQ.
      *
      * The first contract of the project that only reads and only computes: nothing here
      * is stored, no column holds the result and no snapshot freezes it. Every input is
@@ -49,6 +49,7 @@ interface TripCostServiceInterface
      *         subtotal: float,
      *     },
      *     expenses: array{count: int, subtotal: float},
+     *     emergencyExpenses: array{count: int, subtotal: float},
      *     pilot: array{monthlySalary: float|null, subtotal: float},
      *     vehicle: array{monthlyInsuranceCost: float|null, subtotal: float},
      *     totalCost: float,
@@ -57,8 +58,10 @@ interface TripCostServiceInterface
      * on purpose: repeating it inside `pilot` and `vehicle` would invite the reader to
      * believe the two could differ. `byType` groups the **confirmed** loads by fuel
      * type, and is an empty list —never null— when there are none. `totalCost` is the
-     * sum of the four **already rounded** subtotals, so the breakdown adds up to the
-     * total on screen instead of missing it by a cent.
+     * sum of the five **already rounded** subtotals, so the breakdown adds up to the
+     * total on screen instead of missing it by a cent. `emergencyExpenses` (SPEC 39) is a
+     * block of its own and is never folded into `expenses`, which keeps meaning «confirmed
+     * allowances»: every emergency expense counts, since they have no confirmation.
      *
      * @throws NotFoundError when the trip does not exist or has been deleted
      * @throws ForbiddenError when the caller is a pilot or the trip is out of its scope

@@ -294,7 +294,7 @@ it('devuelve el mismo desglose que el endpoint para un viaje finalizado', functi
     $result = callTripTool(tripTool(TripCostTool::class, tripToolAdmin()), ['tripId' => $trip->id]);
 
     expect(array_keys($result))
-        ->toBe(['tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'pilot', 'vehicle', 'totalCost'])
+        ->toBe(['tripId', 'order', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'pilot', 'vehicle', 'totalCost'])
         ->and($result['fuel']['subtotal'])->toBe('1347.50')
         ->and($result['expenses']['subtotal'])->toBe('450.00')
         ->and($result['pilot']['subtotal'])->toBe('15.63')

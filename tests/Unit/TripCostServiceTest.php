@@ -11,6 +11,7 @@ use App\Models\CarrierPilot;
 use App\Models\CarrierPilotSalaryHistory;
 use App\Models\FuelPrice;
 use App\Models\Trip;
+use App\Models\TripEmergencyExpense;
 use App\Models\TripExpense;
 use App\Models\TripFuel;
 use App\Models\User;
@@ -139,15 +140,16 @@ it('deja pasar al administrador, al manager y al transportista que tomó el viaj
 |--------------------------------------------------------------------------
 */
 
-it('devuelve los cuatro bloques y el total', function () {
+it('devuelve los cinco bloques y el total', function () {
     ['trip' => $trip, 'owner' => $owner] = tripCostScene();
 
     $cost = tripCostService()->getTripCost($owner, $trip->id);
 
     expect(array_keys($cost))
-        ->toBe(['trip', 'traveledHours', 'fuel', 'expenses', 'pilot', 'vehicle', 'totalCost'])
+        ->toBe(['trip', 'traveledHours', 'fuel', 'expenses', 'emergencyExpenses', 'pilot', 'vehicle', 'totalCost'])
         ->and(array_keys($cost['fuel']))->toBe(['gallons', 'byType', 'subtotal'])
         ->and(array_keys($cost['expenses']))->toBe(['count', 'subtotal'])
+        ->and(array_keys($cost['emergencyExpenses']))->toBe(['count', 'subtotal'])
         ->and(array_keys($cost['pilot']))->toBe(['monthlySalary', 'subtotal'])
         ->and(array_keys($cost['vehicle']))->toBe(['monthlyInsuranceCost', 'subtotal']);
 });
@@ -447,25 +449,65 @@ it('deja los dos bloques en null cuando el viaje finalizado no tiene tripulació
 
 /*
 |--------------------------------------------------------------------------
+| Gastos emergentes (SPEC 39)
+|--------------------------------------------------------------------------
+*/
+
+it('suma y cuenta todos los gastos emergentes, sin mezclarlos con los viáticos', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 600]);
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 250]);
+    TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 999]);
+
+    /** El gasto emergente de otro viaje no se suma en este. */
+    TripEmergencyExpense::factory()->create(['amount' => 5000]);
+
+    $cost = tripCostService()->getTripCost($owner, $trip->id);
+
+    expect($cost['emergencyExpenses'])->toBe(['count' => 2, 'subtotal' => 850.0])
+        ->and($cost['expenses'])->toBe(['count' => 1, 'subtotal' => 999.0]);
+});
+
+it('devuelve el bloque de gastos emergentes en cero, nunca null, sin gastos', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    expect(tripCostService()->getTripCost($owner, $trip->id)['emergencyExpenses'])
+        ->toBe(['count' => 0, 'subtotal' => 0.0]);
+});
+
+it('coincide con el totalEmergencyExpensesAmount que pinta TripResource', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripCostScene();
+
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 725.50]);
+
+    $cost = tripCostService()->getTripCost($owner, $trip->id);
+
+    expect($cost['emergencyExpenses']['subtotal'])->toBe((float) $cost['trip']->total_emergency_expenses_amount);
+});
+
+/*
+|--------------------------------------------------------------------------
 | Total
 |--------------------------------------------------------------------------
 */
 
-it('suma los cuatro subtotales ya redondeados', function () {
+it('suma los cinco subtotales ya redondeados', function () {
     ['trip' => $trip, 'owner' => $owner] = tripCostScene('finished', ['traveled_hours' => 2.50]);
 
     tripCostPrice(FuelType::Diesel, 38.50, '2026-01-01 08:00:00');
     tripCostLoad($trip, 35, FuelType::Diesel, '2026-02-10 09:00:00');
     TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id, 'amount' => 450]);
+    TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 200.10]);
     tripCostSalary($trip, 4500.00);
     $trip->vehicle->update(['monthly_insurance_cost' => 350.00]);
 
     $cost = tripCostService()->getTripCost($owner, $trip->id);
 
-    /** 1347.50 + 450.00 + 15.63 + 1.22 = 1814.35 */
-    expect($cost['totalCost'])->toBe(1814.35)
+    /** 1347.50 + 450.00 + 200.10 + 15.63 + 1.22 = 2014.45 */
+    expect($cost['totalCost'])->toBe(2014.45)
         ->and($cost['totalCost'])->toBe(round(
-            $cost['fuel']['subtotal'] + $cost['expenses']['subtotal']
+            $cost['fuel']['subtotal'] + $cost['expenses']['subtotal'] + $cost['emergencyExpenses']['subtotal']
             + $cost['pilot']['subtotal'] + $cost['vehicle']['subtotal'],
             2
         ));
