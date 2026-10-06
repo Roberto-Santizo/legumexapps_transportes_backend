@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Helpers\ResponseHandler;
 use App\Http\Requests\TripPosition\StoreTripPositionRequest;
 use App\Http\Resources\PaginatedResource;
+use App\Http\Resources\TripPosition\TripPositionBatchResource;
 use App\Http\Resources\TripPosition\TripPositionResource;
 use App\Interfaces\TripPosition\TripPositionServiceInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -22,13 +23,15 @@ use OpenApi\Attributes as OA;
 
     EL ÁMBITO DE LECTURA ES EL DE SPEC 24 Y NO SE REESCRIBE AQUÍ: administrator y manager alcanzan el rastro de CUALQUIER viaje; un carrier, los que asignó su empresa MÁS la bolsa libre (los pending sin tripulación); fuera de ámbito es 403 «No puedes acceder a un viaje que no pertenece a tu empresa transportista», NO 404. Un viaje inexistente o borrado es 404 «El viaje no existe» en el GET.
 
-    ATENCIÓN — EL POST RESPONDE 201 O 200, Y SON COSAS DISTINTAS. 201 = el punto se escribió y el evento se emitió. 200 = PISO DE 5 SEGUNDOS: la petición llegó a menos de 5 s del último punto del viaje, así que NO SE ESCRIBIÓ NADA, NO SE EMITIÓ NADA y se devuelve el punto anterior tal cual. Es silencio deliberado —la app del piloto reintenta cuando la red va mal y devolverle un error la empujaría a lógica defensiva—, con el precedente del archivo ignorado de SPEC 19. LA APP DEBE DISTINGUIRLOS POR EL STATUS, no comparando coordenadas: dos puntos iguales seguidos son legítimos (un camión parado sigue reportando). El piso de 5 s es el ÚNICO freno del dominio: no hay rate limiting por IP ni por token.
+    ATENCIÓN — DESDE SPEC 40 EL POST RECIBE UN LOTE: { positions: [{ latitude, longitude, recordedAt }] }, de 1 a 1000 puntos, para que el piloto que estuvo sin señal reenvíe el tramo perdido. El cuerpo de un solo punto ya no vale (422). recordedAt ES LA HORA DEL DISPOSITIVO, obligatoria por punto, en ISO 8601 con zona; no puede estar a más de 60 s en el futuro (422) ni ser anterior al inicio del viaje (400). pilotId sale del token y no se acepta.
 
-    CUATRO GUARDAS DEL POST EN ORDEN FIJO, y ese orden es contrato: viaje inexistente → 404 «El viaje no existe»; viaje borrado → 400 «El viaje ya fue eliminado»; quien llama no es el pilot_id del viaje → 403 «No puedes reportar la posición de un viaje que no tienes asignado»; el viaje no está in_route → 400 «El viaje no está en ruta». CONSECUENCIA: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403 del ajeno.
+    ATENCIÓN — EL POST RESPONDE 201 O 200 CON UN RESUMEN { received, saved, discarded, lastPosition }. 201 = se escribió al menos un punto. 200 = TODO EL LOTE SE DESCARTÓ. Se descartan en silencio los puntos con recordedAt menor o igual al último ya guardado (un reintento es idempotente) y los que caen a menos de 5 s del anterior conservado (el PISO DE 5 SEGUNDOS, medido entre horas del dispositivo). Siempre received === saved + discarded. El piso es el ÚNICO freno del dominio: no hay rate limiting por IP ni por token.
 
-    recordedAt Y pilotId NO SE ACEPTAN EN EL CUERPO: la hora la pone el servidor con now() y el autor sale del token. Mandarlos se descarta en silencio. NO HAY VALIDACIÓN GEOGRÁFICA: latitude entre -90 y 90, longitude entre -180 y 180 y nada más —ni contra la polyline del viaje, ni contra Guatemala, ni contra un salto físicamente posible—.
+    GUARDAS DEL POST EN ORDEN FIJO, y ese orden es contrato: viaje inexistente → 404 «El viaje no existe»; viaje borrado → 400 «El viaje ya fue eliminado»; quien llama no es el pilot_id del viaje → 403 «No puedes reportar la posición de un viaje que no tienes asignado»; el viaje no está in_route → 400 «El viaje no está en ruta»; algún punto anterior al start_date → 400 «La hora de un punto es anterior al inicio del viaje». CONSECUENCIA: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403 del ajeno. CUALQUIER ERROR, de validación o de guarda, NO GUARDA NADA: no hay respuestas parciales.
 
-    LA MITAD DE LA FUNCIONALIDAD NO ES HTTP: EL WEBSOCKET. Cada punto escrito emite el evento .trip.position.updated (con el punto inicial, sin namespace PHP) sobre el canal PRIVADO trips.{tripId}, con SEIS CLAVES en el payload: tripId, latitude, longitude, recordedAt (d-m-Y h:i:s A), pilotId y pilotName —una más y una menos que el recurso HTTP: trae tripId y pilotName, que el recurso no tiene—. La suscripción se autoriza en POST /api/broadcasting/auth, con el MISMO Authorization: Bearer del resto de la API (no hay sesión ni cookie), y el callback aplica las mismas dos reglas: cualquier pilot recibe false, y el resto solo alcanza los viajes que ya vería por HTTP. Es PrivateChannel, no de presencia: nadie sabe quién más está mirando. No hay canal de flota (ni trips global ni carriers.{id}.trips): para seguir tres viajes hay que suscribirse a tres canales. No hay client events ni whisper: la única entrada es el POST. Y NO HAY REPLAY: quien se conecta a mitad de viaje pide el rastro con el GET y desde ahí escucha.
+    NO HAY VALIDACIÓN GEOGRÁFICA: latitude entre -90 y 90, longitude entre -180 y 180 y nada más —ni contra la polyline del viaje, ni contra Guatemala, ni contra un salto físicamente posible—.
+
+    LA MITAD DE LA FUNCIONALIDAD NO ES HTTP: EL WEBSOCKET. Cada lote que escribe algo emite UN SOLO evento, con el último punto escrito: el evento .trip.position.updated (con el punto inicial, sin namespace PHP) sobre el canal PRIVADO trips.{tripId}, con SEIS CLAVES en el payload: tripId, latitude, longitude, recordedAt (d-m-Y h:i:s A), pilotId y pilotName —una más y una menos que el recurso HTTP: trae tripId y pilotName, que el recurso no tiene—. La suscripción se autoriza en POST /api/broadcasting/auth, con el MISMO Authorization: Bearer del resto de la API (no hay sesión ni cookie), y el callback aplica las mismas dos reglas: cualquier pilot recibe false, y el resto solo alcanza los viajes que ya vería por HTTP. Es PrivateChannel, no de presencia: nadie sabe quién más está mirando. No hay canal de flota (ni trips global ni carriers.{id}.trips): para seguir tres viajes hay que suscribirse a tres canales. No hay client events ni whisper: la única entrada es el POST. Y NO HAY REPLAY: quien se conecta a mitad de viaje pide el rastro con el GET y desde ahí escucha.
 
     ATENCIÓN — SI php artisan reverb:start NO ESTÁ CORRIENDO, NO LLEGA NADA Y LA API NO AVISA. El event() va envuelto en try/catch que registra en el log y sigue: la API responde 201 a cada POST, los puntos se guardan enteros y EL MAPA SIMPLEMENTE NO SE MUEVE, sin ningún error visible. Perder el aviso en vivo nunca puede costar el dato. Si «no llega nada», el síntoma es de servidor, no de código.
 
@@ -135,30 +138,34 @@ class TripPositionController extends Controller
     }
 
     /**
-     * Record one point of the trip's track.
+     * Record a batch of points of the trip's track.
      *
-     * Answers **201** when the point was written and **200** when the 5 second floor
-     * discarded it and the previous point is being handed back: the pilot's app can
-     * tell one from the other by the status alone, without comparing coordinates.
+     * Answers **201** when at least one point was written and **200** when the whole
+     * batch was discarded —already stored or under the 5 second floor—, always with the
+     * `{ received, saved, discarded, lastPosition }` summary.
      */
     #[OA\Post(
         path: '/api/trips/{trip}/positions',
         operationId: 'storeTripPosition',
-        summary: 'Reportar una posición del viaje',
+        summary: 'Reportar un lote de posiciones del viaje',
         description: <<<'TEXT'
-        Registra UN punto del rastro y lo emite por websocket a quien esté mirando el mapa. Es EXCLUSIVO del rol pilot (middleware role:pilot) y, además, SOLO DEL PILOTO ASIGNADO al viaje: un administrator, un carrier o un manager reciben 403 «No tienes permisos para acceder a este recurso» —aunque sean justo ellos quienes leen el rastro—, y otro piloto cualquiera, 403 «No puedes reportar la posición de un viaje que no tienes asignado».
+        Registra un LOTE de 1 a 1000 puntos del rastro, cada uno con la hora del DISPOSITIVO, para que el piloto que estuvo sin señal reenvíe el tramo perdido (SPEC 40). Es EXCLUSIVO del rol pilot (middleware role:pilot) y, además, SOLO DEL PILOTO ASIGNADO al viaje: un administrator, un carrier o un manager reciben 403 «No tienes permisos para acceder a este recurso», y otro piloto cualquiera, 403 «No puedes reportar la posición de un viaje que no tienes asignado».
 
-        ATENCIÓN — RESPONDE 201 O 200, Y SON COSAS DISTINTAS. Es la decisión con más probabilidad de confundir a quien integre. 201 «Posición registrada correctamente» = la fila se escribió y el evento se emitió. 200 «Posición recibida correctamente» = PISO DE 5 SEGUNDOS: la petición llegó a menos de 5 s del último punto de ese viaje, así que NO SE ESCRIBIÓ NADA, NO SE EMITIÓ NADA y se devuelve EL PUNTO ANTERIOR TAL CUAL —su id y su recordedAt son los de antes—. La respuesta es indistinguible de un alta salvo por el status, y COMPARAR COORDENADAS NO SIRVE PARA DISTINGUIRLAS: dos puntos idénticos seguidos son legítimos, porque un camión parado sigue reportando. LA APP DEL PILOTO DEBE MIRAR EL STATUS. Se responde 200 y no 400 a propósito: la app reintenta cuando la red va mal y devolverle un error la empujaría a lógica defensiva propia. El piso es POR VIAJE y es el ÚNICO freno del dominio: no hay rate limiting por IP ni por token.
+        ATENCIÓN — CAMBIO INCOMPATIBLE: el cuerpo de un solo punto ({ latitude, longitude }) ya NO VALE y responde 422 sobre positions. No hay ruta /batch aparte ni periodo de gracia.
 
-        CUATRO GUARDAS EN ORDEN FIJO, Y ESE ORDEN ES CONTRATO: 1) viaje inexistente → 404 «El viaje no existe»; 2) viaje borrado → 400 «El viaje ya fue eliminado»; 3) el que llama no es el pilot_id del viaje → 403 «No puedes reportar la posición de un viaje que no tienes asignado»; 4) el viaje no está in_route → 400 «El viaje no está en ruta». CONSECUENCIA REAL: un viaje BORRADO Y AJENO devuelve el 400 del borrado, no el 403 del ajeno. Y NO EXISTE «posición del piloto» suelta: sin un viaje in_route asignado no hay dónde mandar nada —un viaje pending o finished es 400—.
+        CÓMO SE PROCESA EL LOTE: 1) se ordena por recordedAt —no hace falta mandarlo ordenado—; 2) dentro de una transacción que bloquea la fila del viaje, se lee el último punto ya guardado; 3) se DESCARTAN EN SILENCIO los puntos con recordedAt MENOR O IGUAL a ese último —así un reintento de la cola es idempotente— y los que caen a MENOS DE 5 SEGUNDOS del anterior conservado —el piso, medido entre horas del dispositivo, nunca contra la hora del servidor—; 4) cada punto conservado se guarda y pasa por la detección de paradas (SPEC 27) en orden, en la misma transacción: si la detección falla a la mitad, NO QUEDA NINGÚN PUNTO. Dos lotes concurrentes del mismo viaje se serializan: el segundo espera y descarta lo repetido.
 
-        ATENCIÓN — recordedAt Y pilotId NO SE ACEPTAN Y MANDARLOS SE DESCARTA EN SILENCIO, sin 422. La hora la pone el servidor con now() —aceptar la del dispositivo la haría falsificable y desordenaría el rastro— y el autor sale del token. UN PUNTO POR PETICIÓN: no hay envío en lote, así que un tramo sin cobertura se PIERDE ENTERO y el mapa saltará en recta entre dos puntos lejanos, sin que nada indique que faltó señal.
+        ATENCIÓN — RESPONDE 201 O 200, SIEMPRE CON EL MISMO RESUMEN. 201 «Posiciones registradas correctamente» = se escribió al menos un punto (saved >= 1). 200 «Posiciones recibidas correctamente» = TODO SE DESCARTÓ (saved = 0): ni filas ni evento. En los dos casos received === saved + discarded y lastPosition es el último punto del rastro tras la petición, NUNCA null. Para la app los dos significan lo mismo: todo lo enviado ya está en el servidor o sobraba, y puede vaciar su cola.
 
-        NINGUNA VALIDACIÓN GEOGRÁFICA: solo los rangos del sistema de coordenadas. No se comprueba que el punto caiga cerca de la polyline del viaje, ni dentro de Guatemala, ni que el salto contra el punto anterior sea físicamente posible. UN PILOTO PUEDE REPORTAR NORUEGA Y LA API LO GUARDA CON 201.
+        GUARDAS EN ORDEN FIJO, Y ESE ORDEN ES CONTRATO: 1) viaje inexistente → 404 «El viaje no existe»; 2) viaje borrado → 400 «El viaje ya fue eliminado»; 3) el que llama no es el pilot_id del viaje → 403 «No puedes reportar la posición de un viaje que no tienes asignado»; 4) el viaje no está in_route → 400 «El viaje no está en ruta»; 5) algún recordedAt es anterior al start_date del viaje → 400 «La hora de un punto es anterior al inicio del viaje». CUALQUIER ERROR, de validación o de guarda, INVALIDA EL LOTE ENTERO y no guarda nada.
 
-        EFECTO WEBSOCKET (solo en el 201): se emite .trip.position.updated sobre el canal PRIVADO trips.{tripId}, con seis claves —tripId, latitude, longitude, recordedAt, pilotId y pilotName—. La suscripción se autoriza en POST /api/broadcasting/auth con el mismo Authorization: Bearer, y ningún pilot es admitido en el canal, ni siquiera el que acaba de emitir. ATENCIÓN — SI php artisan reverb:start NO ESTÁ CORRIENDO NO LLEGA NADA Y ESTA RESPUESTA SIGUE SIENDO 201: el fallo del broadcast se registra en el log y la petición continúa, porque perder el aviso en vivo nunca puede costar el dato. El mapa se queda quieto sin ningún error visible.
+        ATENCIÓN — UN TRAMO QUE LLEGA DESPUÉS DE /finish SE PIERDE: un viaje finished responde 400 al lote entero. La app debe vaciar su cola ANTES de cerrar el viaje. Y ante el 400 por hora anterior al arranque (reloj del teléfono atrasado), reintentar igual atasca la cola para siempre: hay que quitar de ella los puntos anteriores al inicio y reintentar.
 
-        EL PUNTO ES INMUTABLE Y ETERNO: no hay PATCH ni DELETE de una posición, y el DELETE (baja lógica) del viaje no borra ninguna fila. Reportar tampoco toca el viaje: no cambia su status ni sus fechas, y TripResource sigue sin lastLatitude, lastLongitude ni lastPositionAt.
+        NINGUNA VALIDACIÓN GEOGRÁFICA: solo los rangos del sistema de coordenadas. UN PILOTO PUEDE REPORTAR NORUEGA Y LA API LO GUARDA.
+
+        EFECTO WEBSOCKET (solo si saved >= 1): se emite UN SOLO .trip.position.updated por lote, con el ÚLTIMO punto escrito, sobre el canal PRIVADO trips.{tripId} y con las seis claves de siempre. El tramo recuperado NO se emite punto a punto: el mapa salta en recta a la posición actual y el tramo se recupera con GET /api/trips/{trip}/positions. Si php artisan reverb:start no está corriendo, los puntos se guardan igual, la respuesta sigue siendo 201 y solo queda constancia en el log.
+
+        LOS PUNTOS SON INMUTABLES Y ETERNOS: no hay PATCH ni DELETE de una posición, y reportar no toca el viaje.
         TEXT,
         requestBody: new OA\RequestBody(
             required: true,
@@ -178,31 +185,31 @@ class TripPositionController extends Controller
         responses: [
             new OA\Response(
                 response: 201,
-                description: 'Posición registrada correctamente: la fila QUEDÓ ESCRITA en trip_positions y el evento .trip.position.updated se emitió al canal privado trips.{tripId} —salvo que Reverb esté caído, en cuyo caso la respuesta sigue siendo 201 y solo queda constancia en el log—. recordedAt es la hora del SERVIDOR y pilotId, el del token, no lo que viniera en el cuerpo. Las coordenadas vuelven como STRING de ocho decimales, así que no son idénticamente las enviadas.',
+                description: 'Posiciones registradas correctamente: se escribió AL MENOS UN PUNTO (saved >= 1) y se emitió UN evento con el último escrito —salvo que Reverb esté caído, en cuyo caso la respuesta sigue siendo 201 y solo queda constancia en el log—. lastPosition es el último punto escrito.',
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 201),
-                        new OA\Property(property: 'message', type: 'string', example: 'Posición registrada correctamente'),
-                        new OA\Property(property: 'data', ref: '#/components/schemas/TripPosition'),
+                        new OA\Property(property: 'message', type: 'string', example: 'Posiciones registradas correctamente'),
+                        new OA\Property(property: 'data', ref: '#/components/schemas/TripPositionBatchResource'),
                     ],
                     type: 'object',
                 ),
             ),
             new OA\Response(
                 response: 200,
-                description: 'PISO DE 5 SEGUNDOS — NO SE GUARDÓ NADA. La petición llegó a menos de 5 s del último punto del viaje, así que NO se escribió ninguna fila y NO se emitió ningún evento: lo que vuelve en data es EL PUNTO ANTERIOR tal cual, con su id y su recordedAt de antes. Silencio deliberado, no un error: la app reintenta cuando la red va mal. ATENCIÓN — hay que distinguirlo del 201 POR EL STATUS, no comparando coordenadas, porque dos puntos iguales seguidos son legítimos.',
+                description: 'TODO EL LOTE SE DESCARTÓ — NO SE GUARDÓ NADA. Cada punto era menor o igual al último ya guardado o caía a menos de 5 s del anterior: saved es 0, no se emitió ningún evento y lastPosition es el último punto que ya estaba guardado. Silencio deliberado, no un error: es lo que responde un reintento de un lote ya recibido.',
                 content: new OA\JsonContent(
                     properties: [
                         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
-                        new OA\Property(property: 'message', type: 'string', example: 'Posición recibida correctamente'),
-                        new OA\Property(property: 'data', ref: '#/components/schemas/TripPosition'),
+                        new OA\Property(property: 'message', type: 'string', example: 'Posiciones recibidas correctamente'),
+                        new OA\Property(property: 'data', ref: '#/components/schemas/TripPositionBatchResource'),
                     ],
                     type: 'object',
                 ),
             ),
             new OA\Response(
                 response: 400,
-                description: 'Regla de negocio incumplida, con DOS mensajes posibles: «El viaje ya fue eliminado» —se comprueba ANTES que la asignación, así que un viaje borrado y ajeno da este 400 y no el 403— y «El viaje no está en ruta», cuando el viaje sigue pending o ya está finished. NO existe la posición suelta: sin un viaje in_route asignado no hay dónde reportar.',
+                description: 'Regla de negocio incumplida; el lote entero se rechaza y no se guarda nada. TRES mensajes posibles: «El viaje ya fue eliminado» —se comprueba ANTES que la asignación, así que un viaje borrado y ajeno da este 400 y no el 403—, «El viaje no está en ruta» —pending o finished: un tramo que llega después de /finish se pierde— y «La hora de un punto es anterior al inicio del viaje» —reloj del teléfono atrasado: la app debe quitar esos puntos de su cola antes de reintentar—.',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
@@ -217,12 +224,12 @@ class TripPositionController extends Controller
             ),
             new OA\Response(
                 response: 404,
-                description: 'El viaje no existe. El mensaje devuelto es: El viaje no existe. Es la PRIMERA de las cuatro guardas del service, pero solo se llega a ella con un cuerpo VÁLIDO: un id inventado con un cuerpo inválido devuelve 422, no 404, porque el FormRequest se resuelve antes que el controlador.',
+                description: 'El viaje no existe. El mensaje devuelto es: El viaje no existe. Es la PRIMERA de las guardas del service, pero solo se llega a ella con un cuerpo VÁLIDO: un id inventado con un cuerpo inválido devuelve 422, no 404, porque el FormRequest se resuelve antes que el controlador.',
                 content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
             ),
             new OA\Response(
                 response: 422,
-                description: 'Coordenadas ausentes o fuera del sistema de referencia. Mensajes literales: La latitud es obligatoria / La latitud debe ser un número / La latitud debe estar entre -90 y 90 / La longitud es obligatoria / La longitud debe ser un número / La longitud debe estar entre -180 y 180. Un cuerpo vacío señala las dos. ATENCIÓN — es lo PRIMERO en fallar después del middleware de rol: el FormRequest se resuelve antes que el controlador, así que un cuerpo inválido devuelve 422 aunque el viaje no exista, esté borrado, sea ajeno o no esté en ruta.',
+                description: 'Cuerpo inválido; UN SOLO PUNTO MAL FORMADO RECHAZA EL LOTE ENTERO y no se guarda nada. La clave del error lleva el índice desde 0 (positions.9.latitude) y el mensaje nombra el punto desde 1. Mensajes literales: Las posiciones son obligatorias (también con el cuerpo viejo de un solo punto) / Las posiciones deben enviarse como un arreglo / Debes enviar al menos una posición / No puedes enviar más de 1000 posiciones por petición / La latitud del punto N es obligatoria / La latitud del punto N debe ser un número / La latitud del punto N debe estar entre -90 y 90 / La longitud del punto N es obligatoria / La longitud del punto N debe ser un número / La longitud del punto N debe estar entre -180 y 180 / La hora del punto N es obligatoria / La hora del punto N debe estar en formato ISO 8601 con zona horaria / La hora del punto N no puede estar en el futuro. ATENCIÓN — es lo PRIMERO en fallar después del middleware de rol: un cuerpo inválido devuelve 422 aunque el viaje no exista, esté borrado, sea ajeno o no esté en ruta.',
                 content: new OA\JsonContent(ref: '#/components/schemas/ValidationError'),
             ),
         ],
@@ -232,14 +239,14 @@ class TripPositionController extends Controller
         try {
             $user = auth('api')->user();
 
-            $position = $tripPositionService->create($user, $trip, $request->validated());
+            $summary = $tripPositionService->storePositions($user, $trip, $request->validated());
 
-            /** Un punto recién escrito no puede haber sido creado antes de esta petición. */
-            $wasRecorded = $position->wasRecentlyCreated;
+            /** 201 si se escribió al menos un punto; 200 si todo el lote se descartó. */
+            $wasRecorded = $summary['saved'] >= 1;
 
             return ResponseHandler::success(
-                new TripPositionResource($position),
-                $wasRecorded ? 'Posición registrada correctamente' : 'Posición recibida correctamente',
+                new TripPositionBatchResource($summary),
+                $wasRecorded ? 'Posiciones registradas correctamente' : 'Posiciones recibidas correctamente',
                 $wasRecorded ? 201 : 200,
             );
         } catch (\Throwable $th) {

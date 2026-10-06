@@ -16,8 +16,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * text field— and no `registered_by`: the author here is `pilot_id`, and naming it
  * twice would be a lie.
  *
- * `recorded_at` is written by the server with `now()`, never taken from the device, so
- * the track can always be ordered by the time each point arrived.
+ * `recorded_at` is the **device's** time of the point since SPEC 40 —a batch stamped
+ * with the server's `now()` would give every point the same time—, bounded to the
+ * window between the trip's start and one minute from now. `created_at` is still when
+ * the row reached the server.
  */
 #[Fillable(['trip_id', 'pilot_id', 'latitude', 'longitude', 'recorded_at'])]
 class TripPosition extends Model

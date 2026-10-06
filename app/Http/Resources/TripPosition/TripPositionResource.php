@@ -20,7 +20,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — latitude Y longitude SALEN COMO STRING, NO COMO NÚMERO, con ocho decimales fijos («14.62807400», «-90.52255400»), igual que en Location desde SPEC 15: un float redondearía justo la precisión por la que la columna se ensanchó. El frontend debe convertirlas antes de pintarlas en el mapa (parseFloat), y NO comparar puntos por igualdad de cadena.
 
-    ATENCIÓN — recordedAt ES LA HORA DEL SERVIDOR, NO LA DEL DISPOSITIVO. La pone now() al escribir la fila y no se acepta desde el body: no hay forma de mentir sobre cuándo se estuvo dónde, y el orden del rastro es siempre el de llegada. La contrapartida es que un tramo sin cobertura NO llega tarde: se pierde entero, porque no hay envío en lote.
+    ATENCIÓN — recordedAt ES LA HORA DEL DISPOSITIVO DESDE SPEC 40, NO LA DEL SERVIDOR. El piloto la manda por punto en el lote —para que un tramo sin cobertura llegue tarde pero con sus horas reales—, convertida a la zona de la app y truncada al segundo. La falsificación se acota con dos límites: nada a más de 60 s en el futuro y nada anterior al inicio del viaje. La hora de llegada al servidor no sale en este recurso.
 
     ESTE OBJETO ES INMUTABLE Y ETERNO: no existe PATCH ni DELETE de un punto, no hay purga por antigüedad y el DELETE (baja lógica) del viaje NO borra ninguna fila de trip_positions. Una coordenada mal reportada es historial y se queda.
 
@@ -29,7 +29,7 @@ use OpenApi\Attributes as OA;
     properties: [
         new OA\Property(
             property: 'id',
-            description: 'Identificador numérico del punto (trip_positions.id). Sirve para deduplicar en el frontend —el mismo id puede llegar dos veces: una por la respuesta del POST y otra por el websocket— y para detectar el piso de 5 segundos comparando con el id del punto anterior. NO ES PARÁMETRO DE NINGUNA RUTA: no existe /positions/{position}.',
+            description: 'Identificador numérico del punto (trip_positions.id). Sirve para deduplicar en el frontend —el mismo id puede llegar dos veces: una como lastPosition en la respuesta del POST y otra por el websocket—. Crece con recordedAt dentro de un lote, porque el servidor lo ordena antes de insertar. NO ES PARÁMETRO DE NINGUNA RUTA: no existe /positions/{position}.',
             type: 'integer',
             example: 4821,
         ),
@@ -47,7 +47,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'recordedAt',
-            description: 'Momento en que el servidor recibió el punto, en el formato propio del proyecto d-m-Y h:i:s A, NO en ISO 8601. Es la clave por la que se ordena el rastro (ascendente, con desempate por id) y la que alimenta el piso de 5 segundos.',
+            description: 'Hora del DISPOSITIVO en que se tomó el punto (desde SPEC 40, ya no la del servidor), convertida a la zona de la app y en el formato propio del proyecto d-m-Y h:i:s A, NO en ISO 8601 —aunque se envíe en ISO 8601—. Es la clave por la que se ordena el rastro (ascendente, con desempate por id) y la que alimenta el piso de 5 segundos.',
             type: 'string',
             example: '07-09-2026 08:14:03 AM',
         ),
@@ -113,7 +113,7 @@ class TripPositionResource extends JsonResource
             'id' => $this->id,
             'latitude' => $this->latitude,
             'longitude' => $this->longitude,
-            /** La hora de llegada al servidor, con el formato del resto del proyecto. */
+            /** La hora del dispositivo (SPEC 40), con el formato del resto del proyecto. */
             'recordedAt' => $this->recorded_at?->format('d-m-Y h:i:s A'),
             'pilotId' => $this->pilot_id,
         ];
