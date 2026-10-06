@@ -47,6 +47,22 @@ use OpenApi\Attributes as OA;
 )]
 class StoreTripPositionRequest extends FormRequest
 {
+    /**
+     * The ISO 8601 shapes accepted for a point's time: with offset or `Z`, with or
+     * without milliseconds. A time without zone is ambiguous and is rejected.
+     */
+    private const RECORDED_AT_FORMATS = [
+        'Y-m-d\TH:i:sP',
+        'Y-m-d\TH:i:s.vP',
+        'Y-m-d\TH:i:sp',
+        'Y-m-d\TH:i:s.vp',
+    ];
+
+    /**
+     * Seconds a point may sit in the future, to absorb the drift of the phone's clock.
+     */
+    private const FUTURE_TOLERANCE_SECONDS = 60;
+
     public function authorize(): bool
     {
         return true;
@@ -58,32 +74,55 @@ class StoreTripPositionRequest extends FormRequest
     public function rules(): array
     {
         /**
-         * Dos campos y ninguno más. `recordedAt` y `pilotId` no se aceptan: la hora la pone
-         * el servidor con now() y el autor sale del usuario autenticado, así que mandarlos
-         * se descarta en silencio, como el `vehicleId` de un gasto de vehículo.
+         * Un arreglo de 1 a 1000 puntos, y un solo punto inválido tumba el lote entero. El
+         * `pilotId` no se acepta: el autor sale del usuario autenticado y mandarlo se
+         * descarta en silencio.
          *
          * Los rangos son los del sistema de coordenadas y nada más: no se comprueba que el
          * punto caiga cerca de la polilínea del viaje, ni dentro de Guatemala, ni que el
          * salto contra el punto anterior sea físicamente posible.
+         *
+         * `recordedAt` es ISO 8601 con zona obligatoria, con o sin milisegundos. Las
+         * variantes con `p` existen solo para la `Z` de `toISOString()`: `date_format` vuelve
+         * a formatear la fecha y la compara con el valor, y `P` escribiría `+00:00`. El techo
+         * de un minuto en el futuro cubre la deriva del reloj del teléfono; el piso —nada
+         * anterior al arranque del viaje— vive en el service, porque necesita el viaje.
          */
         return [
-            'latitude' => ['required', 'numeric', 'between:-90,90'],
-            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'positions' => ['required', 'array', 'min:1', 'max:1000'],
+            'positions.*.latitude' => ['required', 'numeric', 'between:-90,90'],
+            'positions.*.longitude' => ['required', 'numeric', 'between:-180,180'],
+            'positions.*.recordedAt' => [
+                'bail',
+                'required',
+                'date_format:'.implode(',', self::RECORDED_AT_FORMATS),
+                'before_or_equal:'.now()->addSeconds(self::FUTURE_TOLERANCE_SECONDS)->format('Y-m-d\TH:i:sP'),
+            ],
         ];
     }
 
     /**
+     * `:position` is the point's place in the array counting from one, so the message
+     * names the point the way a person would.
+     *
      * @return array<string, string>
      */
     public function messages(): array
     {
         return [
-            'latitude.required' => 'La latitud es obligatoria',
-            'latitude.numeric' => 'La latitud debe ser un número',
-            'latitude.between' => 'La latitud debe estar entre -90 y 90',
-            'longitude.required' => 'La longitud es obligatoria',
-            'longitude.numeric' => 'La longitud debe ser un número',
-            'longitude.between' => 'La longitud debe estar entre -180 y 180',
+            'positions.required' => 'Las posiciones son obligatorias',
+            'positions.array' => 'Las posiciones deben enviarse como un arreglo',
+            'positions.min' => 'Debes enviar al menos una posición',
+            'positions.max' => 'No puedes enviar más de 1000 posiciones por petición',
+            'positions.*.latitude.required' => 'La latitud del punto :position es obligatoria',
+            'positions.*.latitude.numeric' => 'La latitud del punto :position debe ser un número',
+            'positions.*.latitude.between' => 'La latitud del punto :position debe estar entre -90 y 90',
+            'positions.*.longitude.required' => 'La longitud del punto :position es obligatoria',
+            'positions.*.longitude.numeric' => 'La longitud del punto :position debe ser un número',
+            'positions.*.longitude.between' => 'La longitud del punto :position debe estar entre -180 y 180',
+            'positions.*.recordedAt.required' => 'La hora del punto :position es obligatoria',
+            'positions.*.recordedAt.date_format' => 'La hora del punto :position debe estar en formato ISO 8601 con zona horaria',
+            'positions.*.recordedAt.before_or_equal' => 'La hora del punto :position no puede estar en el futuro',
         ];
     }
 }

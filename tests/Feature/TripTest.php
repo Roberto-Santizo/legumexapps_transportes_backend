@@ -1753,13 +1753,17 @@ it('abre la misma ventana que el POST de posiciones', function () {
     $trip = tripDrivenBy($team);
 
     asUser($team['pilot'])->getJson('/api/trips/current')->assertJsonPath('data.id', $trip->id);
-    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", ['latitude' => 14.6, 'longitude' => -90.5])
+    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.6, 'longitude' => -90.5, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertCreated();
 
     asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
 
     asUser($team['pilot'])->getJson('/api/trips/current')->assertJsonPath('data', null);
-    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", ['latitude' => 14.6, 'longitude' => -90.5])
+    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.6, 'longitude' => -90.5, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertStatus(400);
 });
 
@@ -3003,10 +3007,9 @@ it('no toca la polilínea del recorrido al registrar una posición con el viaje 
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
 
-    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])->assertCreated();
+    asUser($team['pilot'])->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertCreated();
 
     $this->assertDatabaseCount('trip_positions', 1);
     $this->assertDatabaseHas('trips', ['id' => $trip->id, 'traveled_polyline' => null]);

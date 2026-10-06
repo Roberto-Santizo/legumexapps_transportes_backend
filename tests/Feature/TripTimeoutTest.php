@@ -270,18 +270,16 @@ it('abre y luego cierra una parada a partir de las posiciones que reporta el pil
     ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
     $administrator = userWithRole(UserRole::Administrator);
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.6282,
-        'longitude' => -90.5229,
-    ])->assertStatus(201);
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.6282, 'longitude' => -90.5229, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertStatus(201);
 
     $this->travel(20)->seconds();
 
     /** Dos metros escasos: el camión está parado y la parada se abre en el punto anterior. */
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.62822,
-        'longitude' => -90.5229,
-    ])->assertStatus(201);
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.62822, 'longitude' => -90.5229, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertStatus(201);
 
     $open = asUser($administrator)->getJson("/api/trips/{$trip->id}/timeouts")->json('data');
 
@@ -293,10 +291,9 @@ it('abre y luego cierra una parada a partir de las posiciones que reporta el pil
     $this->travel(20)->seconds();
 
     /** Más de cien metros: el camión arrancó y el punto cierra la parada. */
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.6292,
-        'longitude' => -90.5229,
-    ])->assertStatus(201);
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.6292, 'longitude' => -90.5229, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertStatus(201);
 
     $closed = asUser($administrator)->getJson("/api/trips/{$trip->id}/timeouts")->json('data');
 
@@ -309,16 +306,14 @@ it('abre y luego cierra una parada a partir de las posiciones que reporta el pil
 it('no toca ninguna parada cuando el piso de cinco segundos descarta la petición', function () {
     ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.6282,
-        'longitude' => -90.5229,
-    ])->assertStatus(201);
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.6282, 'longitude' => -90.5229, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertStatus(201);
 
     /** Sin viajar en el tiempo: la segunda llega dentro del piso y se descarta. */
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.62822,
-        'longitude' => -90.5229,
-    ])->assertStatus(200);
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.62822, 'longitude' => -90.5229, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertStatus(200);
 
     expect(TripTimeout::where('trip_id', $trip->id)->count())->toBe(0);
 });

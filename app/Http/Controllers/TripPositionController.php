@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Helpers\ResponseHandler;
 use App\Http\Requests\TripPosition\StoreTripPositionRequest;
 use App\Http\Resources\PaginatedResource;
+use App\Http\Resources\TripPosition\TripPositionBatchResource;
 use App\Http\Resources\TripPosition\TripPositionResource;
 use App\Interfaces\TripPosition\TripPositionServiceInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -232,14 +233,14 @@ class TripPositionController extends Controller
         try {
             $user = auth('api')->user();
 
-            $position = $tripPositionService->create($user, $trip, $request->validated());
+            $summary = $tripPositionService->storePositions($user, $trip, $request->validated());
 
-            /** Un punto recién escrito no puede haber sido creado antes de esta petición. */
-            $wasRecorded = $position->wasRecentlyCreated;
+            /** 201 si se escribió al menos un punto; 200 si todo el lote se descartó. */
+            $wasRecorded = $summary['saved'] >= 1;
 
             return ResponseHandler::success(
-                new TripPositionResource($position),
-                $wasRecorded ? 'Posición registrada correctamente' : 'Posición recibida correctamente',
+                new TripPositionBatchResource($summary),
+                $wasRecorded ? 'Posiciones registradas correctamente' : 'Posiciones recibidas correctamente',
                 $wasRecorded ? 201 : 200,
             );
         } catch (\Throwable $th) {

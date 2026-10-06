@@ -110,6 +110,16 @@ function tripPositionResourceKeys(): array
     return ['id', 'latitude', 'longitude', 'recordedAt', 'pilotId'];
 }
 
+/**
+ * The four keys `TripPositionBatchResource` promises, in the order it declares them.
+ *
+ * @return array<int, string>
+ */
+function tripPositionBatchKeys(): array
+{
+    return ['received', 'saved', 'discarded', 'lastPosition'];
+}
+
 /*
 |--------------------------------------------------------------------------
 | Middlewares: jwt.auth y role
@@ -142,10 +152,9 @@ it('rechaza con 401 la autorización de canal sin token, con el sobre habitual',
 it('rechaza con 403 a quien no es piloto al reportar una posición', function (UserRole $role) {
     ['trip' => $trip] = tripInRoute();
 
-    asUser(userWithRole($role))->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])
+    asUser(userWithRole($role))->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertForbidden()
         ->assertExactJson([
             'statusCode' => 403,
@@ -167,13 +176,15 @@ it('registra el punto del piloto asignado con el viaje en ruta', function () {
 
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
 
-    $response = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])
+    $response = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertCreated()
         ->assertJsonPath('statusCode', 201)
-        ->assertJsonPath('message', 'Posición registrada correctamente');
+        ->assertJsonPath('message', 'Posiciones registradas correctamente')
+        ->assertJsonPath('data.received', 1)
+        ->assertJsonPath('data.saved', 1)
+        ->assertJsonPath('data.discarded', 0);
 
     $this->assertDatabaseHas('trip_positions', [
         'trip_id' => $trip->id,
@@ -182,42 +193,45 @@ it('registra el punto del piloto asignado con el viaje en ruta', function () {
         'longitude' => '-90.52255400',
     ]);
 
-    expect($response->json('data.pilotId'))->toBe($pilot->id)
-        ->and(array_keys($response->json('data')))->toBe(tripPositionResourceKeys());
+    expect(array_keys($response->json('data')))->toBe(tripPositionBatchKeys())
+        ->and($response->json('data.lastPosition.pilotId'))->toBe($pilot->id)
+        ->and(array_keys($response->json('data.lastPosition')))->toBe(tripPositionResourceKeys());
 
     Event::assertDispatched(TripPositionUpdated::class);
 });
 
-it('pone la hora del servidor, no la del dispositivo', function () {
+it('guarda la hora del dispositivo convertida a la zona de la app, no la del servidor', function () {
     Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
 
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
 
-    $this->travelTo(now()->setDate(2026, 9, 7)->setTime(8, 14, 3));
+    $recordedAt = now()->subMinutes(10)->startOfSecond();
 
-    $response = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])->assertCreated();
+    $response = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => $recordedAt->copy()->setTimezone('America/Guatemala')->toIso8601String()],
+    ]])->assertCreated();
 
-    expect($response->json('data.recordedAt'))->toBe('07-09-2026 08:14:03 AM')
-        ->and(TripPosition::firstOrFail()->recorded_at->format('d-m-Y H:i:s'))->toBe('07-09-2026 08:14:03');
+    $expected = $recordedAt->copy()->setTimezone(config('app.timezone'));
+
+    expect($response->json('data.lastPosition.recordedAt'))->toBe($expected->format('d-m-Y h:i:s A'))
+        ->and(TripPosition::firstOrFail()->recorded_at->format('d-m-Y H:i:s'))->toBe($expected->format('d-m-Y H:i:s'));
 });
 
-it('ignora recordedAt y pilotId mandados en el cuerpo', function () {
+it('ignora el pilotId y el recorded_at en snake_case mandados en el punto', function () {
     Event::fake([TripPositionUpdated::class]);
 
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
     $otroPiloto = userWithRole(UserRole::Pilot);
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [[
         'latitude' => 14.628074,
         'longitude' => -90.522554,
-        'recordedAt' => '01-01-2000 00:00:00 AM',
+        'recordedAt' => now()->toIso8601String(),
         'recorded_at' => '2000-01-01 00:00:00',
         'pilotId' => $otroPiloto->id,
         'pilot_id' => $otroPiloto->id,
-    ])->assertCreated();
+    ]]])->assertCreated();
 
     $position = TripPosition::firstOrFail();
 
@@ -228,10 +242,9 @@ it('ignora recordedAt y pilotId mandados en el cuerpo', function () {
 it('rechaza con 403 al piloto que no tiene el viaje asignado', function () {
     ['trip' => $trip] = tripInRoute();
 
-    asUser(userWithRole(UserRole::Pilot))->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])
+    asUser(userWithRole(UserRole::Pilot))->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertForbidden()
         ->assertJsonPath('message', 'No puedes reportar la posición de un viaje que no tienes asignado');
 
@@ -242,10 +255,9 @@ it('rechaza con 400 reportar sobre un viaje que no está en ruta', function (str
     $trip = Trip::factory()->{$estado}()->create();
     $pilot = User::findOrFail($trip->pilot_id);
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertBadRequest()
         ->assertJsonPath('message', 'El viaje no está en ruta');
 
@@ -259,10 +271,9 @@ it('rechaza con 400 reportar sobre un viaje ya eliminado', function () {
     $trip = Trip::factory()->inRoute()->trashed()->create();
     $pilot = User::findOrFail($trip->pilot_id);
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertBadRequest()
         ->assertJsonPath('message', 'El viaje ya fue eliminado');
 
@@ -270,40 +281,40 @@ it('rechaza con 400 reportar sobre un viaje ya eliminado', function () {
 });
 
 it('rechaza con 404 reportar sobre un viaje que no existe', function () {
-    asUser(userWithRole(UserRole::Pilot))->postJson('/api/trips/99999/positions', [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])
+    asUser(userWithRole(UserRole::Pilot))->postJson('/api/trips/99999/positions', ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertNotFound()
         ->assertJsonPath('message', 'El viaje no existe');
 });
 
-it('rechaza con 422 una coordenada fuera del sistema de referencia', function (array $payload, string $campo, string $mensaje) {
+it('rechaza con 422 una coordenada fuera del sistema de referencia', function (array $point, string $campo, string $mensaje) {
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", $payload)
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        [...$point, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertStatus(422)
         ->assertJsonValidationErrors([$campo])
         ->assertJsonFragment([$mensaje]);
 
     expect(TripPosition::count())->toBe(0);
 })->with([
-    'latitud por encima de 90' => [['latitude' => 91, 'longitude' => -90.5], 'latitude', 'La latitud debe estar entre -90 y 90'],
-    'latitud por debajo de -90' => [['latitude' => -91, 'longitude' => -90.5], 'latitude', 'La latitud debe estar entre -90 y 90'],
-    'longitud por encima de 180' => [['latitude' => 14.6, 'longitude' => 181], 'longitude', 'La longitud debe estar entre -180 y 180'],
-    'longitud por debajo de -180' => [['latitude' => 14.6, 'longitude' => -181], 'longitude', 'La longitud debe estar entre -180 y 180'],
-    'latitud no numérica' => [['latitude' => 'norte', 'longitude' => -90.5], 'latitude', 'La latitud debe ser un número'],
-    'longitud no numérica' => [['latitude' => 14.6, 'longitude' => 'oeste'], 'longitude', 'La longitud debe ser un número'],
+    'latitud por encima de 90' => [['latitude' => 91, 'longitude' => -90.5], 'positions.0.latitude', 'La latitud del punto 1 debe estar entre -90 y 90'],
+    'latitud por debajo de -90' => [['latitude' => -91, 'longitude' => -90.5], 'positions.0.latitude', 'La latitud del punto 1 debe estar entre -90 y 90'],
+    'longitud por encima de 180' => [['latitude' => 14.6, 'longitude' => 181], 'positions.0.longitude', 'La longitud del punto 1 debe estar entre -180 y 180'],
+    'longitud por debajo de -180' => [['latitude' => 14.6, 'longitude' => -181], 'positions.0.longitude', 'La longitud del punto 1 debe estar entre -180 y 180'],
+    'latitud no numérica' => [['latitude' => 'norte', 'longitude' => -90.5], 'positions.0.latitude', 'La latitud del punto 1 debe ser un número'],
+    'longitud no numérica' => [['latitude' => 14.6, 'longitude' => 'oeste'], 'positions.0.longitude', 'La longitud del punto 1 debe ser un número'],
 ]);
 
-it('rechaza con 422 el cuerpo vacío señalando las dos coordenadas', function () {
+it('rechaza con 422 el cuerpo vacío señalando las posiciones', function () {
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
 
     asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['latitude', 'longitude'])
-        ->assertJsonFragment(['La latitud es obligatoria'])
-        ->assertJsonFragment(['La longitud es obligatoria']);
+        ->assertJsonValidationErrors(['positions'])
+        ->assertJsonFragment(['Las posiciones son obligatorias']);
 
     expect(TripPosition::count())->toBe(0);
 });
@@ -311,33 +322,29 @@ it('rechaza con 422 el cuerpo vacío señalando las dos coordenadas', function (
 it('devuelve 200 con el punto anterior y no escribe nada antes de los cinco segundos', function () {
     Event::fake([TripPositionUpdated::class]);
 
-    /**
-     * El reloj se congela porque el margen del piso es de un solo segundo: sin congelar,
-     * el tiempo real que tarda la propia petición se suma a los 14 s viajados y el punto
-     * acaba escribiéndose bajo carga.
-     */
+    /** Se congela el reloj para que la hora mandada sea exacta al segundo. */
     $this->freezeTime();
 
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
 
-    $primero = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])->assertCreated();
+    $primero = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertCreated();
 
     $this->travel(4)->seconds();
 
-    $segundo = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 15.111111,
-        'longitude' => -91.222222,
-    ])
+    $segundo = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 15.111111, 'longitude' => -91.222222, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertOk()
         ->assertJsonPath('statusCode', 200)
-        ->assertJsonPath('message', 'Posición recibida correctamente');
+        ->assertJsonPath('message', 'Posiciones recibidas correctamente')
+        ->assertJsonPath('data.saved', 0)
+        ->assertJsonPath('data.discarded', 1);
 
     expect(TripPosition::count())->toBe(1)
-        ->and($segundo->json('data.id'))->toBe($primero->json('data.id'))
-        ->and($segundo->json('data.latitude'))->toBe('14.62807400');
+        ->and($segundo->json('data.lastPosition.id'))->toBe($primero->json('data.lastPosition.id'))
+        ->and($segundo->json('data.lastPosition.latitude'))->toBe('14.62807400');
 
     /** El punto descartado no se anuncia: solo se emitió el primero. */
     Event::assertDispatchedTimes(TripPositionUpdated::class, 1);
@@ -348,17 +355,15 @@ it('registra y emite el segundo punto pasados los cinco segundos', function () {
 
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])->assertCreated();
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertCreated();
 
     $this->travel(6)->seconds();
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 15.111111,
-        'longitude' => -91.222222,
-    ])->assertCreated();
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 15.111111, 'longitude' => -91.222222, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertCreated();
 
     expect(TripPosition::count())->toBe(2);
 
@@ -388,12 +393,11 @@ it('responde 201 y guarda la fila aunque el broadcast reviente', function () {
 
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])
         ->assertCreated()
-        ->assertJsonPath('message', 'Posición registrada correctamente');
+        ->assertJsonPath('message', 'Posiciones registradas correctamente');
 
     $this->assertDatabaseHas('trip_positions', [
         'trip_id' => $trip->id,
@@ -617,10 +621,9 @@ it('mantiene el viaje en ruta después de reportar, sin tocar sus columnas', fun
     ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
     $antes = $trip->only(['status', 'pilot_id', 'vehicle_id', 'start_date', 'end_date']);
 
-    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ])->assertCreated();
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->toIso8601String()],
+    ]])->assertCreated();
 
     expect($trip->fresh()->only(['status', 'pilot_id', 'vehicle_id', 'start_date', 'end_date']))->toEqual($antes)
         ->and($trip->fresh()->status)->toBe(TripStatus::InRoute);
@@ -636,7 +639,7 @@ it('valida el cuerpo antes que las guardas: id inexistente con cuerpo vacío es 
 
     asUser($pilot)->postJson('/api/trips/999999/positions', [])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['latitude', 'longitude']);
+        ->assertJsonValidationErrors(['positions']);
 });
 
 it('valida el cuerpo antes que las guardas: viaje ajeno y fuera de ruta con cuerpo vacío es 422', function () {
@@ -645,7 +648,7 @@ it('valida el cuerpo antes que las guardas: viaje ajeno y fuera de ruta con cuer
 
     asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['latitude', 'longitude']);
+        ->assertJsonValidationErrors(['positions']);
 
     expect(TripPosition::count())->toBe(0);
 });
