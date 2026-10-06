@@ -3,12 +3,17 @@
 use App\Enums\TripStatus;
 use App\Enums\UserRole;
 use App\Events\Trip\TripPositionUpdated;
+use App\Interfaces\TripTimeout\TripTimeoutServiceInterface;
 use App\Models\Carrier;
 use App\Models\Trip;
 use App\Models\TripPosition;
+use App\Models\TripTimeout;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Broadcasting\Broadcaster;
 use Illuminate\Contracts\Broadcasting\Factory as BroadcastingFactory;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
@@ -651,4 +656,362 @@ it('valida el cuerpo antes que las guardas: viaje ajeno y fuera de ruta con cuer
         ->assertJsonValidationErrors(['positions']);
 
     expect(TripPosition::count())->toBe(0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| POST /api/trips/{trip}/positions — el lote (SPEC 40)
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * A batch of points the given seconds after a base time, with the Guatemala offset the
+ * way a device would send them. Each point moves north a little, so no stop opens.
+ *
+ * @param  list<int>  $seconds
+ * @return list<array{latitude: float, longitude: float, recordedAt: string}>
+ */
+function tripPositionPoints(array $seconds, ?CarbonImmutable $base = null): array
+{
+    $base ??= CarbonImmutable::now()->subHour();
+
+    return array_map(fn (int $offset): array => [
+        'latitude' => 14.628074 + $offset / 10000,
+        'longitude' => -90.522554,
+        'recordedAt' => $base->addSeconds($offset)->setTimezone('America/Guatemala')->toIso8601String(),
+    ], $seconds);
+}
+
+/**
+ * Seconds after the base of every stored point of the trip, in id order.
+ *
+ * @return list<int>
+ */
+function tripPositionOffsets(Trip $trip, CarbonImmutable $base): array
+{
+    return TripPosition::query()
+        ->where('trip_id', $trip->id)
+        ->orderBy('id')
+        ->get()
+        ->map(fn (TripPosition $position): int => $position->recorded_at->timestamp - $base->timestamp)
+        ->all();
+}
+
+it('rechaza con 422 el cuerpo viejo de un solo punto, señalando positions', function () {
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'latitude' => 14.628074,
+        'longitude' => -90.522554,
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['positions'])
+        ->assertJsonFragment(['Las posiciones son obligatorias']);
+
+    expect(TripPosition::count())->toBe(0);
+});
+
+it('rechaza con 422 un arreglo de posiciones vacío o que no es arreglo', function (mixed $positions, string $mensaje) {
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => $positions])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['positions'])
+        ->assertJsonFragment([$mensaje]);
+})->with([
+    'vacío' => [[], 'Las posiciones son obligatorias'],
+    'no es arreglo' => ['muchas', 'Las posiciones deben enviarse como un arreglo'],
+]);
+
+it('rechaza con 422 un lote de 1001 puntos', function () {
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints(range(0, 5000, 5), CarbonImmutable::now()->subHours(2)),
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['positions'])
+        ->assertJsonFragment(['No puedes enviar más de 1000 posiciones por petición']);
+
+    expect(TripPosition::count())->toBe(0);
+});
+
+it('acepta un lote de 1000 puntos', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints(range(0, 4995, 5), CarbonImmutable::now()->subHours(2)),
+    ])
+        ->assertCreated()
+        ->assertJsonPath('data.received', 1000)
+        ->assertJsonPath('data.saved', 1000)
+        ->assertJsonPath('data.discarded', 0);
+
+    expect(TripPosition::count())->toBe(1000);
+});
+
+it('rechaza con 422 el lote entero si un punto de en medio no trae latitud, nombrando ese punto', function () {
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    $points = tripPositionPoints(range(0, 95, 5));
+    unset($points[9]['latitude']);
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => $points])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['positions.9.latitude'])
+        ->assertJsonFragment(['La latitud del punto 10 es obligatoria']);
+
+    expect(TripPosition::count())->toBe(0);
+});
+
+it('rechaza con 422 un recordedAt sin zona horaria o con otro formato', function (string $recordedAt) {
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => $recordedAt],
+    ]])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['positions.0.recordedAt'])
+        ->assertJsonFragment(['La hora del punto 1 debe estar en formato ISO 8601 con zona horaria']);
+
+    expect(TripPosition::count())->toBe(0);
+})->with([
+    'sin zona' => '2026-10-06T14:32:05',
+    'con espacio en vez de T' => '2026-10-06 14:32:05-06:00',
+    'formato del proyecto' => '06-10-2026 02:32:05 PM',
+]);
+
+it('rechaza con 422 un punto sin recordedAt', function () {
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554],
+    ]])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['positions.0.recordedAt'])
+        ->assertJsonFragment(['La hora del punto 1 es obligatoria']);
+});
+
+it('acepta recordedAt con milisegundos y Z, y con desfase sin milisegundos', function (string $format) {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    $recordedAt = now()->subMinutes(10)->startOfSecond();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => $format === 'Z'
+            ? $recordedAt->copy()->utc()->format('Y-m-d\TH:i:s').'.123Z'
+            : $recordedAt->copy()->setTimezone('America/Guatemala')->format('Y-m-d\TH:i:sP')],
+    ]])->assertCreated();
+
+    /** Los milisegundos se truncan: la columna guarda segundos. */
+    expect(TripPosition::sole()->recorded_at->timestamp)->toBe($recordedAt->timestamp);
+})->with(['Z', 'desfase']);
+
+it('rechaza con 422 un punto a más de un minuto en el futuro y acepta uno a 30 segundos', function (int $seconds, int $status) {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    $response = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->addSeconds($seconds)->toIso8601String()],
+    ]])->assertStatus($status);
+
+    if ($status === 422) {
+        $response->assertJsonValidationErrors(['positions.0.recordedAt'])
+            ->assertJsonFragment(['La hora del punto 1 no puede estar en el futuro']);
+    }
+
+    expect(TripPosition::count())->toBe($status === 201 ? 1 : 0);
+})->with([
+    'a 61 segundos' => [61, 422],
+    'a 30 segundos' => [30, 201],
+]);
+
+it('rechaza con 400 el lote entero si un punto es anterior al inicio del viaje', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute(['start_date' => now()->subHour()]);
+
+    $points = tripPositionPoints([0, 6], CarbonImmutable::now()->subMinutes(30));
+    $points[] = ['latitude' => 14.6, 'longitude' => -90.5, 'recordedAt' => now()->subHours(2)->toIso8601String()];
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => $points])
+        ->assertBadRequest()
+        ->assertJsonPath('message', 'La hora de un punto es anterior al inicio del viaje');
+
+    expect(TripPosition::count())->toBe(0);
+    Event::assertNotDispatched(TripPositionUpdated::class);
+});
+
+it('rechaza con 400 un lote sobre un viaje finalizado sin guardar nada', function () {
+    $trip = Trip::factory()->finished()->create();
+    $pilot = User::findOrFail($trip->pilot_id);
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints([0, 6, 12]),
+    ])
+        ->assertBadRequest()
+        ->assertJsonPath('message', 'El viaje no está en ruta');
+
+    expect(TripPosition::count())->toBe(0);
+});
+
+it('guarda en orden de recordedAt un lote enviado desordenado', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+    $base = CarbonImmutable::now()->subHour();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints([30, 0, 20, 10], $base),
+    ])->assertCreated();
+
+    expect(tripPositionOffsets($trip, $base))->toBe([0, 10, 20, 30]);
+});
+
+it('guarda 0, 6 y 12 s y descarta el de 3 s por el piso', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+    $base = CarbonImmutable::now()->subHour();
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints([0, 3, 6, 12], $base),
+    ])
+        ->assertCreated()
+        ->assertJsonPath('data.received', 4)
+        ->assertJsonPath('data.saved', 3)
+        ->assertJsonPath('data.discarded', 1);
+
+    expect(tripPositionOffsets($trip, $base))->toBe([0, 6, 12]);
+});
+
+it('descarta el primer punto de un lote si cae a menos de 5 s del último guardado', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+    $base = CarbonImmutable::now()->subHour();
+
+    tripPositionAt($trip, $base->toDateTimeString());
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints([3, 9], $base),
+    ])
+        ->assertCreated()
+        ->assertJsonPath('data.saved', 1)
+        ->assertJsonPath('data.discarded', 1);
+
+    expect(tripPositionOffsets($trip, $base))->toBe([0, 9]);
+});
+
+it('descarta los puntos anteriores o iguales al último guardado y los cuenta', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+    $base = CarbonImmutable::now()->subHour();
+
+    tripPositionAt($trip, $base->addSeconds(30)->toDateTimeString());
+
+    $response = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints([0, 15, 30, 45, 60], $base),
+    ])
+        ->assertCreated()
+        ->assertJsonPath('data.received', 5)
+        ->assertJsonPath('data.saved', 2)
+        ->assertJsonPath('data.discarded', 3);
+
+    expect(tripPositionOffsets($trip, $base))->toBe([30, 45, 60])
+        ->and($response->json('data.received'))->toBe($response->json('data.saved') + $response->json('data.discarded'));
+});
+
+it('responde 200 sin crear filas al reenviar el mismo lote, con el último punto ya guardado', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+    $body = ['positions' => tripPositionPoints([0, 6, 12])];
+
+    $primero = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", $body)->assertCreated();
+
+    $segundo = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", $body)
+        ->assertOk()
+        ->assertJsonPath('statusCode', 200)
+        ->assertJsonPath('message', 'Posiciones recibidas correctamente')
+        ->assertJsonPath('data.received', 3)
+        ->assertJsonPath('data.saved', 0)
+        ->assertJsonPath('data.discarded', 3);
+
+    expect(TripPosition::count())->toBe(3)
+        ->and(array_keys($segundo->json('data')))->toBe(tripPositionBatchKeys())
+        ->and($segundo->json('data.lastPosition'))->toBe($primero->json('data.lastPosition'))
+        ->and(array_keys($segundo->json('data.lastPosition')))->toBe(tripPositionResourceKeys());
+
+    /** El reintento no escribió nada, así que tampoco emitió. */
+    Event::assertDispatchedTimes(TripPositionUpdated::class, 1);
+});
+
+it('emite un solo evento por un lote de 17 puntos escritos, con el último', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    $response = asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints(range(0, 80, 5)),
+    ])
+        ->assertCreated()
+        ->assertJsonPath('data.saved', 17);
+
+    $lastId = $response->json('data.lastPosition.id');
+
+    expect($lastId)->toBe(TripPosition::query()->max('id'));
+
+    Event::assertDispatchedTimes(TripPositionUpdated::class, 1);
+    Event::assertDispatched(TripPositionUpdated::class, fn (TripPositionUpdated $event): bool => $event->position->id === $lastId);
+});
+
+it('no guarda ningún punto ni ninguna parada si la detección falla a mitad del lote', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripInRoute();
+
+    app()->instance(TripTimeoutServiceInterface::class, new class implements TripTimeoutServiceInterface
+    {
+        private int $calls = 0;
+
+        public function getTimeouts(User $user, int $tripId, array $filters): LengthAwarePaginator|Collection
+        {
+            return new Collection;
+        }
+
+        public function trackPosition(TripPosition $position): void
+        {
+            /** El primero sí abre una parada: el rollback tiene que deshacerla también. */
+            if (++$this->calls === 1) {
+                TripTimeout::factory()->open()->create(['trip_id' => $position->trip_id]);
+
+                return;
+            }
+
+            throw new RuntimeException('La detección falló');
+        }
+    });
+
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", [
+        'positions' => tripPositionPoints([0, 6, 12]),
+    ])->assertStatus(500);
+
+    expect(TripPosition::count())->toBe(0)
+        ->and(TripTimeout::count())->toBe(0);
+
+    Event::assertNotDispatched(TripPositionUpdated::class);
 });

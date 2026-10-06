@@ -6,6 +6,7 @@ use App\Models\Trip;
 use App\Models\TripPosition;
 use App\Models\TripTimeout;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
 use Tests\TestCase;
@@ -316,6 +317,63 @@ it('no toca ninguna parada cuando el piso de cinco segundos descarta la petició
     ]])->assertStatus(200);
 
     expect(TripTimeout::where('trip_id', $trip->id)->count())->toBe(0);
+});
+
+/**
+ * A batch point at the given seconds after a base time, sent with the Guatemala offset.
+ *
+ * @return array{latitude: float, longitude: float, recordedAt: string}
+ */
+function tripTimeoutBatchPoint(CarbonImmutable $base, int $seconds, float $latitude): array
+{
+    return [
+        'latitude' => $latitude,
+        'longitude' => -90.5229,
+        'recordedAt' => $base->addSeconds($seconds)->setTimezone('America/Guatemala')->toIso8601String(),
+    ];
+}
+
+it('abre una sola parada con un lote de puntos quietos, anclada en el primero y con su hora de dispositivo', function () {
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
+    $base = CarbonImmutable::now()->subHour();
+
+    /** Dos metros escasos entre puntos: el camión está parado todo el lote. */
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        tripTimeoutBatchPoint($base, 0, 14.6282),
+        tripTimeoutBatchPoint($base, 10, 14.62822),
+        tripTimeoutBatchPoint($base, 20, 14.62821),
+        tripTimeoutBatchPoint($base, 30, 14.62822),
+    ]])->assertStatus(201)->assertJsonPath('data.saved', 4);
+
+    $timeout = TripTimeout::where('trip_id', $trip->id)->sole();
+    $first = TripPosition::where('trip_id', $trip->id)->orderBy('id')->firstOrFail();
+
+    expect($timeout->started_at->timestamp)->toBe($base->timestamp)
+        ->and($timeout->start_position_id)->toBe($first->id)
+        ->and($timeout->ended_at)->toBeNull();
+});
+
+it('abre y cierra la parada dentro del mismo lote, con la hora del punto que se alejó', function () {
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripWithTimeouts();
+    $base = CarbonImmutable::now()->subHour();
+
+    /** Quieto diez segundos y después más de cien metros al norte. */
+    asUser($pilot)->postJson("/api/trips/{$trip->id}/positions", ['positions' => [
+        tripTimeoutBatchPoint($base, 0, 14.6282),
+        tripTimeoutBatchPoint($base, 10, 14.62822),
+        tripTimeoutBatchPoint($base, 20, 14.6292),
+    ]])->assertStatus(201)->assertJsonPath('data.saved', 3);
+
+    $timeout = TripTimeout::where('trip_id', $trip->id)->sole();
+    $last = TripPosition::where('trip_id', $trip->id)->orderByDesc('id')->firstOrFail();
+
+    expect($timeout->started_at->timestamp)->toBe($base->timestamp)
+        ->and($timeout->ended_at->timestamp)->toBe($base->addSeconds(20)->timestamp)
+        ->and($timeout->end_position_id)->toBe($last->id);
 });
 
 it('acota el tamaño de página a diez y aplana los metadatos en la raíz', function () {
