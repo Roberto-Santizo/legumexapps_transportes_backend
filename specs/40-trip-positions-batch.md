@@ -1,6 +1,6 @@
 # SPEC 40 — Lote de posiciones del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 24, SPEC 26, SPEC 27 (`27-trip-timeouts.md`)
 > **Fecha:** 2026-10-06
 > **Objetivo:** Hacer que `POST /api/trips/{trip}/positions` reciba un arreglo de hasta 1000 puntos, cada uno con la hora del dispositivo, para que el piloto que estuvo sin señal reenvíe el tramo perdido.
@@ -191,57 +191,57 @@ Resource nuevo `App\Http\Resources\TripPosition\TripPositionBatchResource`. Envu
 
 **Validación (422, no se guarda nada):**
 
-- [ ] El cuerpo viejo `{ latitude, longitude }` responde **422** sobre `positions`.
-- [ ] `positions` vacío o ausente responde **422**.
-- [ ] Un lote de **1001** puntos responde **422**. Uno de **1000** se acepta.
-- [ ] Un lote de 20 puntos con el punto 10 sin `latitude` responde **422**, con un mensaje que nombra ese punto, y `trip_positions` no gana ninguna fila.
-- [ ] `recordedAt` sin zona horaria (`2026-10-06T14:32:05`) responde **422**.
-- [ ] `recordedAt` con milisegundos y `Z` (`2026-10-06T20:32:05.123Z`) se acepta.
-- [ ] `recordedAt` a más de 60 s en el futuro responde **422**. A 30 s en el futuro se acepta.
-- [ ] Un cuerpo inválido sobre un viaje inexistente responde **422**, no 404: la validación corre antes que las guardas.
+- [x] El cuerpo viejo `{ latitude, longitude }` responde **422** sobre `positions`.
+- [x] `positions` vacío o ausente responde **422**.
+- [x] Un lote de **1001** puntos responde **422**. Uno de **1000** se acepta.
+- [x] Un lote de 20 puntos con el punto 10 sin `latitude` responde **422**, con un mensaje que nombra ese punto, y `trip_positions` no gana ninguna fila.
+- [x] `recordedAt` sin zona horaria (`2026-10-06T14:32:05`) responde **422**.
+- [x] `recordedAt` con milisegundos y `Z` (`2026-10-06T20:32:05.123Z`) se acepta.
+- [x] `recordedAt` a más de 60 s en el futuro responde **422**. A 30 s en el futuro se acepta.
+- [x] Un cuerpo inválido sobre un viaje inexistente responde **422**, no 404: la validación corre antes que las guardas.
 
 **Guardas (orden de SPEC 26 intacto):**
 
-- [ ] Las cuatro guardas responden igual que antes, en el mismo orden: viaje inexistente 404 → borrado 400 → ajeno 403 → no `in_route` 400.
-- [ ] Un viaje `finished` responde **400** al lote entero y no guarda nada.
-- [ ] Un lote con un punto anterior a `start_date` responde **400 «La hora de un punto es anterior al inicio del viaje»** y no guarda nada.
+- [x] Las cuatro guardas responden igual que antes, en el mismo orden: viaje inexistente 404 → borrado 400 → ajeno 403 → no `in_route` 400.
+- [x] Un viaje `finished` responde **400** al lote entero y no guarda nada.
+- [x] Un lote con un punto anterior a `start_date` responde **400 «La hora de un punto es anterior al inicio del viaje»** y no guarda nada.
 
 **Procesamiento:**
 
-- [ ] `recorded_at` de cada fila es el `recordedAt` del punto convertido a la zona de la app, no `now()`.
-- [ ] `pilot_id` sale del token. Un `pilotId` en el punto se ignora.
-- [ ] Un lote enviado desordenado se guarda en orden de `recordedAt`: los `id` crecen con la hora.
-- [ ] Los puntos con `recordedAt` menor o igual al último guardado se descartan y cuentan en `discarded`.
-- [ ] Reenviar el mismo lote dos veces responde **200** la segunda vez, con `saved: 0`, y no crea filas nuevas.
-- [ ] En un lote con puntos a 0, 3, 6 y 12 s, se guardan los de 0, 6 y 12 s, y el de 3 s cuenta en `discarded`.
-- [ ] El piso compara contra el último punto guardado: un lote cuyo primer punto está a 3 s del último guardado descarta ese primer punto.
-- [ ] El último punto guardado se lee dentro de la transacción, después de un `lockForUpdate` sobre la fila del viaje. Lo comprueba un Unit test con `DB::getQueryLog()`, que busca el `FOR UPDATE` sobre `trips` antes del `SELECT` a `trip_positions`.
+- [x] `recorded_at` de cada fila es el `recordedAt` del punto convertido a la zona de la app, no `now()`.
+- [x] `pilot_id` sale del token. Un `pilotId` en el punto se ignora.
+- [x] Un lote enviado desordenado se guarda en orden de `recordedAt`: los `id` crecen con la hora.
+- [x] Los puntos con `recordedAt` menor o igual al último guardado se descartan y cuentan en `discarded`.
+- [x] Reenviar el mismo lote dos veces responde **200** la segunda vez, con `saved: 0`, y no crea filas nuevas.
+- [x] En un lote con puntos a 0, 3, 6 y 12 s, se guardan los de 0, 6 y 12 s, y el de 3 s cuenta en `discarded`.
+- [x] El piso compara contra el último punto guardado: un lote cuyo primer punto está a 3 s del último guardado descarta ese primer punto.
+- [x] El último punto guardado se lee dentro de la transacción, después de un `lockForUpdate` sobre la fila del viaje. Lo comprueba un Unit test con `DB::getQueryLog()`, que busca el `FOR UPDATE` sobre `trips` antes del `SELECT` a `trip_positions`.
 
 **Paradas (SPEC 27):**
 
-- [ ] Un lote de puntos quietos (< 5 m) abre **una** parada anclada en el punto anterior, con `started_at` igual al `recorded_at` del dispositivo.
-- [ ] Un lote que se queda quieto y luego se aleja abre y cierra la parada en la misma petición, con `ended_at` igual al `recordedAt` del punto que se alejó.
-- [ ] Si `trackPosition()` lanza a mitad del lote, la petición falla y `trip_positions` y `trip_timeouts` quedan como antes: la transacción hace rollback.
+- [x] Un lote de puntos quietos (< 5 m) abre **una** parada anclada en el punto anterior, con `started_at` igual al `recorded_at` del dispositivo.
+- [x] Un lote que se queda quieto y luego se aleja abre y cierra la parada en la misma petición, con `ended_at` igual al `recordedAt` del punto que se alejó.
+- [x] Si `trackPosition()` lanza a mitad del lote, la petición falla y `trip_positions` y `trip_timeouts` quedan como antes: la transacción hace rollback.
 
 **Websocket:**
 
-- [ ] Un lote que escribe 17 puntos emite **un solo** `TripPositionUpdated`, con el último punto escrito.
-- [ ] Un lote que no escribe nada no emite ningún evento.
-- [ ] Con el broadcast fallando, los puntos se guardan igual, la respuesta es 201 y queda un `Log::error`.
+- [x] Un lote que escribe 17 puntos emite **un solo** `TripPositionUpdated`, con el último punto escrito.
+- [x] Un lote que no escribe nada no emite ningún evento.
+- [x] Con el broadcast fallando, los puntos se guardan igual, la respuesta es 201 y queda un `Log::error`.
 
 **Respuesta:**
 
-- [ ] Con al menos un punto escrito, responde **201** con `data` de exactamente cuatro claves: `received`, `saved`, `discarded` y `lastPosition`.
-- [ ] Con todo descartado, responde **200**, y `lastPosition` es el último punto ya guardado.
-- [ ] Siempre se cumple `received === saved + discarded`.
-- [ ] `lastPosition` tiene las 5 claves de `TripPositionResource`.
+- [x] Con al menos un punto escrito, responde **201** con `data` de exactamente cuatro claves: `received`, `saved`, `discarded` y `lastPosition`.
+- [x] Con todo descartado, responde **200**, y `lastPosition` es el último punto ya guardado.
+- [x] Siempre se cumple `received === saved + discarded`.
+- [x] `lastPosition` tiene las 5 claves de `TripPositionResource`.
 
 **Sin regresiones:**
 
-- [ ] `GET /api/trips/{trip}/positions`, `TripPositionResource` (5 claves) y el payload de `TripPositionUpdated` (6 claves) no cambian de forma.
-- [ ] `TripPositionServiceInterface` ya no declara `create()`, y ningún archivo de `app/` lo llama.
-- [ ] `php artisan test --compact` pasa completa.
-- [ ] `storage/api-docs/api-docs.json` documenta el cuerpo `positions` y la respuesta resumida.
+- [x] `GET /api/trips/{trip}/positions`, `TripPositionResource` (5 claves) y el payload de `TripPositionUpdated` (6 claves) no cambian de forma.
+- [x] `TripPositionServiceInterface` ya no declara `create()`, y ningún archivo de `app/` lo llama.
+- [ ] `php artisan test --compact` pasa completa. *(3950/3951: el único fallo, `TripTimeoutTest` › «no toca ninguna parada al iniciar el viaje», ya falla en `main` antes de esta spec —el test no confirma ninguna carga de combustible y `/start` la exige desde SPEC 27—; no toca posiciones.)*
+- [x] `storage/api-docs/api-docs.json` documenta el cuerpo `positions` y la respuesta resumida.
 
 ---
 
