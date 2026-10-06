@@ -48,20 +48,6 @@ function tripPositionServiceTrip(): array
     ];
 }
 
-/**
- * The payload the service expects, straight from the validated request.
- *
- * @param  array<string, mixed>  $overrides
- * @return array<string, mixed>
- */
-function tripPositionServiceData(array $overrides = []): array
-{
-    return array_merge([
-        'latitude' => 14.628074,
-        'longitude' => -90.522554,
-    ], $overrides);
-}
-
 /*
 |--------------------------------------------------------------------------
 | Binding
@@ -70,159 +56,6 @@ function tripPositionServiceData(array $overrides = []): array
 
 it('resuelve el contrato del dominio contra su implementación', function () {
     expect(tripPositionService())->toBeInstanceOf(TripPositionService::class);
-});
-
-/*
-|--------------------------------------------------------------------------
-| create(): las cuatro guardas, en su orden
-|--------------------------------------------------------------------------
-*/
-
-it('guarda el punto con la hora del servidor y el piloto autenticado', function () {
-    Event::fake([TripPositionUpdated::class]);
-
-    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
-
-    $position = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData());
-
-    expect($position)->toBeInstanceOf(TripPosition::class)
-        ->and($position->trip_id)->toBe($trip->id)
-        ->and($position->pilot_id)->toBe($pilot->id)
-        ->and($position->latitude)->toBe('14.62807400')
-        ->and($position->longitude)->toBe('-90.52255400')
-        ->and($position->recorded_at->timestamp)->toBe(now()->timestamp)
-        ->and(TripPosition::count())->toBe(1);
-
-    Event::assertDispatched(TripPositionUpdated::class);
-});
-
-it('descarta la hora y el autor que vengan en el payload', function () {
-    Event::fake([TripPositionUpdated::class]);
-
-    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
-    $otroPiloto = tripPositionServiceUser(UserRole::Pilot);
-
-    $position = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData([
-        'recorded_at' => '2000-01-01 00:00:00',
-        'pilot_id' => $otroPiloto->id,
-    ]));
-
-    expect($position->pilot_id)->toBe($pilot->id)
-        ->and($position->recorded_at->year)->toBe(now()->year);
-});
-
-it('lanza 404 al reportar sobre un viaje que no existe', function () {
-    expect(fn () => tripPositionService()->create(
-        tripPositionServiceUser(UserRole::Pilot),
-        99999,
-        tripPositionServiceData(),
-    ))->toThrow(NotFoundError::class, 'El viaje no existe');
-});
-
-it('lanza 400 al reportar sobre un viaje borrado, antes de mirar quién llama', function () {
-    /** Ni suyo, ni en ruta: aun así el mensaje es el del borrado, que es la segunda guarda. */
-    $trip = Trip::factory()->finished()->trashed()->create();
-
-    expect(fn () => tripPositionService()->create(
-        tripPositionServiceUser(UserRole::Pilot),
-        $trip->id,
-        tripPositionServiceData(),
-    ))->toThrow(BadRequestError::class, 'El viaje ya fue eliminado');
-
-    expect(TripPosition::count())->toBe(0);
-});
-
-it('lanza 403 al reportar sobre un viaje ajeno, antes de mirar el estado', function () {
-    /** Está finalizado, pero primero se comprueba de quién es. */
-    $trip = Trip::factory()->finished()->create();
-
-    expect(fn () => tripPositionService()->create(
-        tripPositionServiceUser(UserRole::Pilot),
-        $trip->id,
-        tripPositionServiceData(),
-    ))->toThrow(ForbiddenError::class, 'No puedes reportar la posición de un viaje que no tienes asignado');
-
-    expect(TripPosition::count())->toBe(0);
-});
-
-it('lanza 400 al reportar sobre un viaje que no está en ruta', function (string $estado) {
-    $trip = Trip::factory()->{$estado}()->create();
-    $pilot = User::findOrFail($trip->pilot_id);
-
-    expect(fn () => tripPositionService()->create($pilot, $trip->id, tripPositionServiceData()))
-        ->toThrow(BadRequestError::class, 'El viaje no está en ruta');
-
-    expect(TripPosition::count())->toBe(0);
-})->with([
-    'pendiente' => 'assigned',
-    'finalizado' => 'finished',
-]);
-
-/*
-|--------------------------------------------------------------------------
-| create(): el piso de cinco segundos
-|--------------------------------------------------------------------------
-*/
-
-it('devuelve el punto anterior sin escribir ni emitir antes de los cinco segundos', function () {
-    Event::fake([TripPositionUpdated::class]);
-
-    /**
-     * El reloj se congela porque el margen del piso es de un solo segundo: sin congelar,
-     * el tiempo real que tarda la propia petición se suma a los 14 s viajados y el punto
-     * acaba escribiéndose bajo carga.
-     */
-    $this->freezeTime();
-
-    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
-
-    $primero = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData());
-
-    $this->travel(4)->seconds();
-
-    $segundo = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData([
-        'latitude' => 15.111111,
-        'longitude' => -91.222222,
-    ]));
-
-    expect($segundo->id)->toBe($primero->id)
-        ->and($segundo->latitude)->toBe('14.62807400')
-        ->and(TripPosition::count())->toBe(1);
-
-    Event::assertDispatchedTimes(TripPositionUpdated::class, 1);
-});
-
-it('escribe y emite el segundo punto pasados los cinco segundos', function () {
-    Event::fake([TripPositionUpdated::class]);
-
-    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
-
-    $primero = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData());
-
-    $this->travel(5)->seconds();
-
-    $segundo = tripPositionService()->create($pilot, $trip->id, tripPositionServiceData([
-        'latitude' => 15.111111,
-        'longitude' => -91.222222,
-    ]));
-
-    expect($segundo->id)->not->toBe($primero->id)
-        ->and(TripPosition::count())->toBe(2);
-
-    Event::assertDispatchedTimes(TripPositionUpdated::class, 2);
-});
-
-it('mide el piso contra el último punto del viaje, no contra los de otro', function () {
-    Event::fake([TripPositionUpdated::class]);
-
-    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
-
-    /** Un punto recién grabado en otro viaje no puede frenar a este piloto. */
-    TripPosition::factory()->create();
-
-    tripPositionService()->create($pilot, $trip->id, tripPositionServiceData());
-
-    expect(TripPosition::where('trip_id', $trip->id)->count())->toBe(1);
 });
 
 /*
@@ -501,6 +334,19 @@ it('mide el piso contra el último punto ya guardado', function () {
         ->and($summary['discarded'])->toBe(1)
         ->and($summary['lastPosition']->recorded_at->timestamp)->toBe($base->addSeconds(8)->timestamp)
         ->and(TripPosition::count())->toBe(2);
+});
+
+it('mide el piso contra el último punto del viaje, no contra los de otro', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+
+    /** Un punto recién grabado en otro viaje no puede frenar a este piloto. */
+    TripPosition::factory()->create(['recorded_at' => now()->subHour()]);
+
+    tripPositionService()->storePositions($pilot, $trip->id, tripPositionServiceBatch([0]));
+
+    expect(TripPosition::where('trip_id', $trip->id)->count())->toBe(1);
 });
 
 it('descarta los puntos anteriores o iguales al último guardado', function () {

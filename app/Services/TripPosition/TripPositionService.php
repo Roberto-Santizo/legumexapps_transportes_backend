@@ -37,8 +37,10 @@ class TripPositionService implements TripPositionServiceInterface
     /**
      * Seconds that must pass between two recorded points of the same trip.
      *
-     * The only brake of the domain: there is no rate limit per IP nor per token. Below
-     * it the request is answered with the previous point and nothing is written. Lowered
+     * Measured between the device times of the points (SPEC 40), never against now(): a
+     * batch an hour old would otherwise pass or fail whole depending on when it arrives.
+     * The only brake of the domain: there is no rate limit per IP nor per token. A point
+     * below it is discarded in silence and only counted in `discarded`. Lowered
      * from 15 to 5 seconds for a more precise track: a six hour trip now leaves ~4 300
      * rows instead of ~1 440.
      */
@@ -76,48 +78,6 @@ class TripPositionService implements TripPositionServiceInterface
         return $perPage === null
             ? $query->get()
             : $query->paginate($perPage);
-    }
-
-    #[Override]
-    public function create(User $user, int $tripId, array $data): TripPosition
-    {
-        $trip = $this->resolveReportableTrip($user, $tripId);
-
-        $lastPosition = $this->lastPositionFor($trip->id);
-
-        /**
-         * Piso de 5 segundos: se devuelve el punto anterior tal cual, sin escribir y sin
-         * emitir. Silencio deliberado, con el precedente del archivo ignorado de SPEC 19:
-         * la app del piloto reintenta cuando la red va mal, y devolverle un error por
-         * reintentar la empujaría a lógica defensiva propia.
-         */
-        if ($lastPosition !== null && $this->secondsSince($lastPosition) < self::MIN_SECONDS_BETWEEN_POSITIONS) {
-            return $lastPosition;
-        }
-
-        $position = TripPosition::create([
-            'trip_id' => $trip->id,
-            /** El autor sale del usuario autenticado, nunca del body. */
-            'pilot_id' => $user->id,
-            'latitude' => $data['latitude'],
-            'longitude' => $data['longitude'],
-            /** Ídem la hora: aceptarla del dispositivo la haría falsificable y desordenaría el rastro. */
-            'recorded_at' => now(),
-        ]);
-
-        /**
-         * Solo aquí, nunca en la rama del piso de 5 s: evaluar una petición descartada
-         * abriría paradas a partir de puntos que no llegaron al rastro.
-         *
-         * Va fuera del try/catch del broadcast a propósito: perder el aviso en vivo no
-         * puede costar el punto, pero una parada mal detectada sí es un dato equivocado,
-         * así que si la detección falla, falla la petición.
-         */
-        $this->tripTimeoutService->trackPosition($position);
-
-        $this->broadcastPosition($position, $user);
-
-        return $position;
     }
 
     #[Override]
@@ -285,8 +245,9 @@ class TripPositionService implements TripPositionServiceInterface
      * Get the last point recorded for the given trip, or null when there is none yet.
      *
      * Ordered by recorded_at desc, id desc —the same tie break as the listing, read
-     * backwards— and served by the composite index of the table. Its only consumer is
-     * the 5 second floor.
+     * backwards— and served by the composite index of the table. Read inside the batch's
+     * transaction, after the trip's row is locked: it feeds both the discard of a retried
+     * point and the 5 second floor.
      */
     private function lastPositionFor(int $tripId): ?TripPosition
     {
@@ -295,17 +256,6 @@ class TripPositionService implements TripPositionServiceInterface
             ->orderByDesc('recorded_at')
             ->orderByDesc('id')
             ->first();
-    }
-
-    /**
-     * Seconds elapsed since the given point was recorded.
-     *
-     * Absolute on purpose: a clock that drifts backwards must not turn into a negative
-     * age that slips past the floor.
-     */
-    private function secondsSince(TripPosition $position): int
-    {
-        return (int) abs($position->recorded_at?->diffInSeconds(now()) ?? PHP_INT_MAX);
     }
 
     /**

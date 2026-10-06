@@ -40,43 +40,6 @@ interface TripPositionServiceInterface
     public function getPositions(User $user, int $tripId, array $filters): LengthAwarePaginator|Collection;
 
     /**
-     * Record one point of the given trip's track, on behalf of its assigned pilot.
-     *
-     * `recorded_at` is written with the server's `now()` and `pilot_id` comes from the
-     * given user: neither is ever taken from the body, so there is no way to lie about
-     * when one was where.
-     *
-     * Four guards run in this exact order, and the order is contract: the trip must
-     * exist (NotFoundError), must not be deleted (BadRequestError), must belong to the
-     * caller (ForbiddenError) and must be `in_route` (BadRequestError).
-     *
-     * A fifth rule is **not** an error: if the last recorded point is less than 15
-     * seconds old, that point is returned as it is, **nothing is written and nothing is
-     * broadcast**. The pilot's app retries when the network is bad, and answering it an
-     * error for retrying would push it into defensive logic of its own — same silence
-     * as the file ignored by an expense with `is_invoiced=false` in SPEC 19.
-     *
-     * When the point is recorded —and only then— it is also handed to
-     * `TripTimeoutServiceInterface::trackPosition()`, which may open or close one of the
-     * trip's stops (SPEC 27). Nothing of that reaches this response: the body is the same
-     * five key resource it always was, and the stops are read from their own endpoint.
-     *
-     * When the point is recorded, a `TripPositionUpdated` is broadcast on the trip's
-     * private channel. The dispatch is wrapped in a try/catch that logs and carries on:
-     * Reverb being down loses the live notice, never the row.
-     *
-     * @param  array{latitude: float|string, longitude: float|string}  $data
-     *                                                                        Already validated as a coordinate pair; nothing checks that it falls near the
-     *                                                                        trip's polyline, inside Guatemala, or within a physically possible jump from
-     *                                                                        the previous point.
-     *
-     * @throws NotFoundError when the trip does not exist
-     * @throws BadRequestError when the trip has been deleted or is not in route
-     * @throws ForbiddenError when the caller is not the trip's assigned pilot
-     */
-    public function create(User $user, int $tripId, array $data): TripPosition;
-
-    /**
      * Record a batch of points of the given trip's track, on behalf of its assigned pilot.
      *
      * Each point carries the **device's** `recordedAt` —converted to the app timezone and
