@@ -6,13 +6,16 @@ use App\Errors\ForbiddenError;
 use App\Errors\NotFoundError;
 use App\Events\Trip\TripPositionUpdated;
 use App\Interfaces\TripPosition\TripPositionServiceInterface;
+use App\Interfaces\TripTimeout\TripTimeoutServiceInterface;
 use App\Models\Carrier;
 use App\Models\Trip;
 use App\Models\TripPosition;
 use App\Models\User;
 use App\Services\TripPosition\TripPositionService;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
 /**
@@ -344,3 +347,260 @@ it('pagina con un limit numérico, acotado a [10, 100]', function (string $limit
     'dentro del rango' => ['50', 50],
     'por encima del techo' => ['500', 100],
 ]);
+
+/*
+|--------------------------------------------------------------------------
+| storePositions(): el lote
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * A batch payload whose points sit the given seconds after a base time, in ISO 8601 with
+ * the Guatemala offset, the way a device would send them.
+ *
+ * @param  list<int>  $seconds
+ * @return array{positions: list<array{latitude: float, longitude: float, recordedAt: string}>}
+ */
+function tripPositionServiceBatch(array $seconds, ?CarbonImmutable $base = null): array
+{
+    $base ??= CarbonImmutable::now()->subHour();
+
+    return ['positions' => array_map(fn (int $offset): array => [
+        'latitude' => 14.628074 + $offset / 10000,
+        'longitude' => -90.522554,
+        'recordedAt' => $base->addSeconds($offset)->setTimezone('America/Guatemala')->toIso8601String(),
+    ], $seconds)];
+}
+
+it('guarda el lote con la hora del dispositivo convertida a la zona de la app', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+
+    $summary = tripPositionService()->storePositions($pilot, $trip->id, ['positions' => [
+        ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => now()->subHour()->setTimezone('America/Guatemala')->format('Y-m-d\TH:i:s.vP')],
+    ]]);
+
+    $position = TripPosition::sole();
+
+    expect($summary['received'])->toBe(1)
+        ->and($summary['saved'])->toBe(1)
+        ->and($summary['discarded'])->toBe(0)
+        ->and($summary['lastPosition']->id)->toBe($position->id)
+        ->and($position->pilot_id)->toBe($pilot->id)
+        ->and($position->latitude)->toBe('14.62807400')
+        ->and($position->recorded_at->timestamp)->toBe(now()->subHour()->timestamp)
+        ->and($position->recorded_at->format('H:i:s'))->toBe(now()->subHour()->setTimezone(config('app.timezone'))->format('H:i:s'));
+});
+
+it('ignora un pilotId que venga dentro del punto', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+    $otroPiloto = tripPositionServiceUser(UserRole::Pilot);
+
+    $data = tripPositionServiceBatch([0]);
+    $data['positions'][0]['pilotId'] = $otroPiloto->id;
+
+    tripPositionService()->storePositions($pilot, $trip->id, $data);
+
+    expect(TripPosition::sole()->pilot_id)->toBe($pilot->id);
+});
+
+it('aplica al lote entero las cuatro guardas de un punto, en su orden', function (string $caso, string $error, string $mensaje) {
+    $pilot = tripPositionServiceUser(UserRole::Pilot);
+
+    if ($caso === 'no en ruta') {
+        $trip = Trip::factory()->finished()->create();
+        $pilot = User::findOrFail($trip->pilot_id);
+    }
+
+    $tripId = match ($caso) {
+        'inexistente' => 99999,
+        /** Ni suyo ni en ruta: gana el borrado, que es la segunda guarda. */
+        'borrado' => Trip::factory()->finished()->trashed()->create()->id,
+        /** Finalizado, pero primero se mira de quién es. */
+        'ajeno' => Trip::factory()->finished()->create()->id,
+        'no en ruta' => $trip->id,
+    };
+
+    expect(fn () => tripPositionService()->storePositions($pilot, $tripId, tripPositionServiceBatch([0, 6])))
+        ->toThrow($error, $mensaje);
+
+    expect(TripPosition::count())->toBe(0);
+})->with([
+    'inexistente' => ['inexistente', NotFoundError::class, 'El viaje no existe'],
+    'borrado' => ['borrado', BadRequestError::class, 'El viaje ya fue eliminado'],
+    'ajeno' => ['ajeno', ForbiddenError::class, 'No puedes reportar la posición de un viaje que no tienes asignado'],
+    'no en ruta' => ['no en ruta', BadRequestError::class, 'El viaje no está en ruta'],
+]);
+
+it('rechaza el lote entero si un punto es anterior al inicio del viaje', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+
+    /** El viaje arrancó hace 4 h: el último punto cae una hora antes. */
+    $data = tripPositionServiceBatch([0, 6]);
+    $data['positions'][] = [
+        'latitude' => 14.6,
+        'longitude' => -90.5,
+        'recordedAt' => now()->subHours(5)->toIso8601String(),
+    ];
+
+    expect(fn () => tripPositionService()->storePositions($pilot, $trip->id, $data))
+        ->toThrow(BadRequestError::class, 'La hora de un punto es anterior al inicio del viaje');
+
+    expect(TripPosition::count())->toBe(0);
+    Event::assertNotDispatched(TripPositionUpdated::class);
+});
+
+it('guarda un lote desordenado en orden de hora', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+    $base = CarbonImmutable::now()->subHour();
+
+    tripPositionService()->storePositions($pilot, $trip->id, tripPositionServiceBatch([12, 0, 6], $base));
+
+    expect(TripPosition::query()->orderBy('id')->get()->map(fn (TripPosition $p): int => $p->recorded_at->timestamp - $base->timestamp)->all())
+        ->toBe([0, 6, 12]);
+});
+
+it('aplica el piso de cinco segundos entre los puntos conservados', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+    $base = CarbonImmutable::now()->subHour();
+
+    $summary = tripPositionService()->storePositions($pilot, $trip->id, tripPositionServiceBatch([0, 3, 6, 12], $base));
+
+    expect($summary['received'])->toBe(4)
+        ->and($summary['saved'])->toBe(3)
+        ->and($summary['discarded'])->toBe(1)
+        ->and(TripPosition::query()->orderBy('id')->get()->map(fn (TripPosition $p): int => $p->recorded_at->timestamp - $base->timestamp)->all())
+        ->toBe([0, 6, 12]);
+});
+
+it('mide el piso contra el último punto ya guardado', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+    $base = CarbonImmutable::now()->subHour();
+
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $pilot->id, 'recorded_at' => $base]);
+
+    $summary = tripPositionService()->storePositions($pilot, $trip->id, tripPositionServiceBatch([3, 8], $base));
+
+    expect($summary['saved'])->toBe(1)
+        ->and($summary['discarded'])->toBe(1)
+        ->and($summary['lastPosition']->recorded_at->timestamp)->toBe($base->addSeconds(8)->timestamp)
+        ->and(TripPosition::count())->toBe(2);
+});
+
+it('descarta los puntos anteriores o iguales al último guardado', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+    $base = CarbonImmutable::now()->subHour();
+
+    TripPosition::factory()->create(['trip_id' => $trip->id, 'pilot_id' => $pilot->id, 'recorded_at' => $base->addSeconds(30)]);
+
+    $summary = tripPositionService()->storePositions($pilot, $trip->id, tripPositionServiceBatch([0, 10, 30, 40], $base));
+
+    expect($summary['received'])->toBe(4)
+        ->and($summary['saved'])->toBe(1)
+        ->and($summary['discarded'])->toBe(3)
+        ->and($summary['lastPosition']->recorded_at->timestamp)->toBe($base->addSeconds(40)->timestamp)
+        ->and(TripPosition::count())->toBe(2);
+});
+
+it('es idempotente ante el reintento del mismo lote y devuelve el último guardado', function () {
+    Event::fake([TripPositionUpdated::class]);
+    $this->freezeTime();
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+    $data = tripPositionServiceBatch([0, 6, 12]);
+
+    $primero = tripPositionService()->storePositions($pilot, $trip->id, $data);
+    $segundo = tripPositionService()->storePositions($pilot, $trip->id, $data);
+
+    expect($segundo['received'])->toBe(3)
+        ->and($segundo['saved'])->toBe(0)
+        ->and($segundo['discarded'])->toBe(3)
+        ->and($segundo['lastPosition']->id)->toBe($primero['lastPosition']->id)
+        ->and(TripPosition::count())->toBe(3);
+
+    /** Solo el primer lote emitió: el reintento no escribió nada. */
+    Event::assertDispatchedTimes(TripPositionUpdated::class, 1);
+});
+
+it('emite un solo evento por lote, con el último punto escrito', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+
+    $summary = tripPositionService()->storePositions($pilot, $trip->id, tripPositionServiceBatch(range(0, 80, 5)));
+
+    expect($summary['saved'])->toBe(17);
+
+    Event::assertDispatchedTimes(TripPositionUpdated::class, 1);
+    Event::assertDispatched(
+        TripPositionUpdated::class,
+        fn (TripPositionUpdated $event): bool => $event->position->id === $summary['lastPosition']->id,
+    );
+});
+
+it('bloquea la fila del viaje antes de leer el último punto', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+
+    DB::enableQueryLog();
+
+    tripPositionService()->storePositions($pilot, $trip->id, tripPositionServiceBatch([0]));
+
+    $queries = collect(DB::getQueryLog())->pluck('query');
+
+    $lock = $queries->search(fn (string $sql): bool => str_contains($sql, 'from "trips"') && str_contains($sql, 'for update'));
+    $last = $queries->search(fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'from "trip_positions"'));
+
+    expect($lock)->toBeInt()
+        ->and($last)->toBeInt()
+        ->and($lock)->toBeLessThan($last);
+});
+
+it('deshace el lote entero si la detección de paradas falla a la mitad', function () {
+    Event::fake([TripPositionUpdated::class]);
+
+    ['trip' => $trip, 'pilot' => $pilot] = tripPositionServiceTrip();
+
+    app()->instance(TripTimeoutServiceInterface::class, new class implements TripTimeoutServiceInterface
+    {
+        private int $calls = 0;
+
+        public function getTimeouts(User $user, int $tripId, array $filters): LengthAwarePaginator|Collection
+        {
+            return new Collection;
+        }
+
+        public function trackPosition(TripPosition $position): void
+        {
+            if (++$this->calls === 2) {
+                throw new RuntimeException('La detección falló');
+            }
+        }
+    });
+
+    expect(fn () => tripPositionService()->storePositions($pilot, $trip->id, tripPositionServiceBatch([0, 6, 12])))
+        ->toThrow(RuntimeException::class, 'La detección falló');
+
+    expect(TripPosition::count())->toBe(0);
+    Event::assertNotDispatched(TripPositionUpdated::class);
+});

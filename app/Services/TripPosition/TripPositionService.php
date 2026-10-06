@@ -14,8 +14,10 @@ use App\Interfaces\TripTimeout\TripTimeoutServiceInterface;
 use App\Models\Trip;
 use App\Models\TripPosition;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Override;
 use Throwable;
@@ -116,6 +118,115 @@ class TripPositionService implements TripPositionServiceInterface
         $this->broadcastPosition($position, $user);
 
         return $position;
+    }
+
+    #[Override]
+    public function storePositions(User $user, int $tripId, array $data): array
+    {
+        $trip = $this->resolveReportableTrip($user, $tripId);
+
+        $points = $this->parsePoints($data['positions']);
+
+        $this->ensurePointsAreNotBeforeStart($trip, $points);
+
+        /**
+         * El orden de llegada no se exige: una cola de reintentos puede mezclarse. usort()
+         * es estable, así que dos puntos del mismo segundo conservan su orden relativo.
+         */
+        usort($points, fn (array $a, array $b): int => $a['recordedAt']->getTimestamp() <=> $b['recordedAt']->getTimestamp());
+
+        [$written, $lastPosition] = DB::transaction(function () use ($trip, $user, $points): array {
+            /**
+             * Dos lotes del mismo viaje —un reintento mientras el primero sigue en curso— se
+             * serializan aquí: el segundo espera y, al leer el último punto ya dentro del
+             * bloqueo, descarta lo que el primero acaba de escribir.
+             */
+            Trip::query()->whereKey($trip->id)->lockForUpdate()->first();
+
+            $lastStored = $this->lastPositionFor($trip->id);
+            $reference = $lastStored?->recorded_at;
+            $written = [];
+
+            foreach ($points as $point) {
+                /**
+                 * Un solo umbral cubre los dos descartes: lo anterior o igual al último guardado
+                 * (reintento) y lo que cae a menos de 5 s del último conservado (piso). Contra el
+                 * último guardado, menor o igual ya es menos de 5 s.
+                 */
+                if ($reference !== null && $point['recordedAt']->getTimestamp() - $reference->getTimestamp() < self::MIN_SECONDS_BETWEEN_POSITIONS) {
+                    continue;
+                }
+
+                $position = TripPosition::create([
+                    'trip_id' => $trip->id,
+                    /** El autor sale del usuario autenticado, nunca del body. */
+                    'pilot_id' => $user->id,
+                    'latitude' => $point['latitude'],
+                    'longitude' => $point['longitude'],
+                    'recorded_at' => $point['recordedAt'],
+                ]);
+
+                /**
+                 * Dentro de la transacción a propósito: una parada mal detectada es un dato
+                 * equivocado, así que si la detección falla a mitad del lote no queda ningún punto.
+                 */
+                $this->tripTimeoutService->trackPosition($position);
+
+                $written[] = $position;
+                $reference = $position->recorded_at;
+            }
+
+            return [$written, $written === [] ? $lastStored : end($written)];
+        });
+
+        /** Fuera de la transacción: nunca se emite un punto que luego se deshace. */
+        if ($written !== []) {
+            $this->broadcastPosition($lastPosition, $user);
+        }
+
+        return [
+            'received' => count($points),
+            'saved' => count($written),
+            'discarded' => count($points) - count($written),
+            'lastPosition' => $lastPosition,
+        ];
+    }
+
+    /**
+     * Parse each point's device time into the app timezone, truncated to the second.
+     *
+     * The column stores seconds, so the milliseconds the device may send are dropped
+     * here, before any comparison, and two points of the same second compare as equal.
+     *
+     * @param  list<array{latitude: float|string, longitude: float|string, recordedAt: string}>  $positions
+     * @return list<array{latitude: float|string, longitude: float|string, recordedAt: CarbonImmutable}>
+     */
+    private function parsePoints(array $positions): array
+    {
+        return array_map(fn (array $point): array => [
+            'latitude' => $point['latitude'],
+            'longitude' => $point['longitude'],
+            'recordedAt' => CarbonImmutable::parse($point['recordedAt'])
+                ->setTimezone(config('app.timezone'))
+                ->startOfSecond(),
+        ], array_values($positions));
+    }
+
+    /**
+     * Reject the whole batch when any point claims to predate the trip's start.
+     *
+     * The lower bound against a forged device time; the upper one —no later than a minute
+     * from now— lives in the request, because it does not need the trip.
+     *
+     * @param  list<array{recordedAt: CarbonImmutable}>  $points
+     */
+    private function ensurePointsAreNotBeforeStart(Trip $trip, array $points): void
+    {
+        foreach ($points as $point) {
+            if ($trip->start_date !== null && $point['recordedAt']->lt($trip->start_date)) {
+                throw new BadRequestError('La hora de un punto es anterior al inicio del viaje');
+            }
+        }
     }
 
     /**
