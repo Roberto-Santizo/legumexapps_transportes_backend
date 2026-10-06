@@ -8,42 +8,68 @@ use OpenApi\Attributes as OA;
 
 #[OA\Schema(
     schema: 'StoreTripPositionRequest',
-    title: 'Reporte de una posición del viaje',
+    title: 'Lote de posiciones del viaje',
     description: <<<'TEXT'
-    Cuerpo JSON con el que el piloto asignado reporta dónde está. EXACTAMENTE DOS CAMPOS —latitude y longitude— Y LOS DOS SON OBLIGATORIOS. Un cuerpo vacío es 422 señalando las dos coordenadas.
+    Cuerpo JSON con el que el piloto asignado reporta su rastro: UN ARREGLO positions DE 1 A 1000 PUNTOS, cada uno con latitude, longitude y recordedAt, los tres obligatorios. Desde SPEC 40 es la ÚNICA forma aceptada: el cuerpo viejo de un solo punto ({ latitude, longitude }) es 422 sobre positions, sin periodo de gracia.
 
-    ATENCIÓN — UN PUNTO POR PETICIÓN. No se acepta un array de puntos: no hay envío en lote y no lo habrá en esta spec. Un piloto que estuvo sin señal PIERDE EL TRAMO: cuando recupere red mandará su posición actual y el rastro tendrá un hueco en línea recta entre dos puntos lejanos, sin que nada indique que faltó cobertura.
+    ATENCIÓN — UN SOLO PUNTO INVÁLIDO TUMBA EL LOTE ENTERO con 422 y no se guarda nada. Los mensajes nombran el punto contando desde 1 (La latitud del punto 10 es obligatoria), y la clave del error lleva el índice desde 0 (positions.9.latitude).
 
-    ATENCIÓN — recordedAt Y pilotId NO SE ACEPTAN Y MANDARLOS SE DESCARTA EN SILENCIO, con 200/201 y sin 422. La hora la pone el servidor con now() —aceptarla del dispositivo la haría falsificable y desordenaría el rastro— y el autor sale del token del piloto autenticado. Tampoco se acepta tripId: el viaje va en la URL. Cualquier otra clave del cuerpo se ignora igual.
+    ATENCIÓN — recordedAt ES LA HORA DEL DISPOSITIVO Y ES OBLIGATORIA, en ISO 8601 CON ZONA: con desfase (2026-10-06T14:32:05-06:00) o con Z (2026-10-06T20:32:05.123Z, lo que da toISOString() en JS), con o sin milisegundos. Sin zona (2026-10-06T14:32:05) es 422: una hora sin zona es ambigua. Los milisegundos se truncan al guardar. NO PUEDE ESTAR A MÁS DE 60 SEGUNDOS EN EL FUTURO (422); la tolerancia cubre la deriva del reloj del teléfono. Tampoco puede ser anterior al start_date del viaje, pero esa guarda va en el service y responde 400 al lote entero.
 
-    ATENCIÓN — NO HAY NINGUNA VALIDACIÓN GEOGRÁFICA. Los rangos son los del sistema de coordenadas y NADA MÁS: no se comprueba que el punto caiga cerca de la polyline del viaje, ni dentro de Guatemala, ni que el salto contra el punto anterior sea físicamente posible. Un piloto puede reportar coordenadas en Noruega y la API las guarda con 201. Es riesgo de dato falso, no de fuga: no toca ningún otro viaje ni ninguna otra empresa.
+    EL ARREGLO NO TIENE QUE LLEGAR ORDENADO: el servidor lo ordena por recordedAt. pilotId no se acepta —el autor sale del token— y mandarlo se descarta en silencio; tampoco tripId, que va en la URL.
 
-    NO HAY TELEMETRÍA: no se acepta speed, heading, accuracy, altitude ni battery. Solo dónde y cuándo.
+    ATENCIÓN — NO HAY NINGUNA VALIDACIÓN GEOGRÁFICA. Los rangos son los del sistema de coordenadas y NADA MÁS: no se comprueba que el punto caiga cerca de la polyline del viaje, ni dentro de Guatemala, ni que el salto contra el punto anterior sea físicamente posible. No hay telemetría: ni speed, ni heading, ni accuracy, ni battery.
 
-    ATENCIÓN — LA VALIDACIÓN DEL CUERPO CORRE ANTES QUE LAS CUATRO GUARDAS DEL SERVICE, no después: solo el middleware role:pilot (403) va por delante. Un cuerpo inválido sobre un viaje INEXISTENTE devuelve 422, no 404, y sobre un viaje ajeno o que no está en ruta también 422, no 403 ni 400. El orden de las cuatro guardas entre sí sí es contrato, pero solo se llega a ellas con un cuerpo válido: un cuerpo perfecto sobre un viaje pending sigue siendo 400.
+    ATENCIÓN — LA VALIDACIÓN DEL CUERPO CORRE ANTES QUE LAS GUARDAS DEL SERVICE: solo el middleware role:pilot (403) va por delante. Un cuerpo inválido sobre un viaje INEXISTENTE devuelve 422, no 404.
     TEXT,
-    required: ['latitude', 'longitude'],
+    required: ['positions'],
     properties: [
         new OA\Property(
-            property: 'latitude',
-            description: 'Latitud del punto. OBLIGATORIA, numérica y entre -90 y 90 (mensajes literales: La latitud es obligatoria / La latitud debe ser un número / La latitud debe estar entre -90 y 90). Se guarda como decimal(10,8) y SALE COMO STRING de ocho decimales en la respuesta, así que el valor devuelto no es idénticamente el enviado (14.628074 entra y «14.62807400» sale). Acepta número o cadena numérica.',
-            type: 'number',
-            format: 'double',
-            maximum: 90,
-            minimum: -90,
-            example: 14.628074,
-        ),
-        new OA\Property(
-            property: 'longitude',
-            description: 'Longitud del punto. OBLIGATORIA, numérica y entre -180 y 180 (mensajes literales: La longitud es obligatoria / La longitud debe ser un número / La longitud debe estar entre -180 y 180). Se guarda como decimal(11,8) y también sale como string de ocho decimales. ATENCIÓN — el rango es el mundo entero: no está acotado a Guatemala ni a la ruta prevista.',
-            type: 'number',
-            format: 'double',
-            maximum: 180,
-            minimum: -180,
-            example: -90.522554,
+            property: 'positions',
+            description: 'Los puntos del rastro, de 1 a 1000 (mensajes literales: Las posiciones son obligatorias / Las posiciones deben enviarse como un arreglo / Debes enviar al menos una posición / No puedes enviar más de 1000 posiciones por petición). 1000 puntos al ritmo del piso de 5 s son unos 83 minutos sin señal; con más, la app parte su cola en varios lotes.',
+            type: 'array',
+            maxItems: 1000,
+            minItems: 1,
+            items: new OA\Items(
+                required: ['latitude', 'longitude', 'recordedAt'],
+                properties: [
+                    new OA\Property(
+                        property: 'latitude',
+                        description: 'Latitud del punto, numérica y entre -90 y 90 (mensajes: La latitud del punto N es obligatoria / La latitud del punto N debe ser un número / La latitud del punto N debe estar entre -90 y 90). Se guarda como decimal(10,8) y sale como string de ocho decimales.',
+                        type: 'number',
+                        format: 'double',
+                        maximum: 90,
+                        minimum: -90,
+                        example: 14.628074,
+                    ),
+                    new OA\Property(
+                        property: 'longitude',
+                        description: 'Longitud del punto, numérica y entre -180 y 180 (mensajes: La longitud del punto N es obligatoria / La longitud del punto N debe ser un número / La longitud del punto N debe estar entre -180 y 180). Se guarda como decimal(11,8).',
+                        type: 'number',
+                        format: 'double',
+                        maximum: 180,
+                        minimum: -180,
+                        example: -90.522554,
+                    ),
+                    new OA\Property(
+                        property: 'recordedAt',
+                        description: 'Hora del dispositivo en ISO 8601 con zona (desfase o Z), con o sin milisegundos; se convierte a la zona de la app y se trunca al segundo. No más de 60 s en el futuro ni antes del inicio del viaje (mensajes: La hora del punto N es obligatoria / La hora del punto N debe estar en formato ISO 8601 con zona horaria / La hora del punto N no puede estar en el futuro).',
+                        type: 'string',
+                        format: 'date-time',
+                        example: '2026-10-06T14:32:05-06:00',
+                    ),
+                ],
+                type: 'object',
+            ),
         ),
     ],
     type: 'object',
+    example: [
+        'positions' => [
+            ['latitude' => 14.628074, 'longitude' => -90.522554, 'recordedAt' => '2026-10-06T14:32:05-06:00'],
+            ['latitude' => 14.628301, 'longitude' => -90.522901, 'recordedAt' => '2026-10-06T20:32:10.123Z'],
+        ],
+    ],
 )]
 class StoreTripPositionRequest extends FormRequest
 {
