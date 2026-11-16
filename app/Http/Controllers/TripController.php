@@ -26,7 +26,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR Y NO SE PUEDE DESASIGNAR. /assignment es exclusiva del carrier, porque asignar es el acto por el que una empresa TOMA el viaje; el PATCH general NO ACEPTA pilotId ni vehicleId y mandarlos se ignora en silencio con 200. pilot_id y vehicle_id NO VUELVEN NUNCA A null —no hay desasignación, y null en /assignment es 422—. Reasignar solo se puede mientras el viaje siga pending: en in_route o finished es 400. CONSECUENCIA REAL: si ninguna empresa toma un viaje, o lo toma la equivocada y no lo suelta, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.
 
-    ATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta los tres valores sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.
+    ATENCIÓN — status NO TIENE MÁQUINA DE ESTADOS. El PATCH del administrador acepta pending, in_route y finished sin comprobar el orden y sin tocar las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas (pending con las dos puestas, finished sin ninguna). AVISO PARA EL FRONTEND: cuando status y las fechas se contradigan, EL RELATO LO CUENTAN LAS FECHAS.
 
     ATENCIÓN — LA POLILÍNEA LA MANDA EL FRONTEND Y NO SE RECALCULA NUNCA. polyline es obligatoria en el alta Y en el PATCH; la resuelve el front con GET /api/places/directions (SPEC 16) y LA API NUNCA LLAMA A GOOGLE. Si un PATCH cambia locationId o departurePointId y no remanda la polilínea, la guardada queda OBSOLETA y la API no avisa.
 
@@ -85,10 +85,10 @@ class TripController extends Controller
         parameters: [
             new OA\Parameter(
                 name: 'status',
-                description: 'Estado exacto del viaje. Solo se aplica si coincide con uno de los tres valores del enum; cualquier otra cosa (status=PENDING, status=basura, status[]=pending) se ignora y devuelve el listado completo, nunca 422 ni lista vacía. ATENCIÓN — no amplía el ámbito: un carrier que pide status=pending sigue viendo solo la bolsa y lo suyo, no los pending que tomó otra empresa.',
+                description: 'Estado exacto del viaje. Solo se aplica si coincide con uno de los cuatro valores del enum (cancelled incluido, SPEC 42); cualquier otra cosa (status=PENDING, status=basura, status[]=pending) se ignora y devuelve el listado completo, nunca 422 ni lista vacía. ATENCIÓN — no amplía el ámbito: un carrier que pide status=pending sigue viendo solo la bolsa y lo suyo, no los pending que tomó otra empresa.',
                 in: 'query',
                 required: false,
-                schema: new OA\Schema(type: 'string', enum: ['pending', 'in_route', 'finished'], example: 'pending'),
+                schema: new OA\Schema(type: 'string', enum: ['pending', 'in_route', 'finished', 'cancelled'], example: 'pending'),
             ),
             new OA\Parameter(
                 name: 'clientId',
@@ -422,7 +422,7 @@ class TripController extends Controller
 
         ATENCIÓN — ESTE PATCH NO ASIGNA NI DESASIGNA. pilotId y vehicleId NO SE ACEPTAN y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva su asignación. Tampoco se reescriben assignedBy ni registeredBy. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, EXCLUSIVA DEL carrier. CONSECUENCIA REAL: si ninguna empresa toma un viaje, el administrador NO PUEDE DESATASCARLO por esta vía —la única salida es borrarlo y volver a crearlo—.
 
-        ATENCIÓN — status SE ACEPTA Y NO HAY MÁQUINA DE ESTADOS. Los tres valores son válidos en cualquier orden y NO se tocan las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas. Cuando status y fechas discrepen, EL RELATO LO CUENTAN LAS FECHAS. Un valor fuera del enum es 422. startDate y endDate no se aceptan por ninguna vía: las pone el servidor en /start y /finish.
+        ATENCIÓN — status SE ACEPTA Y NO HAY MÁQUINA DE ESTADOS. pending, in_route y finished son válidos en cualquier orden; cancelled es 422 (solo se cancela con PATCH /{trip}/cancel) y NO se tocan las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas. Cuando status y fechas discrepen, EL RELATO LO CUENTAN LAS FECHAS. Un valor fuera del enum es 422. startDate y endDate no se aceptan por ninguna vía: las pone el servidor en /start y /finish.
 
         ATENCIÓN — LOS CUATRO CATÁLOGOS SE REVALIDAN SIEMPRE, aunque el cuerpo solo mueva una fecha: el service fusiona lo enviado sobre lo almacenado. Un viaje que apunta a un puerto que se desactivó DESPUÉS del alta responde 400 aunque el PATCH no toque locationId. Mismo reparto que el alta: id inventado 422, cliente o naviera BORRADOS 400.
 

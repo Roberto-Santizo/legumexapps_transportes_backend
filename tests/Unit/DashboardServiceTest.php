@@ -95,7 +95,7 @@ it('devuelve el resumen de viajes con la forma completa sobre una base vacía', 
     expect(dashboardService()->getTripsSummary(dashboardAdmin(), []))->toBe([
         'total' => 0,
         'unassigned' => 0,
-        'byStatus' => ['pending' => 0, 'inRoute' => 0, 'finished' => 0],
+        'byStatus' => ['pending' => 0, 'inRoute' => 0, 'finished' => 0, 'cancelled' => 0],
         'byCarrier' => [],
         'byClient' => [],
         'byShippingLine' => [],

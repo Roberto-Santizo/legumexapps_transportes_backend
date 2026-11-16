@@ -25,6 +25,7 @@ use App\Services\Place\PolylineDecoder;
 use App\Services\Place\PolylineEncoder;
 use App\Services\Trip\TripService;
 use App\Services\TripTimeout\DistanceCalculator;
+use Carbon\CarbonInterface;
 use Database\Factories\TripFactory;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
@@ -130,12 +131,12 @@ it('declara los nueve métodos del contrato', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30, las métricas reales de SPEC 32 y el booking y la referencia de SPEC 41', function () {
+it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30, las métricas reales de SPEC 32, el booking y la referencia de SPEC 41 y la cancelación de SPEC 42', function () {
     expect(Schema::hasTable('trips'))->toBeTrue()
         ->and(Schema::getColumnListing('trips'))->toEqualCanonicalizing([
             'id', 'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
             'destination', 'container', 'booking', 'reference', 'transport',
-            'recolection_date', 'ship_date', 'start_date', 'end_date',
+            'recolection_date', 'ship_date', 'start_date', 'end_date', 'cancelled_at', 'cancelled_by',
             'polyline', 'estimated_kilometers', 'estimated_hours',
             'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
             'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by', 'bonus', 'cargo_insurance',
@@ -171,10 +172,21 @@ it('deja las métricas reales en null por defecto y solo el estado finished de l
         ->and($finalizado->fresh()->traveled_hours)->toMatch('/^\d+\.\d{2}$/');
 });
 
-it('declara exactamente tres estados con su etiqueta en español', function () {
-    expect(TripStatus::cases())->toHaveCount(3)
-        ->and(array_map(fn (TripStatus $case) => $case->value, TripStatus::cases()))->toBe(['pending', 'in_route', 'finished'])
-        ->and(array_map(fn (TripStatus $case) => $case->label(), TripStatus::cases()))->toBe(['Pendiente', 'En ruta', 'Finalizado']);
+it('declara exactamente cuatro estados con su etiqueta en español', function () {
+    expect(TripStatus::cases())->toHaveCount(4)
+        ->and(array_map(fn (TripStatus $case) => $case->value, TripStatus::cases()))->toBe(['pending', 'in_route', 'finished', 'cancelled'])
+        ->and(array_map(fn (TripStatus $case) => $case->label(), TripStatus::cases()))->toBe(['Pendiente', 'En ruta', 'Finalizado', 'Cancelado']);
+});
+
+it('deja cancelled_at y cancelled_by en null por defecto y el estado cancelled de la factory los escribe juntos', function () {
+    $pendiente = Trip::factory()->create()->fresh();
+    $cancelado = Trip::factory()->cancelled()->create()->fresh();
+
+    expect($pendiente->cancelled_at)->toBeNull()
+        ->and($pendiente->cancelled_by)->toBeNull()
+        ->and($cancelado->status)->toBe(TripStatus::Cancelled)
+        ->and($cancelado->cancelled_at)->toBeInstanceOf(CarbonInterface::class)
+        ->and($cancelado->cancelledBy)->toBeInstanceOf(User::class);
 });
 
 it('normaliza una referencia trimando, colapsando espacios y pasando a mayúsculas', function (string $entrada, string $esperado) {
@@ -463,7 +475,7 @@ it('ignora un valor inválido en cualquiera de los filtros', function (array $fi
 
     expect(tripService()->getTrips($admin, $filtros))->toHaveCount(3);
 })->with([
-    'status inventado' => [['status' => 'cancelled']],
+    'status inventado' => [['status' => 'cerrado']],
     'status en mayúsculas' => [['status' => 'PENDING']],
     'clientId no numérico' => [['clientId' => 'abc']],
     'pilotId vacío' => [['pilotId' => '']],

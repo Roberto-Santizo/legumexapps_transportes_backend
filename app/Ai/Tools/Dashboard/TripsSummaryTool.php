@@ -19,7 +19,7 @@ class TripsSummaryTool extends DashboardTool
 
     public function description(): string
     {
-        return 'Agregados de viajes: total, viajes sin asignar (pendientes sin piloto ni vehículo), desglose por estado (pending, inRoute, finished), por empresa transportista, por cliente, por naviera, por puerto de destino y por mes (YYYY-MM, solo meses con datos). El rango de fechas corta sobre la fecha de recolección; sin fechas agrega todo el histórico. Los viajes eliminados nunca cuentan. Los viajes sin asignar no aparecen en byCarrier, así que su suma puede ser menor que total.';
+        return 'Agregados de viajes: total, viajes sin asignar (pendientes sin piloto ni vehículo), desglose por estado (pending, inRoute, finished, cancelled), por empresa transportista, por cliente, por naviera, por puerto de destino y por mes (YYYY-MM, solo meses con datos). El rango de fechas corta sobre la fecha de recolección; sin fechas agrega todo el histórico. Los viajes eliminados nunca cuentan. Los viajes sin asignar no aparecen en byCarrier, así que su suma puede ser menor que total.';
     }
 
     public function schema(JsonSchema $schema): array

@@ -42,7 +42,7 @@ class ReportController extends Controller
 
         CABECERAS: Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet y Content-Disposition attachment; filename="viajes-{dateFrom}_{dateTo}.xlsx". El frontend hace blob() y descarga con ese nombre.
 
-        COLUMNAS BASE (22, en este orden): Id, Orden, Estado, Cliente, Naviera, Punto de partida, Puerto, Destino final, Transporte, Contenedor, Fecha recolección, Fecha embarque, Inicio, Fin, Km estimados, Horas estimadas, Km reales, Horas reales, Observaciones, Piloto, Placa, Registrado por. Estado en español (Pendiente / En ruta / Finalizado); fechas en d-m-Y h:i:s A (NO ISO 8601); km y horas como celdas NUMÉRICAS; cualquier null es una celda vacía (un viaje de la bolsa trae vacíos Piloto y Placa).
+        COLUMNAS BASE (22, en este orden): Id, Orden, Estado, Cliente, Naviera, Punto de partida, Puerto, Destino final, Transporte, Contenedor, Fecha recolección, Fecha embarque, Inicio, Fin, Km estimados, Horas estimadas, Km reales, Horas reales, Observaciones, Piloto, Placa, Registrado por. Estado en español (Pendiente / En ruta / Finalizado / Cancelado); fechas en d-m-Y h:i:s A (NO ISO 8601); km y horas como celdas NUMÉRICAS; cualquier null es una celda vacía (un viaje de la bolsa trae vacíos Piloto y Placa).
 
         SALVO PARA shipment, que no ve dinero, siguen a las base «Bonificación (Q)» y «Seguro de carga (Q)»: los dos montos que la empresa fijó en /assignment, como celdas NUMÉRICAS, vacías si el viaje no se asignó o se asignó antes de existir el dato.
 
@@ -55,7 +55,7 @@ class ReportController extends Controller
         parameters: [
             new OA\Parameter(name: 'dateFrom', description: 'Primer día del rango sobre recolection_date, inclusive. OBLIGATORIO, Y-m-d estricto.', in: 'query', required: true, schema: new OA\Schema(type: 'string', format: 'date', example: '2026-09-01')),
             new OA\Parameter(name: 'dateTo', description: 'Último día del rango, inclusive y por día completo. OBLIGATORIO, Y-m-d estricto y no anterior a dateFrom. Sin rango máximo.', in: 'query', required: true, schema: new OA\Schema(type: 'string', format: 'date', example: '2026-09-30')),
-            new OA\Parameter(name: 'status', description: 'Opcional y TOLERANTE: pending, in_route o finished; cualquier otro valor se ignora.', in: 'query', required: false, schema: new OA\Schema(type: 'string', enum: ['pending', 'in_route', 'finished'])),
+            new OA\Parameter(name: 'status', description: 'Opcional y TOLERANTE: pending, in_route, finished o cancelled; cualquier otro valor se ignora.', in: 'query', required: false, schema: new OA\Schema(type: 'string', enum: ['pending', 'in_route', 'finished', 'cancelled'])),
             new OA\Parameter(name: 'clientId', description: 'Opcional y tolerante: no numérico se ignora.', in: 'query', required: false, schema: new OA\Schema(type: 'integer')),
             new OA\Parameter(name: 'shippingLineId', description: 'Opcional y tolerante: no numérico se ignora.', in: 'query', required: false, schema: new OA\Schema(type: 'integer')),
             new OA\Parameter(name: 'locationId', description: 'Opcional y tolerante: no numérico se ignora.', in: 'query', required: false, schema: new OA\Schema(type: 'integer')),

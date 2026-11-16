@@ -75,7 +75,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — LAS SIETE FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.
 
-    ATENCIÓN — EL status PUEDE CONTRADECIR A LAS FECHAS, Y EL RELATO LO CUENTAN LAS FECHAS. No hay máquina de estados: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que existen viajes finished sin startDate y viajes pending con startDate y endDate puestos (un finished devuelto a pending conserva sus dos fechas de ejecución). Cuando status y fechas se contradigan, el frontend debe pintar el relato desde startDate y endDate, no desde status.
+    ATENCIÓN — EL status PUEDE CONTRADECIR A LAS FECHAS, Y EL RELATO LO CUENTAN LAS FECHAS. No hay máquina de estados: el PATCH del administrador acepta pending, in_route y finished sin comprobar el orden ni tocar las fechas, así que existen viajes finished sin startDate y viajes pending con startDate y endDate puestos (un finished devuelto a pending conserva sus dos fechas de ejecución). Cuando status y fechas se contradigan, el frontend debe pintar el relato desde startDate y endDate, no desde status.
 
     ATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO. Un viaje NO tiene carrierId: nace de nadie y no hay columna de empresa dueña. La empresa entra en escena cuando toma el viaje, y el vínculo se deriva siempre de assignedById. Por eso administrator y manager ven todos los viajes; un carrier ve la bolsa —los pending con pilotId y vehicleId en null— más los asignados por su propia empresa; y un pilot ve SOLO aquellos donde pilotId es él, sin la bolsa.
 
@@ -115,9 +115,9 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'status',
-            description: 'Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir —traducirlo es cosa del frontend—. Solo hay TRES valores y NO existe cancelled: un viaje que no se hará se borra. Nace siempre en pending; /start lo lleva a in_route y /finish a finished. ATENCIÓN — NO HAY MÁQUINA DE ESTADOS: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que un finished puede volver a pending conservando startDate y endDate. Cuando el estado contradiga a las fechas, el relato lo cuentan las fechas.',
+            description: 'Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir —traducirlo es cosa del frontend—. Hay CUATRO valores: cancelled (SPEC 42) solo lo escribe PATCH /{trip}/cancel, solo desde pending, y deja el viaje en solo lectura; un viaje creado por error se sigue borrando. Nace siempre en pending; /start lo lleva a in_route y /finish a finished. ATENCIÓN — NO HAY MÁQUINA DE ESTADOS: el PATCH del administrador acepta los tres valores sin comprobar el orden ni tocar las fechas, así que un finished puede volver a pending conservando startDate y endDate. Cuando el estado contradiga a las fechas, el relato lo cuentan las fechas.',
             type: 'string',
-            enum: ['pending', 'in_route', 'finished'],
+            enum: ['pending', 'in_route', 'finished', 'cancelled'],
             example: 'pending',
         ),
         new OA\Property(

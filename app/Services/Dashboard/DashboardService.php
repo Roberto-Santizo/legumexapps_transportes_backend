@@ -104,6 +104,7 @@ class DashboardService implements DashboardServiceInterface
                 'pending' => (int) ($countByStatus[TripStatus::Pending->value] ?? 0),
                 'inRoute' => (int) ($countByStatus[TripStatus::InRoute->value] ?? 0),
                 'finished' => (int) ($countByStatus[TripStatus::Finished->value] ?? 0),
+                'cancelled' => (int) ($countByStatus[TripStatus::Cancelled->value] ?? 0),
             ],
             'byCarrier' => $byCarrier,
             'byClient' => $byClient,

@@ -19,7 +19,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR NI DESASIGNAR. pilotId y vehicleId NO SE ACEPTAN AQUÍ y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva la asignación que tuviera. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, exclusiva del carrier. Tampoco se reescriben assignedBy ni registeredBy: mandarlos se descarta igual. Consecuencia real: SI NINGUNA EMPRESA TOMA UN VIAJE, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.
 
-    ATENCIÓN — status SE ACEPTA Y NO HAY MÁQUINA DE ESTADOS. Los tres valores del enum son válidos en cualquier orden y NO se tocan las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas. El frontend debe pintar el relato desde las FECHAS, no desde el status. Un valor fuera del enum es 422.
+    ATENCIÓN — status SE ACEPTA Y NO HAY MÁQUINA DE ESTADOS. pending, in_route y finished son válidos en cualquier orden y NO se tocan las fechas: un finished puede volver a pending CONSERVANDO startDate y endDate, y quedan combinaciones que se contradicen con sus propias fechas. El frontend debe pintar el relato desde las FECHAS, no desde el status. Un valor fuera del enum es 422, Y TAMBIÉN cancelled (SPEC 42): un viaje solo se cancela con PATCH /api/trips/{trip}/cancel. Sobre un viaje ya cancelado este PATCH responde 400 «El viaje está cancelado».
 
     ATENCIÓN — LOS CATÁLOGOS SE REVALIDAN SIEMPRE, aunque el cuerpo solo mueva una fecha: el service fusiona lo enviado sobre lo almacenado y vuelve a comprobar los cuatro. Un viaje que apunta a un puerto que se desactivó desde el alta responde 400 aunque el PATCH no toque locationId. Mismo reparto 422 / 400 que el alta: id inventado 422, cliente o naviera BORRADOS 400.
 
@@ -143,7 +143,7 @@ use OpenApi\Attributes as OA;
         ),
         new OA\Property(
             property: 'status',
-            description: 'Estado del viaje, y EL ÚNICO CAMPO QUE NO EXISTE EN EL ALTA —allí el viaje nace pending y mandarlo se descarta—. Opcional; si se envía es obligatorio y debe ser uno de los tres valores del enum (El estado del viaje es obligatorio / El estado del viaje no es válido). ATENCIÓN — NO SE COMPRUEBA NINGUNA TRANSICIÓN: se puede ir hacia atrás, y mover el estado NO toca startDate ni endDate, así que un finished devuelto a pending conserva las dos fechas de ejecución y el resultado se contradice consigo mismo. Cuando estado y fechas discrepen, mandan las fechas. Un valor fuera del enum es 422.',
+            description: 'Estado del viaje, y EL ÚNICO CAMPO QUE NO EXISTE EN EL ALTA —allí el viaje nace pending y mandarlo se descarta—. Opcional; si se envía es obligatorio y debe ser pending, in_route o finished (El estado del viaje es obligatorio / El estado no es válido; para cancelar un viaje usa la acción de cancelar). cancelled ES 422: un viaje solo se cancela con PATCH /api/trips/{trip}/cancel. ATENCIÓN — NO SE COMPRUEBA NINGUNA TRANSICIÓN: se puede ir hacia atrás, y mover el estado NO toca startDate ni endDate, así que un finished devuelto a pending conserva las dos fechas de ejecución y el resultado se contradice consigo mismo. Cuando estado y fechas discrepen, mandan las fechas. Un valor fuera del enum es 422.',
             type: 'string',
             enum: ['pending', 'in_route', 'finished'],
             example: 'in_route',
@@ -203,7 +203,9 @@ class UpdateTripRequest extends FormRequest
          * en silencio con 200.
          *
          * `status` no se comprueba contra ninguna transición: un viaje finalizado puede
-         * volver a pendiente conservando sus dos fechas de ejecución.
+         * volver a pendiente conservando sus dos fechas de ejecución. `cancelled` queda
+         * fuera (SPEC 42): cancelar es cosa de PATCH /{trip}/cancel, que escribe además
+         * quién y cuándo.
          *
          * Las dos fechas dejan de exigir futuro: editar un viaje ya arrancado no puede
          * obligar a reprogramarlo. El orden entre ellas sí se mantiene, y solo se comprueba
@@ -232,7 +234,7 @@ class UpdateTripRequest extends FormRequest
             'estimatedKilometers' => ['filled', 'required_with:polyline,estimatedHours', 'numeric', 'min:0', 'max:999999.99'],
             'estimatedHours' => ['filled', 'required_with:polyline,estimatedKilometers', 'numeric', 'min:0', 'max:9999.99'],
             'observations' => ['sometimes', 'required', 'string'],
-            'status' => ['sometimes', 'required', Rule::enum(TripStatus::class)],
+            'status' => ['sometimes', 'required', Rule::enum(TripStatus::class)->except([TripStatus::Cancelled])],
         ];
     }
 
@@ -292,7 +294,7 @@ class UpdateTripRequest extends FormRequest
             'observations.required' => 'Las observaciones son obligatorias',
             'observations.string' => 'Las observaciones deben ser texto',
             'status.required' => 'El estado del viaje es obligatorio',
-            'status.enum' => 'El estado del viaje no es válido',
+            'status.enum' => 'El estado no es válido; para cancelar un viaje usa la acción de cancelar',
         ];
     }
 }

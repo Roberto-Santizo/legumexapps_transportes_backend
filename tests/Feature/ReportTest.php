@@ -285,6 +285,18 @@ it('traduce el estado, formatea las fechas, deja números en km y horas y vacía
         ->and($pool[20])->toBe('');
 });
 
+it('muestra Cancelado en la columna Estado de un viaje cancelado, sin columnas nuevas', function () {
+    Trip::factory()->cancelled()->create(['order' => 'ORD-CANCEL', 'recolection_date' => '2026-09-12 08:00:00']);
+
+    $rows = tripsReportRows(asUser(userWithRole(UserRole::Administrator))->get(tripsReportUri()));
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[1][1])->toBe('ORD-CANCEL')
+        ->and($rows[1][2])->toBe('Cancelado')
+        ->and(count($rows[0]))->toBe(count($rows[1]))
+        ->and(array_slice($rows[0], 0, 22))->toBe(tripsReportBaseHeaders());
+});
+
 it('responde 200 con solo la fila de encabezados cuando el rango no tiene viajes', function () {
     $response = asUser(userWithRole(UserRole::Administrator))->get(tripsReportUri());
 

@@ -123,6 +123,21 @@ class TripFactory extends Factory
     }
 
     /**
+     * Indicate that the trip was cancelled while still pending (SPEC 42).
+     *
+     * The three columns are written together, exactly as `PATCH /{trip}/cancel` leaves
+     * them. Compose it with `assigned()` for a cancelled trip that had a crew.
+     */
+    public function cancelled(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => TripStatus::Cancelled,
+            'cancelled_at' => now(),
+            'cancelled_by' => User::factory()->state(['role' => UserRole::Administrator]),
+        ]);
+    }
+
+    /**
      * Indicate that the trip has already been deleted.
      *
      * The row stays in the database — and so does its foreign key to the client and to

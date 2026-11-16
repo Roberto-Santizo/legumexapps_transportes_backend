@@ -1118,6 +1118,20 @@ it('acepta los tres estados del enum en el PATCH', function (string $status) {
         ->assertJsonPath('data.status', $status);
 })->with(['pending', 'in_route', 'finished']);
 
+it('rechaza con 422 cancelled en el PATCH general: solo se cancela por la ruta', function () {
+    $trip = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['status' => 'cancelled'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['status' => 'El estado no es válido; para cancelar un viaje usa la acción de cancelar']);
+
+    $fresco = $trip->fresh();
+
+    expect($fresco->status)->toBe(TripStatus::Pending)
+        ->and($fresco->cancelled_at)->toBeNull()
+        ->and($fresco->cancelled_by)->toBeNull();
+});
+
 it('rechaza con 422 un estado fuera del enum', function (mixed $status) {
     $trip = Trip::factory()->create();
 
@@ -1127,7 +1141,7 @@ it('rechaza con 422 un estado fuera del enum', function (mixed $status) {
 
     expect($trip->fresh()->status)->toBe(TripStatus::Pending);
 })->with([
-    'un valor inventado' => 'cancelled',
+    'un valor inventado' => 'cerrado',
     'el estado en español' => 'pendiente',
     'en mayúsculas' => 'PENDING',
 ]);
@@ -2063,7 +2077,7 @@ it('ignora un valor inválido en cualquiera de los ocho filtros, sin vaciar el l
 
     expect(asUser($admin)->getJson("/api/trips?{$query}")->assertOk()->json('data'))->toHaveCount(3);
 })->with([
-    'status inventado' => 'status=cancelled',
+    'status inventado' => 'status=cerrado',
     'status en mayúsculas' => 'status=PENDING',
     'clientId no numérico' => 'clientId=abc',
     'shippingLineId no numérico' => 'shippingLineId=abc',
@@ -4572,4 +4586,56 @@ it('no cambia la forma del viaje en ruta del tablero', function () {
     expect($enRuta)->not->toHaveKey('booking')
         ->and($enRuta)->not->toHaveKey('reference')
         ->and(array_keys($enRuta))->toHaveCount(16);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 42 — Cancelación del viaje
+|--------------------------------------------------------------------------
+|
+| Cuarto estado, cancelled, que solo escribe PATCH /{trip}/cancel desde pending. El
+| viaje cancelado es historial: sigue en el listado, en el detalle y en el tablero,
+| pero no acepta ninguna escritura más. Borrarlo sigue siendo posible.
+*/
+
+it('lista los viajes cancelados por defecto con statusLabel Cancelado', function () {
+    $pendiente = Trip::factory()->create(['recolection_date' => now()->addDays(2)]);
+    $cancelado = Trip::factory()->cancelled()->create(['recolection_date' => now()->addDay()]);
+
+    $data = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips')->assertOk()->json('data');
+
+    $fila = collect($data)->firstWhere('id', $cancelado->id);
+
+    expect(collect($data)->pluck('id')->all())->toContain($pendiente->id, $cancelado->id)
+        ->and(array_keys($fila))->toBe(tripListResourceKeys())
+        ->and($fila['status'])->toBe('cancelled')
+        ->and($fila['statusLabel'])->toBe('Cancelado');
+});
+
+it('filtra solo los cancelados con status=cancelled', function () {
+    Trip::factory()->create();
+    Trip::factory()->finished()->create();
+    $cancelado = Trip::factory()->cancelled()->create();
+
+    $data = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips?status=cancelled')->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->toBe([$cancelado->id]);
+});
+
+it('deja ver al transportista el viaje cancelado que asignó su empresa', function () {
+    $team = tripTeam();
+    $cancelado = tripAssignedTo($team, ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    $data = asUser($team['owner'])->getJson('/api/trips')->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->toContain($cancelado->id);
+});
+
+it('oculta al transportista un viaje cancelado que nunca se asignó', function () {
+    $team = tripTeam();
+    $cancelado = Trip::factory()->cancelled()->create();
+
+    $data = asUser($team['owner'])->getJson('/api/trips')->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->not->toContain($cancelado->id);
 });
