@@ -1863,6 +1863,44 @@ it('busca en la orden y en el contenedor sin distinguir mayúsculas', function (
     'contenedor con espacios de sobra' => ['  msku   123456 ', 'container'],
 ]);
 
+it('busca también en el booking y en la referencia sin distinguir mayúsculas', function (string $search) {
+    $admin = userWithRole(UserRole::Administrator);
+
+    $buscado = Trip::factory()->create(['order' => 'ORD-2026-0001', 'container' => 'MSKU 123456 7', 'booking' => 'BK-2026 001', 'reference' => 'PEDIDO CLIENTE-77']);
+    Trip::factory()->create(['order' => 'ORD-2026-9999', 'container' => 'TCLU 777777 3', 'booking' => 'BK-9999 999', 'reference' => null]);
+
+    $data = asUser($admin)->getJson('/api/trips?search='.urlencode($search))->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->toBe([$buscado->id]);
+})->with([
+    'booking en minúsculas' => ['bk-2026'],
+    'booking con espacios de sobra' => ['  bk-2026   001 '],
+    'trozo de la referencia en minúsculas' => ['cliente-77'],
+    'referencia en mayúsculas' => ['PEDIDO'],
+]);
+
+it('no se rompe con viajes cuya referencia es null', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    $conBooking = Trip::factory()->create(['booking' => 'BK-2026 001', 'reference' => null]);
+    Trip::factory()->create(['booking' => 'BK-9999 999', 'reference' => null]);
+
+    $data = asUser($admin)->getJson('/api/trips?search=bk-2026')->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->toBe([$conBooking->id]);
+});
+
+it('aplica el ámbito antes de la búsqueda: un transportista no ve por booking el viaje que tomó otra empresa', function () {
+    $propia = tripTeam();
+    $ajena = tripTeam();
+
+    tripAssignedTo($ajena, ['booking' => 'BK-2026 001']);
+    $mio = tripAssignedTo($propia, ['booking' => 'BK-2026 002']);
+
+    expect(asUser($propia['owner'])->getJson('/api/trips?search=bk-2026 001')->assertOk()->json('data'))->toBe([])
+        ->and(collect(asUser($propia['owner'])->getJson('/api/trips?search=bk-2026')->assertOk()->json('data'))->pluck('id')->all())->toBe([$mio->id]);
+});
+
 it('devuelve el listado completo cuando el término de búsqueda viene vacío', function () {
     $admin = userWithRole(UserRole::Administrator);
     Trip::factory()->count(3)->create();
