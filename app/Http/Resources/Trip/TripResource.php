@@ -10,8 +10,11 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 45 keys in camelCase, the largest resource of the
- * project.
+ * The trip as the API paints it: 47 keys in camelCase, the largest resource of the
+ * project (48 in `GET /api/trips/{trip}`, which appends `positions`).
+ *
+ * `booking` and `reference` (SPEC 41) sit right after `container`: two upper cased
+ * strings or `null`, visible to every role —`shipment` included, they are not money—.
  *
  * The six relations go out **flat**, as an id plus its name side by side, never as a
  * nested object: `clientId` + `clientName`, `vehicleId` + `vehiclePlate`, and so on.
@@ -66,7 +69,7 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 45 CLAVES en camelCase (46 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 19 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 47 CLAVES en camelCase (48 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 22 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
@@ -94,7 +97,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — cargoInsurance es la clave 42, entre bonus y createdAt: el seguro de la carga en GTQ que la empresa fijó en el mismo /assignment. Mismas reglas que bonus —un solo monto, sin confirmación, reasignar lo sobrescribe, null sin asignar y SIEMPRE null para shipment— pero concepto propio: nunca se suma con la bonificación.
 
-    Las 45 claves salen siempre en este orden (46 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, cargoInsurance, createdAt, updatedAt y deletedAt.
+    Las 47 claves salen siempre en este orden (48 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, booking, reference, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, cargoInsurance, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -182,6 +185,22 @@ use OpenApi\Attributes as OA;
             type: 'string',
             maxLength: 255,
             example: 'MSKU 483920 1',
+        ),
+        new OA\Property(
+            property: 'booking',
+            description: 'Booking de la naviera (SPEC 41), SIEMPRE EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno, igual que order y container. Obligatorio por la API en el alta y no vaciable en el PATCH. ATENCIÓN — ES null SOLO EN VIAJES ANTERIORES A SPEC 41 (no hubo backfill). NO ES ÚNICO: un booking puede cubrir varios viajes. Lo barre el filtro search. Visible para todos los roles, shipment incluido: no es dinero.',
+            type: 'string',
+            maxLength: 255,
+            nullable: true,
+            example: 'BK-2026 001',
+        ),
+        new OA\Property(
+            property: 'reference',
+            description: 'Referencia comercial OPCIONAL del viaje (SPEC 41), normalizada igual que el booking. null significa «sin referencia», legítimo en cualquier viaje: nunca sale como cadena vacía. NO ES ÚNICA. Lo barre el filtro search. Visible para todos los roles, shipment incluido: no es dinero.',
+            type: 'string',
+            maxLength: 255,
+            nullable: true,
+            example: 'PEDIDO CLIENTE-77',
         ),
         new OA\Property(
             property: 'transport',
@@ -442,6 +461,9 @@ class TripResource extends JsonResource
             'locationName' => $this->location?->name,
             'destination' => $this->destination,
             'container' => $this->container,
+            /** SPEC 41: null en booking solo para viajes anteriores; null en reference es «sin referencia». */
+            'booking' => $this->booking,
+            'reference' => $this->reference,
             'transport' => $this->transport,
             'recolectionDate' => $this->recolection_date?->format('d-m-Y h:i:s A'),
             'shipDate' => $this->ship_date?->format('d-m-Y h:i:s A'),

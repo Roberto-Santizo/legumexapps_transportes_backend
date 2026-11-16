@@ -112,12 +112,19 @@ class TripService implements TripServiceInterface
     ];
 
     /**
-     * The two references normalized to upper case with collapsed inner whitespace.
+     * The four references normalized to upper case with collapsed inner whitespace.
      *
      * `destination`, `transport` and `observations` are deliberately not here: they keep
      * the casing they were typed with.
      */
-    private const REFERENCE_FIELDS = ['order', 'container'];
+    private const REFERENCE_FIELDS = ['order', 'container', 'booking', 'reference'];
+
+    /**
+     * The references that may be absent (SPEC 41): `null`, empty or blank all become `null`.
+     *
+     * The booking is not here: blank is a 422 in the FormRequest, never a stored `null`.
+     */
+    private const OPTIONAL_REFERENCE_FIELDS = ['reference'];
 
     /**
      * The fields the administrator's general PATCH is allowed to write.
@@ -139,6 +146,8 @@ class TripService implements TripServiceInterface
         'locationId' => 'location_id',
         'destination' => 'destination',
         'container' => 'container',
+        'booking' => 'booking',
+        'reference' => 'reference',
         'transport' => 'transport',
         'recolectionDate' => 'recolection_date',
         'shipDate' => 'ship_date',
@@ -194,8 +203,9 @@ class TripService implements TripServiceInterface
 
         /**
          * El término se normaliza como una referencia —colapsando espacios y en mayúsculas—;
-         * `order` y `container` están siempre en mayúsculas, así que con eso basta para ser
-         * insensible a mayúsculas.
+         * `order`, `container`, `booking` y `reference` están siempre en mayúsculas, así que
+         * con eso basta para ser insensible a mayúsculas. Una `reference` en null no casa
+         * con ningún LIKE y no rompe el grupo.
          */
         $search = Trip::normalizeReference($filters['search'] ?? '');
 
@@ -203,7 +213,9 @@ class TripService implements TripServiceInterface
             /** Agrupado, o el OR se saltaría el ámbito y los filtros anteriores. */
             $query->where(function ($builder) use ($search) {
                 $builder->where('order', 'LIKE', '%'.$search.'%')
-                    ->orWhere('container', 'LIKE', '%'.$search.'%');
+                    ->orWhere('container', 'LIKE', '%'.$search.'%')
+                    ->orWhere('booking', 'LIKE', '%'.$search.'%')
+                    ->orWhere('reference', 'LIKE', '%'.$search.'%');
             });
         }
 
@@ -287,6 +299,9 @@ class TripService implements TripServiceInterface
                 /** Se normaliza aquí aunque el FormRequest ya lo haya hecho: el service es llamable directamente. */
                 'order' => Trip::normalizeReference($data['order']),
                 'container' => Trip::normalizeReference($data['container']),
+                'booking' => Trip::normalizeReference($data['booking']),
+                /** Opcional: ausente, vacía o en blanco se guarda null, nunca una cadena vacía. */
+                'reference' => $this->normalizeOptionalReference($data['reference'] ?? null),
                 /** Los tres de texto libre entran tal como se teclearon: solo el trim del FormRequest. */
                 'destination' => $data['destination'],
                 'transport' => $data['transport'],
@@ -341,9 +356,12 @@ class TripService implements TripServiceInterface
 
         foreach (self::UPDATABLE_FIELDS as $field => $column) {
             if (array_key_exists($field, $data)) {
-                $payload[$column] = in_array($field, self::REFERENCE_FIELDS, true)
-                    ? Trip::normalizeReference($data[$field])
-                    : $data[$field];
+                $payload[$column] = match (true) {
+                    /** null, "" o en blanco borran la referencia (SPEC 41). */
+                    in_array($field, self::OPTIONAL_REFERENCE_FIELDS, true) => $this->normalizeOptionalReference($data[$field]),
+                    in_array($field, self::REFERENCE_FIELDS, true) => Trip::normalizeReference($data[$field]),
+                    default => $data[$field],
+                };
             }
         }
 
@@ -986,6 +1004,19 @@ class TripService implements TripServiceInterface
     private function resolveCarrierUserIds(Carrier $carrier): array
     {
         return [$carrier->user_id, ...$carrier->pilots()->pluck('users.id')->all()];
+    }
+
+    /**
+     * Normalize an optional reference like any other, turning absent, empty or blank into null.
+     *
+     * Repeated here although the FormRequest already merges `""` as `null`: the service is
+     * callable directly, and a stored empty string would be a second «no reference».
+     */
+    private function normalizeOptionalReference(?string $value): ?string
+    {
+        $normalized = Trip::normalizeReference($value ?? '');
+
+        return $normalized === '' ? null : $normalized;
     }
 
     /**

@@ -7,7 +7,10 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * El viaje como lo pinta el listado: 20 claves, la vista de tabla del frontend.
+ * El viaje como lo pinta el listado: 22 claves, la vista de tabla del frontend.
+ *
+ * `booking` y `reference` (SPEC 41) salen justo después de `container`, como en el detalle:
+ * en la tabla se leen al lado del contenedor.
  *
  * Es la versión recortada de {@see TripResource}, que sigue siendo la de los otros siete
  * endpoints. Aquí no salen los ids de las relaciones —solo sus nombres—, ni `polyline` ni
@@ -32,7 +35,7 @@ use OpenApi\Attributes as OA;
     schema: 'TripListItem',
     title: 'Viaje en el listado',
     description: <<<'TEXT'
-    El viaje tal como sale en GET /api/trips: 20 CLAVES en camelCase, no las 42 del detalle. Es una vista de tabla, no el recurso completo.
+    El viaje tal como sale en GET /api/trips: 22 CLAVES en camelCase, no las 47 del detalle. Es una vista de tabla, no el recurso completo.
 
     ATENCIÓN — NO ES EL MISMO ESQUEMA QUE Trip. Aquí NO vienen: clientId ni clientName; los ids de las relaciones (shippingLineId, departurePointId, locationId, pilotId, vehicleId); assignedById ni assignedByName; destination ni transport; polyline ni points; traveledPolyline ni traveledPoints; totalFuelGallons ni totalExpensesAmount; vehicleImage, pilotDpiImage ni pilotLicenseImage; createdAt, updatedAt ni deletedAt. De las relaciones solo sale el NOMBRE PLANO. Para cualquiera de esos campos —y para la ruta dibujable— hay que pedir GET /api/trips/{trip}.
 
@@ -44,7 +47,7 @@ use OpenApi\Attributes as OA;
 
     Las cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, status sale con el valor crudo del enum en inglés y statusLabel con el mismo estado en español (Pendiente, En ruta, Finalizado). Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.
 
-    Las 20 claves salen siempre en este orden: id, order, status, statusLabel, shippingLineName, departurePointName, locationName, container, recolectionDate, shipDate, startDate, endDate, estimatedKilometers, estimatedHours, traveledKilometers, traveledHours, observations, pilotName, vehiclePlate y registeredByName.
+    Las 22 claves salen siempre en este orden: id, order, status, statusLabel, shippingLineName, departurePointName, locationName, container, booking, reference, recolectionDate, shipDate, startDate, endDate, estimatedKilometers, estimatedHours, traveledKilometers, traveledHours, observations, pilotName, vehiclePlate y registeredByName.
     TEXT,
     properties: [
         new OA\Property(
@@ -101,6 +104,22 @@ use OpenApi\Attributes as OA;
             type: 'string',
             maxLength: 255,
             example: 'MSKU 483920 1',
+        ),
+        new OA\Property(
+            property: 'booking',
+            description: 'Booking de la naviera (SPEC 41), SIEMPRE EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno, igual que order y container. Obligatorio por la API en el alta y no vaciable en el PATCH. ATENCIÓN — ES null SOLO EN VIAJES ANTERIORES A SPEC 41 (no hubo backfill). NO ES ÚNICO: un booking puede cubrir varios viajes. Lo barre el filtro search.',
+            type: 'string',
+            maxLength: 255,
+            nullable: true,
+            example: 'BK-2026 001',
+        ),
+        new OA\Property(
+            property: 'reference',
+            description: 'Referencia comercial OPCIONAL del viaje (SPEC 41), normalizada igual que el booking. null significa «sin referencia», legítimo en cualquier viaje: nunca sale como cadena vacía. NO ES ÚNICA. Lo barre el filtro search.',
+            type: 'string',
+            maxLength: 255,
+            nullable: true,
+            example: 'PEDIDO CLIENTE-77',
         ),
         new OA\Property(
             property: 'recolectionDate',
@@ -189,7 +208,7 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'TripListResponse',
     title: 'Listado de viajes sin paginar',
-    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 20 claves, NO el Trip de 42 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
+    description: 'Respuesta de GET /api/trips cuando no se envía limit o cuando el limit no es numérico: se devuelven TODOS los viajes que el ámbito del usuario deja ver y que pasen los ocho filtros, y el sobre NO incluye total, currentPage ni lastPage. ATENCIÓN — cada elemento es un TripListItem de 22 claves, NO el Trip de 47 del detalle. Los viajes borrados NUNCA aparecen y no hay ningún parámetro que los muestre. El orden es siempre recolection_date DESC y, a igualdad, id DESC. ATENCIÓN — dos usuarios de roles distintos reciben listados DISTINTOS sobre los mismos datos: el ámbito se aplica antes que los filtros.',
     properties: [
         new OA\Property(property: 'statusCode', type: 'integer', example: 200),
         new OA\Property(property: 'message', type: 'string', example: 'Viajes obtenidos correctamente'),
@@ -200,7 +219,7 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'PaginatedTripListResponse',
     title: 'Listado de viajes paginado',
-    description: 'Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 20 claves.',
+    description: 'Respuesta de GET /api/trips cuando se envía un limit numérico: los metadatos de paginación salen APLANADOS en la raíz del sobre, junto a statusCode, message y data, no anidados bajo meta. El total cuenta solo los viajes que el ámbito del usuario deja ver, y nunca los borrados. Cada elemento es un TripListItem de 22 claves.',
     allOf: [
         new OA\Schema(ref: '#/components/schemas/TripListResponse'),
         new OA\Schema(ref: '#/components/schemas/PaginationMeta'),
@@ -229,6 +248,8 @@ class TripListResource extends JsonResource
             'departurePointName' => $this->departurePoint?->name,
             'locationName' => $this->location?->name,
             'container' => $this->container,
+            'booking' => $this->booking,
+            'reference' => $this->reference,
             'recolectionDate' => $this->recolection_date?->format('d-m-Y h:i:s A'),
             'shipDate' => $this->ship_date?->format('d-m-Y h:i:s A'),
             'startDate' => $this->start_date?->format('d-m-Y h:i:s A'),

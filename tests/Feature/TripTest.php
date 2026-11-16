@@ -247,6 +247,7 @@ function tripPayload(array $overrides = []): array
         'locationId' => Location::factory()->port()->active()->create()->id,
         'destination' => 'Rotterdam, Países Bajos',
         'container' => 'msku 123456 7',
+        'booking' => 'bk-2026-0001',
         'transport' => 'Rastra 40 pies',
         'recolectionDate' => now()->addDays(3)->startOfSecond()->format('Y-m-d H:i:s'),
         'shipDate' => now()->addDays(5)->startOfSecond()->format('Y-m-d H:i:s'),
@@ -285,7 +286,7 @@ function tripPayloadProductLine(mixed $clientId): array
 }
 
 /**
- * The 43 keys `TripResource` promises, in the order the resource declares them.
+ * The 47 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
  * its name —the vehicle adds a third key, `vehicleImage`—, `points` is derived from
@@ -293,7 +294,8 @@ function tripPayloadProductLine(mixed $clientId): array
  * SPEC 30 slid `estimatedKilometers` and `estimatedHours` between `points` and the real route,
  * and SPEC 32 closed the mirror with `traveledKilometers` and `traveledHours` right after it.
  * SPEC 39 added `totalEmergencyExpensesAmount` right after `totalExpensesAmount`, and the
- * assignment bonus and cargo insurance came right after it.
+ * assignment bonus and cargo insurance came right after it. SPEC 41 slid `booking` and
+ * `reference` right after `container`.
  *
  * @return array<int, string>
  */
@@ -305,7 +307,7 @@ function tripResourceKeys(): array
         'shippingLineId', 'shippingLineName',
         'departurePointId', 'departurePointName',
         'locationId', 'locationName',
-        'destination', 'container', 'transport',
+        'destination', 'container', 'booking', 'reference', 'transport',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
         'polyline', 'points', 'estimatedKilometers', 'estimatedHours',
         'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations',
@@ -318,7 +320,7 @@ function tripResourceKeys(): array
 }
 
 /**
- * The 43 keys of `GET /api/trips/{trip}` for any role but `pilot`: the 42 of
+ * The 48 keys of `GET /api/trips/{trip}` for any role but `pilot`: the 47 of
  * `TripResource` plus the `positions` trail, which only the detail loads.
  *
  * @return array<int, string>
@@ -329,7 +331,7 @@ function tripDetailKeys(): array
 }
 
 /**
- * The 19 keys `TripListResource` promises, in the order the resource declares them.
+ * The 22 keys `TripListResource` promises, in the order the resource declares them.
  *
  * El listado es una vista de tabla: no trae los ids de las relaciones, ni `clientName`,
  * ni `destination`, ni `transport`, ni `polyline`, ni `points`, ni las tres marcas de
@@ -342,7 +344,7 @@ function tripListResourceKeys(): array
     return [
         'id', 'order', 'status', 'statusLabel',
         'shippingLineName', 'departurePointName', 'locationName',
-        'container',
+        'container', 'booking', 'reference',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
         'estimatedKilometers', 'estimatedHours',
         'traveledKilometers', 'traveledHours',
@@ -657,6 +659,7 @@ it('rechaza con 422 el alta cuando falta cualquiera de los campos obligatorios',
     'locationId' => ['locationId', 'El puerto de destino es obligatorio'],
     'destination' => ['destination', 'El destino final es obligatorio'],
     'container' => ['container', 'El contenedor es obligatorio'],
+    'booking' => ['booking', 'El booking es obligatorio'],
     'transport' => ['transport', 'El transporte es obligatorio'],
     'recolectionDate' => ['recolectionDate', 'La fecha de recolección es obligatoria'],
     'shipDate' => ['shipDate', 'La fecha de embarque es obligatoria'],
@@ -667,16 +670,16 @@ it('rechaza con 422 el alta cuando falta cualquiera de los campos obligatorios',
     'products' => ['products', 'Los productos terminados son obligatorios'],
 ]);
 
-it('rechaza con 422 un alta con el cuerpo vacío señalando los quince campos', function () {
+it('rechaza con 422 un alta con el cuerpo vacío señalando los dieciséis campos', function () {
     $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', [])
         ->assertStatus(422)
         ->assertJsonValidationErrors([
             'order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId',
-            'destination', 'container', 'transport', 'recolectionDate', 'shipDate',
+            'destination', 'container', 'booking', 'transport', 'recolectionDate', 'shipDate',
             'polyline', 'estimatedKilometers', 'estimatedHours', 'observations', 'products',
         ]);
 
-    expect(array_keys($response->json('errors')))->toHaveCount(15);
+    expect(array_keys($response->json('errors')))->toHaveCount(16);
 
     /** El 422 sale con el formato de Laravel, no con el sobre del ResponseHandler. */
     expect(array_keys($response->json()))->toBe(['message', 'errors']);
@@ -769,6 +772,84 @@ it('deja que dos viajes compartan la misma orden y el mismo contenedor', functio
 
     expect(Trip::query()->where('order', 'ORD-2026-0001')->count())->toBe(2)
         ->and(Trip::query()->where('container', 'MSKU 123456 7')->count())->toBe(2);
+});
+
+it('guarda el booking y la referencia en mayúsculas con los espacios colapsados', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
+        'booking' => '  bk-2026   001  ',
+        'reference' => "  pedido\t cliente-77 ",
+    ]))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $response->json('data.id'),
+        'booking' => 'BK-2026 001',
+        'reference' => 'PEDIDO CLIENTE-77',
+    ]);
+});
+
+it('rechaza con 422 un booking ausente, en blanco, no texto o de más de 255 caracteres', function (array $overrides, string $mensaje) {
+    $payload = tripPayload($overrides);
+
+    if ($overrides === []) {
+        unset($payload['booking']);
+    }
+
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', $payload)
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['booking'])
+        ->assertJsonFragment([$mensaje]);
+
+    expect(Trip::withTrashed()->count())->toBe(0);
+})->with([
+    'ausente' => [[], 'El booking es obligatorio'],
+    'de solo espacios' => [['booking' => '    '], 'El booking es obligatorio'],
+    'null' => [['booking' => null], 'El booking es obligatorio'],
+    'no texto' => [['booking' => 12345], 'El booking debe ser texto'],
+    'de 256 caracteres' => [['booking' => str_repeat('B', 256)], 'El booking no puede superar los 255 caracteres'],
+]);
+
+it('rechaza con 422 una referencia no texto o de más de 255 caracteres', function (mixed $reference, string $mensaje) {
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload(['reference' => $reference]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['reference'])
+        ->assertJsonFragment([$mensaje]);
+
+    expect(Trip::withTrashed()->count())->toBe(0);
+})->with([
+    'no texto' => [['REF'], 'La referencia debe ser texto'],
+    'de 256 caracteres' => [str_repeat('R', 256), 'La referencia no puede superar los 255 caracteres'],
+]);
+
+it('acepta 255 caracteres en el booking y en la referencia', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
+        'booking' => str_repeat('B', 255),
+        'reference' => str_repeat('R', 255),
+    ]))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', ['id' => $response->json('data.id'), 'booking' => str_repeat('B', 255)]);
+});
+
+it('guarda la referencia en null cuando no llega, llega vacía, de solo espacios o en null', function (array $overrides) {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload($overrides))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', ['id' => $response->json('data.id'), 'booking' => 'BK-2026-0001', 'reference' => null]);
+})->with([
+    'ausente' => [[]],
+    'vacía' => [['reference' => '']],
+    'de solo espacios' => [['reference' => '     ']],
+    'null' => [['reference' => null]],
+]);
+
+it('deja que dos viajes compartan el mismo booking y la misma referencia', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    asUser($admin)->postJson('/api/trips', tripPayload(['reference' => 'ref-1']))->assertCreated();
+    asUser($admin)->postJson('/api/trips', tripPayload(['reference' => 'ref-1']))->assertCreated();
+
+    expect(Trip::query()->where('booking', 'BK-2026-0001')->where('reference', 'REF-1')->count())->toBe(2);
 });
 
 it('rechaza con 422 una fecha planificada en el pasado', function (string $campo, string $mensaje) {
@@ -920,6 +1001,75 @@ it('edita los campos que llegan normalizando la orden y el contenedor', function
         'order' => 'ORD-2026 9999',
         'container' => 'TCLU 777777 3',
     ]);
+});
+
+it('rechaza con 422 un PATCH que intenta vaciar el booking', function (mixed $booking) {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['booking' => $booking])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['booking'])
+        ->assertJsonFragment(['El booking es obligatorio']);
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-00000001']);
+})->with([
+    'null' => [null],
+    'vacío' => [''],
+    'de solo espacios' => ['   '],
+]);
+
+it('rechaza con 422 un booking o una referencia de más de 255 caracteres en el PATCH', function (string $campo, string $mensaje) {
+    $trip = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [$campo => str_repeat('X', 256)])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([$campo])
+        ->assertJsonFragment([$mensaje]);
+})->with([
+    'booking' => ['booking', 'El booking no puede superar los 255 caracteres'],
+    'reference' => ['reference', 'La referencia no puede superar los 255 caracteres'],
+]);
+
+it('reescribe el booking y la referencia normalizados desde el PATCH', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => null]);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'booking' => '  bk-2026   777 ',
+        'reference' => ' pedido   88 ',
+    ])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-2026 777', 'reference' => 'PEDIDO 88']);
+});
+
+it('borra la referencia con 200 cuando el PATCH la manda en null, vacía o de solo espacios', function (mixed $reference) {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['reference' => $reference])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-00000001', 'reference' => null]);
+})->with([
+    'null' => [null],
+    'vacía' => [''],
+    'de solo espacios' => ['   '],
+]);
+
+it('no toca el booking ni la referencia cuando el PATCH no los manda', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['destination' => 'Hamburgo, Alemania'])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+});
+
+it('ignora con 200 la referencia ausente y no la confunde con un borrado', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [])->assertOk();
+
+    expect($trip->fresh()->reference)->toBe('REF-0001');
 });
 
 it('ignora con 200 el piloto y el vehículo mandados al PATCH, conservando la asignación', function () {
@@ -1862,6 +2012,44 @@ it('busca en la orden y en el contenedor sin distinguir mayúsculas', function (
     'contenedor con espacios de sobra' => ['  msku   123456 ', 'container'],
 ]);
 
+it('busca también en el booking y en la referencia sin distinguir mayúsculas', function (string $search) {
+    $admin = userWithRole(UserRole::Administrator);
+
+    $buscado = Trip::factory()->create(['order' => 'ORD-2026-0001', 'container' => 'MSKU 123456 7', 'booking' => 'BK-2026 001', 'reference' => 'PEDIDO CLIENTE-77']);
+    Trip::factory()->create(['order' => 'ORD-2026-9999', 'container' => 'TCLU 777777 3', 'booking' => 'BK-9999 999', 'reference' => null]);
+
+    $data = asUser($admin)->getJson('/api/trips?search='.urlencode($search))->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->toBe([$buscado->id]);
+})->with([
+    'booking en minúsculas' => ['bk-2026'],
+    'booking con espacios de sobra' => ['  bk-2026   001 '],
+    'trozo de la referencia en minúsculas' => ['cliente-77'],
+    'referencia en mayúsculas' => ['PEDIDO'],
+]);
+
+it('no se rompe con viajes cuya referencia es null', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    $conBooking = Trip::factory()->create(['booking' => 'BK-2026 001', 'reference' => null]);
+    Trip::factory()->create(['booking' => 'BK-9999 999', 'reference' => null]);
+
+    $data = asUser($admin)->getJson('/api/trips?search=bk-2026')->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->toBe([$conBooking->id]);
+});
+
+it('aplica el ámbito antes de la búsqueda: un transportista no ve por booking el viaje que tomó otra empresa', function () {
+    $propia = tripTeam();
+    $ajena = tripTeam();
+
+    tripAssignedTo($ajena, ['booking' => 'BK-2026 001']);
+    $mio = tripAssignedTo($propia, ['booking' => 'BK-2026 002']);
+
+    expect(asUser($propia['owner'])->getJson('/api/trips?search=bk-2026 001')->assertOk()->json('data'))->toBe([])
+        ->and(collect(asUser($propia['owner'])->getJson('/api/trips?search=bk-2026')->assertOk()->json('data'))->pluck('id')->all())->toBe([$mio->id]);
+});
+
 it('devuelve el listado completo cuando el término de búsqueda viene vacío', function () {
     $admin = userWithRole(UserRole::Administrator);
     Trip::factory()->count(3)->create();
@@ -2159,7 +2347,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 20 claves en el listado y las 43 del detalle, y no las confunde', function () {
+it('devuelve 22 claves en el listado y las 48 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -2167,8 +2355,8 @@ it('devuelve 20 claves en el listado y las 43 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(45)
-        ->and(tripListResourceKeys())->toHaveCount(20)
+    expect(tripResourceKeys())->toHaveCount(47)
+        ->and(tripListResourceKeys())->toHaveCount(22)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripDetailKeys());
 });
@@ -3081,7 +3269,7 @@ it('coloca las dos claves del recorrido justo después de las estimaciones de SP
     $indexOfPoints = array_search('points', $keys, true);
 
     expect(array_slice($keys, $indexOfPoints, 8))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations'])
-        ->and($keys)->toHaveCount(46);
+        ->and($keys)->toHaveCount(48);
 });
 
 it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
@@ -3168,10 +3356,10 @@ it('devuelve las dos estimaciones como cadena de dos decimales justo después de
     $keys = array_keys($response->json('data'));
 
     expect($keys)->toBe(tripDetailKeys())
-        ->and($keys[20])->toBe('estimatedKilometers')
-        ->and($keys[21])->toBe('estimatedHours')
-        ->and($keys[19])->toBe('points')
-        ->and($keys[22])->toBe('traveledPolyline');
+        ->and($keys[22])->toBe('estimatedKilometers')
+        ->and($keys[23])->toBe('estimatedHours')
+        ->and($keys[21])->toBe('points')
+        ->and($keys[24])->toBe('traveledPolyline');
 });
 
 it('rellena a dos decimales una estimación entera o de un decimal', function () {
@@ -3225,10 +3413,10 @@ it('trae las dos estimaciones entre endDate y observations en cada elemento del 
         $keys = array_keys($item);
 
         expect($keys)->toBe(tripListResourceKeys())
-            ->and($keys[11])->toBe('endDate')
-            ->and($keys[12])->toBe('estimatedKilometers')
-            ->and($keys[13])->toBe('estimatedHours')
-            ->and($keys[16])->toBe('observations')
+            ->and($keys[13])->toBe('endDate')
+            ->and($keys[14])->toBe('estimatedKilometers')
+            ->and($keys[15])->toBe('estimatedHours')
+            ->and($keys[18])->toBe('observations')
             ->and($item['estimatedKilometers'])->toMatch('/^\d+\.\d{2}$/')
             ->and($item['estimatedHours'])->toMatch('/^\d+\.\d{2}$/');
     }
@@ -3492,7 +3680,7 @@ it('suma en totalExpensesAmount solo los viáticos confirmados del detalle', fun
         ->assertJsonPath('data.totalExpensesAmount', '425.00');
 });
 
-it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el listado en 20 claves', function () {
+it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el listado en 22 claves', function () {
     $team = tripTeam();
     $trip = tripAssignedTo($team);
 
@@ -3502,12 +3690,12 @@ it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el list
     $indexOfFuel = array_search('totalFuelGallons', $keys, true);
 
     expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'totalEmergencyExpensesAmount'])
-        ->and($keys)->toHaveCount(46);
+        ->and($keys)->toHaveCount(48);
 
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
 
     expect($delListado)->not->toHaveKey('totalExpensesAmount')
-        ->and(array_keys($delListado))->toHaveCount(20);
+        ->and(array_keys($delListado))->toHaveCount(22);
 });
 
 /*
@@ -3582,11 +3770,11 @@ it('coloca traveledKilometers y traveledHours justo después de traveledPoints y
     $keys = array_keys(asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data'));
 
     expect($keys)->toBe(tripDetailKeys())
-        ->and($keys[23])->toBe('traveledPoints')
-        ->and($keys[24])->toBe('traveledKilometers')
-        ->and($keys[25])->toBe('traveledHours')
-        ->and($keys[26])->toBe('observations')
-        ->and($keys)->toHaveCount(46);
+        ->and($keys[25])->toBe('traveledPoints')
+        ->and($keys[26])->toBe('traveledKilometers')
+        ->and($keys[27])->toBe('traveledHours')
+        ->and($keys[28])->toBe('observations')
+        ->and($keys)->toHaveCount(48);
 });
 
 it('devuelve null en las dos métricas reales de un viaje pending o in_route, presentes y no ausentes', function (TripStatus $status) {
@@ -3627,11 +3815,11 @@ it('trae las dos métricas reales entre estimatedHours y observations en cada el
         $keys = array_keys($item);
 
         expect($keys)->toBe(tripListResourceKeys())
-            ->and($keys[13])->toBe('estimatedHours')
-            ->and($keys[14])->toBe('traveledKilometers')
-            ->and($keys[15])->toBe('traveledHours')
-            ->and($keys[16])->toBe('observations')
-            ->and($keys)->toHaveCount(20);
+            ->and($keys[15])->toBe('estimatedHours')
+            ->and($keys[16])->toBe('traveledKilometers')
+            ->and($keys[17])->toBe('traveledHours')
+            ->and($keys[18])->toBe('observations')
+            ->and($keys)->toHaveCount(22);
     }
 
     $finalizado = collect($listado->json('data'))->firstWhere('status', 'finished');
@@ -4000,17 +4188,17 @@ it('fija en cero los gastos emergentes del detalle para shipment y los muestra a
         ->assertJsonPath('data.totalEmergencyExpensesAmount', '850.00');
 });
 
-it('pinta 46 claves en el detalle y 45 para el piloto asignado, con el listado en 20', function () {
+it('pinta 48 claves en el detalle y 47 para el piloto asignado, con el listado en 22', function () {
     $trip = Trip::factory()->inRoute()->create();
 
     $admin = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
     $pilot = asUser(User::findOrFail($trip->pilot_id))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
     $listado = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips')->assertOk()->json('data.0');
 
-    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(46)
-        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(45)
+    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(48)
+        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(47)
         ->and($listado)->not->toHaveKey('totalEmergencyExpensesAmount')
-        ->and(array_keys($listado))->toHaveCount(20);
+        ->and(array_keys($listado))->toHaveCount(22);
 });
 
 it('trae totalEmergencyExpensesAmount en la respuesta de una escritura del viaje', function () {
@@ -4273,4 +4461,115 @@ it('pinta el seguro de la carga en null sin asignar y siempre en null para shipm
     asUser(userWithRole(UserRole::Shipment))->getJson("/api/trips/{$assigned->id}")
         ->assertOk()
         ->assertJsonPath('data.cargoInsurance', null);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Booking y referencia (SPEC 41)
+|--------------------------------------------------------------------------
+*/
+
+it('pinta el booking y la referencia justo después del contenedor en el detalle, el listado y el viaje en curso', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, [
+        'status' => TripStatus::InRoute,
+        'start_date' => now()->subHour(),
+        'booking' => 'BK-2026 001',
+        'reference' => 'PEDIDO CLIENTE-77',
+    ]);
+    $admin = userWithRole(UserRole::Administrator);
+
+    $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $listado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
+    $actual = asUser($team['pilot'])->getJson('/api/trips/current')->assertOk()->json('data');
+
+    foreach ([$detalle, $listado, $actual] as $viaje) {
+        $keys = array_keys($viaje);
+        $indexOfContainer = array_search('container', $keys, true);
+
+        expect(array_slice($keys, $indexOfContainer, 3))->toBe(['container', 'booking', 'reference'])
+            ->and($viaje['booking'])->toBe('BK-2026 001')
+            ->and($viaje['reference'])->toBe('PEDIDO CLIENTE-77');
+    }
+
+    expect(array_keys($detalle))->toHaveCount(48)
+        ->and(array_keys($listado))->toHaveCount(22)
+        ->and(array_keys($actual))->toBe(tripListResourceKeys());
+});
+
+it('devuelve 47 claves en las escrituras del TripResource, con el booking y la referencia del alta', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
+        'booking' => '  bk-2026   001 ',
+        'reference' => ' pedido 77 ',
+    ]))
+        ->assertCreated()
+        ->assertJsonPath('data.booking', 'BK-2026 001')
+        ->assertJsonPath('data.reference', 'PEDIDO 77');
+
+    expect(array_keys($response->json('data')))->toBe(tripResourceKeys())->toHaveCount(47);
+
+    $editado = asUser(userWithRole(UserRole::Administrator))->patchJson('/api/trips/'.$response->json('data.id'), ['reference' => null])
+        ->assertOk()
+        ->assertJsonPath('data.booking', 'BK-2026 001')
+        ->assertJsonPath('data.reference', null);
+
+    expect(array_keys($editado->json('data')))->toBe(tripResourceKeys());
+});
+
+it('devuelve null, y no la clave ausente, en un viaje anterior a SPEC 41', function () {
+    $trip = Trip::factory()->create(['booking' => null, 'reference' => null]);
+    $admin = userWithRole(UserRole::Administrator);
+
+    $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $listado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
+
+    expect($detalle)->toHaveKey('booking')->toHaveKey('reference')
+        ->and($detalle['booking'])->toBeNull()
+        ->and($detalle['reference'])->toBeNull()
+        ->and($listado)->toHaveKey('booking')->toHaveKey('reference')
+        ->and($listado['booking'])->toBeNull()
+        ->and($listado['reference'])->toBeNull();
+});
+
+it('deja ver el booking y la referencia al rol shipment, que no es dinero', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-2026 001', 'reference' => 'PEDIDO 77']);
+    $shipment = userWithRole(UserRole::Shipment);
+
+    asUser($shipment)->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.booking', 'BK-2026 001')
+        ->assertJsonPath('data.reference', 'PEDIDO 77');
+
+    asUser($shipment)->getJson('/api/trips')
+        ->assertOk()
+        ->assertJsonPath('data.0.booking', 'BK-2026 001')
+        ->assertJsonPath('data.0.reference', 'PEDIDO 77');
+});
+
+it('no toca el booking ni la referencia en /assignment, /start y /finish', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create(['booking' => 'BK-2026 001', 'reference' => 'PEDIDO 77']);
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($team, ['booking' => 'OTRO', 'reference' => 'OTRA']))
+        ->assertOk();
+    tripFuelConfirmed($trip->id);
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")->assertOk();
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $trip->id,
+        'status' => TripStatus::Finished->value,
+        'booking' => 'BK-2026 001',
+        'reference' => 'PEDIDO 77',
+    ]);
+});
+
+it('no cambia la forma del viaje en ruta del tablero', function () {
+    Trip::factory()->inRoute()->create(['booking' => 'BK-2026 001', 'reference' => 'PEDIDO 77']);
+
+    $enRuta = asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route')->assertOk()->json('data.0');
+
+    expect($enRuta)->not->toHaveKey('booking')
+        ->and($enRuta)->not->toHaveKey('reference')
+        ->and(array_keys($enRuta))->toHaveCount(16);
 });

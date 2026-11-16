@@ -63,10 +63,17 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * amount per trip, overwritten on every reassignment, never confirmed by the pilot, part
  * of the direct cost— and the same `null`, but a concept of its own: it is never folded
  * into the bonus.
+ *
+ * `booking` is the shipping line's booking number and `reference` an optional commercial
+ * reference (SPEC 41). Both are free text, never unique —a booking may cover several
+ * containers and therefore several trips— and normalized like `order` and `container`.
+ * Both are nullable without default: a `null` booking means exactly that the trip was
+ * created before SPEC 41, because the API neither creates nor edits a trip without one;
+ * a `null` reference means the trip has none, which is legitimate on any trip.
  */
 #[Fillable([
     'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
-    'destination', 'container', 'transport',
+    'destination', 'container', 'booking', 'reference', 'transport',
     'recolection_date', 'ship_date', 'start_date', 'end_date',
     'polyline', 'estimated_kilometers', 'estimated_hours',
     'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
@@ -233,9 +240,10 @@ class Trip extends Model
     /**
      * Normalize a commercial reference: trim it, collapse inner whitespace and upper case it.
      *
-     * A single function shared by `order` and `container`, against the project's habit of
-     * repeating `normalizeName()` per model. That repetition exists so catalogs that are
-     * **different models** may diverge; here these are two fields of the **same** model
+     * A single function shared by `order`, `container`, `booking` and `reference`, against
+     * the project's habit of repeating `normalizeName()` per model. That repetition exists so
+     * catalogs that are **different models** may diverge; here these are four fields of the
+     * **same** model
      * following the very same rule, and duplicating it would protect nothing.
      *
      * `destination`, `transport` and `observations` deliberately get none of this: they

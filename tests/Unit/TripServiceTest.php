@@ -76,6 +76,7 @@ function tripServiceData(array $overrides = []): array
         'locationId' => Location::factory()->port()->active()->create()->id,
         'destination' => 'Rotterdam, Países Bajos',
         'container' => ' msku  123456 7 ',
+        'booking' => '  bk-2026   001  ',
         'transport' => 'Rastra 40 pies',
         'recolectionDate' => now()->addDays(3)->startOfSecond()->format('Y-m-d H:i:s'),
         'shipDate' => now()->addDays(5)->startOfSecond()->format('Y-m-d H:i:s'),
@@ -129,17 +130,33 @@ it('declara los nueve métodos del contrato', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30 y las métricas reales de SPEC 32', function () {
+it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30, las métricas reales de SPEC 32 y el booking y la referencia de SPEC 41', function () {
     expect(Schema::hasTable('trips'))->toBeTrue()
         ->and(Schema::getColumnListing('trips'))->toEqualCanonicalizing([
             'id', 'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
-            'destination', 'container', 'transport',
+            'destination', 'container', 'booking', 'reference', 'transport',
             'recolection_date', 'ship_date', 'start_date', 'end_date',
             'polyline', 'estimated_kilometers', 'estimated_hours',
             'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
             'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by', 'bonus', 'cargo_insurance',
             'created_at', 'updated_at', 'deleted_at',
         ]);
+});
+
+it('deja booking y reference nullable en la base de datos: un viaje anterior a SPEC 41 sigue cargando con las dos en null', function () {
+    $viaje = Trip::factory()->create(['booking' => null, 'reference' => null]);
+
+    expect($viaje->fresh()->booking)->toBeNull()
+        ->and($viaje->fresh()->reference)->toBeNull();
+});
+
+it('genera en la factory siempre un booking normalizado y solo a veces una referencia', function () {
+    $viajes = Trip::factory()->count(30)->make();
+
+    expect($viajes->pluck('booking')->every(fn (?string $booking) => is_string($booking) && preg_match('/^BK-\d{8}$/', $booking) === 1))->toBeTrue()
+        ->and($viajes->pluck('reference')->filter()->every(fn (string $reference) => $reference === Trip::normalizeReference($reference)))->toBeTrue()
+        ->and($viajes->pluck('reference')->contains(null))->toBeTrue()
+        ->and($viajes->pluck('reference')->filter()->isNotEmpty())->toBeTrue();
 });
 
 it('deja las métricas reales en null por defecto y solo el estado finished de la factory las rellena', function () {
@@ -187,6 +204,24 @@ it('persiste el viaje normalizando la orden y el contenedor', function () {
         ->and($trip->polyline)->toBe(TripFactory::POLYLINE)
         ->and(Trip::query()->whereKey($trip->id)->exists())->toBeTrue();
 });
+
+it('persiste el booking y la referencia normalizados como la orden y el contenedor', function () {
+    $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData(['reference' => ' ref   cliente-77 ']));
+
+    expect($trip->fresh()->booking)->toBe('BK-2026 001')
+        ->and($trip->fresh()->reference)->toBe('REF CLIENTE-77');
+});
+
+it('guarda la referencia en null cuando llega vacía, en blanco, en null o no llega', function (array $overrides) {
+    $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData($overrides));
+
+    expect($trip->fresh()->reference)->toBeNull();
+})->with([
+    'vacía' => [['reference' => '']],
+    'en blanco' => [['reference' => '   ']],
+    'null' => [['reference' => null]],
+    'ausente' => [[]],
+]);
 
 it('persiste la distancia y la duración estimadas tal cual llegan, sin cast', function () {
     $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData([
@@ -490,6 +525,37 @@ it('actualiza solo las claves recibidas normalizando las referencias', function 
 
     expect($actualizado->order)->toBe('ORD-2026 9999')
         ->and($actualizado->destination)->toBe('Miami, Estados Unidos');
+});
+
+it('reescribe el booking normalizado', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001']);
+
+    $actualizado = tripService()->update($trip->id, ['booking' => '  bk-2026   777 ']);
+
+    expect($actualizado->booking)->toBe('BK-2026 777')
+        ->and($actualizado->fresh()->booking)->toBe('BK-2026 777');
+});
+
+it('reescribe la referencia normalizada y la borra con null, vacía o en blanco', function (?string $reference, ?string $esperado) {
+    $trip = Trip::factory()->create(['reference' => 'REF-0001']);
+
+    $actualizado = tripService()->update($trip->id, ['reference' => $reference]);
+
+    expect($actualizado->fresh()->reference)->toBe($esperado);
+})->with([
+    'nueva' => [' ref   nueva ', 'REF NUEVA'],
+    'null' => [null, null],
+    'vacía' => ['', null],
+    'en blanco' => ['   ', null],
+]);
+
+it('no toca el booking ni la referencia cuando el payload no los trae', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+
+    tripService()->update($trip->id, ['destination' => 'Miami, Estados Unidos']);
+
+    expect($trip->fresh()->booking)->toBe('BK-00000001')
+        ->and($trip->fresh()->reference)->toBe('REF-0001');
 });
 
 it('trata un payload vacío como un no-op que devuelve el viaje intacto', function () {
