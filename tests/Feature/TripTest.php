@@ -658,6 +658,7 @@ it('rechaza con 422 el alta cuando falta cualquiera de los campos obligatorios',
     'locationId' => ['locationId', 'El puerto de destino es obligatorio'],
     'destination' => ['destination', 'El destino final es obligatorio'],
     'container' => ['container', 'El contenedor es obligatorio'],
+    'booking' => ['booking', 'El booking es obligatorio'],
     'transport' => ['transport', 'El transporte es obligatorio'],
     'recolectionDate' => ['recolectionDate', 'La fecha de recolección es obligatoria'],
     'shipDate' => ['shipDate', 'La fecha de embarque es obligatoria'],
@@ -770,6 +771,84 @@ it('deja que dos viajes compartan la misma orden y el mismo contenedor', functio
 
     expect(Trip::query()->where('order', 'ORD-2026-0001')->count())->toBe(2)
         ->and(Trip::query()->where('container', 'MSKU 123456 7')->count())->toBe(2);
+});
+
+it('guarda el booking y la referencia en mayúsculas con los espacios colapsados', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
+        'booking' => '  bk-2026   001  ',
+        'reference' => "  pedido\t cliente-77 ",
+    ]))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $response->json('data.id'),
+        'booking' => 'BK-2026 001',
+        'reference' => 'PEDIDO CLIENTE-77',
+    ]);
+});
+
+it('rechaza con 422 un booking ausente, en blanco, no texto o de más de 255 caracteres', function (array $overrides, string $mensaje) {
+    $payload = tripPayload($overrides);
+
+    if ($overrides === []) {
+        unset($payload['booking']);
+    }
+
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', $payload)
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['booking'])
+        ->assertJsonFragment([$mensaje]);
+
+    expect(Trip::withTrashed()->count())->toBe(0);
+})->with([
+    'ausente' => [[], 'El booking es obligatorio'],
+    'de solo espacios' => [['booking' => '    '], 'El booking es obligatorio'],
+    'null' => [['booking' => null], 'El booking es obligatorio'],
+    'no texto' => [['booking' => 12345], 'El booking debe ser texto'],
+    'de 256 caracteres' => [['booking' => str_repeat('B', 256)], 'El booking no puede superar los 255 caracteres'],
+]);
+
+it('rechaza con 422 una referencia no texto o de más de 255 caracteres', function (mixed $reference, string $mensaje) {
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload(['reference' => $reference]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['reference'])
+        ->assertJsonFragment([$mensaje]);
+
+    expect(Trip::withTrashed()->count())->toBe(0);
+})->with([
+    'no texto' => [['REF'], 'La referencia debe ser texto'],
+    'de 256 caracteres' => [str_repeat('R', 256), 'La referencia no puede superar los 255 caracteres'],
+]);
+
+it('acepta 255 caracteres en el booking y en la referencia', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
+        'booking' => str_repeat('B', 255),
+        'reference' => str_repeat('R', 255),
+    ]))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', ['id' => $response->json('data.id'), 'booking' => str_repeat('B', 255)]);
+});
+
+it('guarda la referencia en null cuando no llega, llega vacía, de solo espacios o en null', function (array $overrides) {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload($overrides))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', ['id' => $response->json('data.id'), 'booking' => 'BK-2026-0001', 'reference' => null]);
+})->with([
+    'ausente' => [[]],
+    'vacía' => [['reference' => '']],
+    'de solo espacios' => [['reference' => '     ']],
+    'null' => [['reference' => null]],
+]);
+
+it('deja que dos viajes compartan el mismo booking y la misma referencia', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    asUser($admin)->postJson('/api/trips', tripPayload(['reference' => 'ref-1']))->assertCreated();
+    asUser($admin)->postJson('/api/trips', tripPayload(['reference' => 'ref-1']))->assertCreated();
+
+    expect(Trip::query()->where('booking', 'BK-2026-0001')->where('reference', 'REF-1')->count())->toBe(2);
 });
 
 it('rechaza con 422 una fecha planificada en el pasado', function (string $campo, string $mensaje) {
@@ -921,6 +1000,75 @@ it('edita los campos que llegan normalizando la orden y el contenedor', function
         'order' => 'ORD-2026 9999',
         'container' => 'TCLU 777777 3',
     ]);
+});
+
+it('rechaza con 422 un PATCH que intenta vaciar el booking', function (mixed $booking) {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['booking' => $booking])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['booking'])
+        ->assertJsonFragment(['El booking es obligatorio']);
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-00000001']);
+})->with([
+    'null' => [null],
+    'vacío' => [''],
+    'de solo espacios' => ['   '],
+]);
+
+it('rechaza con 422 un booking o una referencia de más de 255 caracteres en el PATCH', function (string $campo, string $mensaje) {
+    $trip = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [$campo => str_repeat('X', 256)])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors([$campo])
+        ->assertJsonFragment([$mensaje]);
+})->with([
+    'booking' => ['booking', 'El booking no puede superar los 255 caracteres'],
+    'reference' => ['reference', 'La referencia no puede superar los 255 caracteres'],
+]);
+
+it('reescribe el booking y la referencia normalizados desde el PATCH', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => null]);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [
+        'booking' => '  bk-2026   777 ',
+        'reference' => ' pedido   88 ',
+    ])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-2026 777', 'reference' => 'PEDIDO 88']);
+});
+
+it('borra la referencia con 200 cuando el PATCH la manda en null, vacía o de solo espacios', function (mixed $reference) {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['reference' => $reference])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-00000001', 'reference' => null]);
+})->with([
+    'null' => [null],
+    'vacía' => [''],
+    'de solo espacios' => ['   '],
+]);
+
+it('no toca el booking ni la referencia cuando el PATCH no los manda', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['destination' => 'Hamburgo, Alemania'])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+});
+
+it('ignora con 200 la referencia ausente y no la confunde con un borrado', function () {
+    $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => 'REF-0001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [])->assertOk();
+
+    expect($trip->fresh()->reference)->toBe('REF-0001');
 });
 
 it('ignora con 200 el piloto y el vehículo mandados al PATCH, conservando la asignación', function () {

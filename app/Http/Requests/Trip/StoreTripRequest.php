@@ -11,7 +11,7 @@ use OpenApi\Attributes as OA;
     schema: 'StoreTripRequest',
     title: 'Alta de viaje',
     description: <<<'TEXT'
-    Cuerpo JSON para publicar un viaje de exportación. Son QUINCE CAMPOS Y LOS QUINCE SON OBLIGATORIOS: order, clientId, shippingLineId, departurePointId, locationId, destination, container, transport, recolectionDate, shipDate, polyline, estimatedKilometers, estimatedHours, observations y products (SPEC 37). Falta cualquiera de ellos y la respuesta es 422. Es EXCLUSIVO del rol administrator.
+    Cuerpo JSON para publicar un viaje de exportación. Son DIECISÉIS CAMPOS OBLIGATORIOS MÁS UNO OPCIONAL: order, clientId, shippingLineId, departurePointId, locationId, destination, container, booking (SPEC 41), transport, recolectionDate, shipDate, polyline, estimatedKilometers, estimatedHours, observations y products (SPEC 37) son obligatorios, y reference (SPEC 41) es opcional. Falta cualquiera de los dieciséis y la respuesta es 422. Es EXCLUSIVO del rol administrator.
 
     ATENCIÓN — CINCO CAMPOS SE DESCARTAN SIN ERROR: status, pilotId, vehicleId, assignedBy y registeredBy. Mandarlos no cambia nada y no da 422. El viaje NACE pending, SIN TRIPULACIÓN —pilotId, vehicleId y assignedById salen en null— y el registeredBy se toma del usuario autenticado. La tripulación solo la escribe PATCH /api/trips/{trip}/assignment, que es del carrier: EL ADMINISTRADOR NO PUEDE ASIGNAR POR NINGUNA VÍA.
 
@@ -21,13 +21,15 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — DESDE SPEC 30 LA RUTA SON TRES CAMPOS, NO UNO. estimatedKilometers y estimatedHours son OBLIGATORIOS y salen de la MISMA respuesta de GET /api/places/directions que polyline: se reenvían distanceKilometers y durationHours SIN CONVERTIR NADA. La API los guarda tal cual —numeric, min:0, con tope 999999.99 km y 9999.99 h— y NO los coteja con la polilínea: mandar 1000 km con una línea de 5 km es legal. Un POST de doce campos, el de antes de SPEC 30, es 422.
 
-    NORMALIZACIÓN ASIMÉTRICA: order y container se guardan EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NI order NI container SON ÚNICOS: dos viajes pueden compartir los dos, sin 400 ni 422.
+    NORMALIZACIÓN ASIMÉTRICA: order, container, booking y reference se guardan EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno; destination, transport y observations se guardan TAL COMO SE TECLEAN, con solo trim. NINGUNA DE LAS CUATRO REFERENCIAS ES ÚNICA: dos viajes pueden compartirlas todas, sin 400 ni 422.
+
+    ATENCIÓN — DESDE SPEC 41 EL ALTA EXIGE booking. Un POST de quince campos, el de antes de SPEC 41, es 422 «El booking es obligatorio». reference es opcional: vacía o de solo espacios se guarda null.
 
     ATENCIÓN — DESDE SPEC 37 EL ALTA EXIGE products: al menos una línea { finishedProductId, boxes }, sin repetir producto (repetido 422). Un POST de catorce campos, el de antes de SPEC 37, es 422. Tras las guardas de catálogo, cada línea pasa dos guardas del service con 400: «El producto terminado seleccionado ya fue eliminado» y «El producto terminado no pertenece al cliente del viaje». El viaje y sus líneas se escriben en UNA transacción: una línea rechazada no crea nada. Las líneas NO salen en la respuesta del viaje: se leen con GET /api/trip-finished-products?tripId=.
 
     Cualquier otra clave que se envíe se descarta en silencio.
     TEXT,
-    required: ['order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId', 'destination', 'container', 'transport', 'recolectionDate', 'shipDate', 'polyline', 'estimatedKilometers', 'estimatedHours', 'observations', 'products'],
+    required: ['order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId', 'destination', 'container', 'booking', 'transport', 'recolectionDate', 'shipDate', 'polyline', 'estimatedKilometers', 'estimatedHours', 'observations', 'products'],
     properties: [
         new OA\Property(
             property: 'order',
@@ -73,6 +75,21 @@ use OpenApi\Attributes as OA;
             type: 'string',
             maxLength: 255,
             example: 'MSKU 483920 1',
+        ),
+        new OA\Property(
+            property: 'booking',
+            description: 'Booking de la naviera (SPEC 41). OBLIGATORIO, texto y de 255 caracteres como máximo (mensajes: El booking es obligatorio / El booking debe ser texto / El booking no puede superar los 255 caracteres). Se normaliza igual que order y container ANTES de validarse: recorte, COLAPSO de espacios internos y MAYÚSCULAS, así que "  bk-2026   001  " guarda "BK-2026 001". Un booking de solo espacios —o null o ""— sale por booking.required: NO SE PUEDE VACIAR. ATENCIÓN — NO ES ÚNICO: un booking puede cubrir varios contenedores y, por tanto, varios viajes. Sin validación de formato contra la naviera. Los viajes anteriores a SPEC 41 lo tienen en null.',
+            type: 'string',
+            maxLength: 255,
+            example: 'BK-2026 001',
+        ),
+        new OA\Property(
+            property: 'reference',
+            description: 'Referencia comercial opcional del viaje (SPEC 41). OPCIONAL y NULLABLE; si trae valor, texto y de 255 caracteres como máximo (mensajes: La referencia debe ser texto / La referencia no puede superar los 255 caracteres). Se normaliza igual que el booking. ATENCIÓN — vacía, de solo espacios o null se guarda como null: un solo valor para «sin referencia», sin 422. Si no se manda, también null. NO ES ÚNICA.',
+            type: 'string',
+            maxLength: 255,
+            nullable: true,
+            example: 'PEDIDO CLIENTE-77',
         ),
         new OA\Property(
             property: 'transport',
@@ -148,10 +165,12 @@ class StoreTripRequest extends FormRequest
     }
 
     /**
-     * Normalize the two commercial references before the rules run.
+     * Normalize the four commercial references before the rules run.
      *
      * Trimming happens here and not in the rules so that a reference of only spaces is
-     * left empty and caught by required, instead of passing as a blank string.
+     * left empty and caught by required, instead of passing as a blank string. The
+     * optional `reference` (SPEC 41) is the exception: left empty it is merged as null,
+     * the single value for «no reference».
      *
      * `destination`, `transport` and `observations` are deliberately left alone beyond
      * their own trim: they keep the casing they were typed with.
@@ -160,10 +179,14 @@ class StoreTripRequest extends FormRequest
     {
         $merge = [];
 
-        foreach (['order', 'container', 'booking'] as $field) {
+        foreach (['order', 'container', 'booking', 'reference'] as $field) {
             if (is_string($this->input($field))) {
                 $merge[$field] = Trip::normalizeReference($this->input($field));
             }
+        }
+
+        if (array_key_exists('reference', $merge) && $merge['reference'] === '') {
+            $merge['reference'] = null;
         }
 
         foreach (['destination', 'transport', 'observations'] as $field) {
@@ -202,7 +225,10 @@ class StoreTripRequest extends FormRequest
             'locationId' => ['required', 'integer', 'exists:locations,id'],
             'destination' => ['required', 'string', 'max:255'],
             'container' => ['required', 'string', 'max:255'],
+            /** Obligatorio por la API aunque la columna sea nullable: null queda para los viajes anteriores a SPEC 41. */
             'booking' => ['required', 'string', 'max:255'],
+            /** Opcional: ausente, vacía o en blanco llega aquí como null y se guarda null. */
+            'reference' => ['sometimes', 'nullable', 'string', 'max:255'],
             'transport' => ['required', 'string', 'max:255'],
             /** Las dos fechas planificadas van siempre al futuro, y el embarque nunca antes de la recolección. */
             'recolectionDate' => ['required', 'date', 'after:now'],
@@ -251,6 +277,11 @@ class StoreTripRequest extends FormRequest
             'container.required' => 'El contenedor es obligatorio',
             'container.string' => 'El contenedor debe ser texto',
             'container.max' => 'El contenedor no puede superar los 255 caracteres',
+            'booking.required' => 'El booking es obligatorio',
+            'booking.string' => 'El booking debe ser texto',
+            'booking.max' => 'El booking no puede superar los 255 caracteres',
+            'reference.string' => 'La referencia debe ser texto',
+            'reference.max' => 'La referencia no puede superar los 255 caracteres',
             'transport.required' => 'El transporte es obligatorio',
             'transport.string' => 'El transporte debe ser texto',
             'transport.max' => 'El transporte no puede superar los 255 caracteres',
