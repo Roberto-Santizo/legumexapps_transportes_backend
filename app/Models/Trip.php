@@ -70,6 +70,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * Both are nullable without default: a `null` booking means exactly that the trip was
  * created before SPEC 41, because the API neither creates nor edits a trip without one;
  * a `null` reference means the trip has none, which is legitimate on any trip.
+ *
+ * `cancelled_at` and `cancelled_by` are the cancellation marks (SPEC 42), written
+ * together by the server on `PATCH /{trip}/cancel` —never taken from a body— in the
+ * same `update()` that moves `status` to `cancelled`. `null` in both means the trip was
+ * not cancelled, and there is no other reading. A cancelled trip is history, not
+ * garbage: it stays visible everywhere but accepts no further write, while a trip
+ * created by mistake is still soft deleted.
  */
 #[Fillable([
     'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
@@ -78,6 +85,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'polyline', 'estimated_kilometers', 'estimated_hours',
     'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
     'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by', 'bonus', 'cargo_insurance',
+    'cancelled_at', 'cancelled_by',
 ])]
 class Trip extends Model
 {
@@ -166,6 +174,16 @@ class Trip extends Model
     public function registeredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'registered_by');
+    }
+
+    /**
+     * The user that cancelled this trip (SPEC 42), null while it is not cancelled.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     /**
@@ -267,6 +285,7 @@ class Trip extends Model
             'ship_date' => 'datetime',
             'start_date' => 'datetime',
             'end_date' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 }
