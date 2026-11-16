@@ -51,6 +51,9 @@ class TripFactory extends Factory
                 'Hamburgo, Alemania', 'Long Beach, Estados Unidos',
             ]),
             'container' => Trip::normalizeReference(fake()->bothify('???? ###### #')),
+            'booking' => Trip::normalizeReference(fake()->bothify('BK-########')),
+            /** Optional commercial reference: half the trips have none. */
+            'reference' => fake()->boolean() ? Trip::normalizeReference(fake()->bothify('ref-####-??')) : null,
             'transport' => fake()->randomElement(['Rastra 40 pies', 'Furgón refrigerado', 'Cabezal con plataforma']),
             'recolection_date' => $recolectionDate,
             'ship_date' => fake()->dateTimeBetween($recolectionDate, '+30 days'),

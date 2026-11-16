@@ -129,17 +129,33 @@ it('declara los nueve métodos del contrato', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30 y las métricas reales de SPEC 32', function () {
+it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30, las métricas reales de SPEC 32 y el booking y la referencia de SPEC 41', function () {
     expect(Schema::hasTable('trips'))->toBeTrue()
         ->and(Schema::getColumnListing('trips'))->toEqualCanonicalizing([
             'id', 'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
-            'destination', 'container', 'transport',
+            'destination', 'container', 'booking', 'reference', 'transport',
             'recolection_date', 'ship_date', 'start_date', 'end_date',
             'polyline', 'estimated_kilometers', 'estimated_hours',
             'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
             'pilot_id', 'vehicle_id', 'assigned_by', 'registered_by', 'bonus', 'cargo_insurance',
             'created_at', 'updated_at', 'deleted_at',
         ]);
+});
+
+it('deja booking y reference nullable en la base de datos: un viaje anterior a SPEC 41 sigue cargando con las dos en null', function () {
+    $viaje = Trip::factory()->create(['booking' => null, 'reference' => null]);
+
+    expect($viaje->fresh()->booking)->toBeNull()
+        ->and($viaje->fresh()->reference)->toBeNull();
+});
+
+it('genera en la factory siempre un booking normalizado y solo a veces una referencia', function () {
+    $viajes = Trip::factory()->count(30)->make();
+
+    expect($viajes->pluck('booking')->every(fn (?string $booking) => is_string($booking) && preg_match('/^BK-\d{8}$/', $booking) === 1))->toBeTrue()
+        ->and($viajes->pluck('reference')->filter()->every(fn (string $reference) => $reference === Trip::normalizeReference($reference)))->toBeTrue()
+        ->and($viajes->pluck('reference')->contains(null))->toBeTrue()
+        ->and($viajes->pluck('reference')->filter()->isNotEmpty())->toBeTrue();
 });
 
 it('deja las métricas reales en null por defecto y solo el estado finished de la factory las rellena', function () {
