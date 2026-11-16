@@ -1,6 +1,6 @@
 # SPEC 41 — Referencia y booking del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 24, SPEC 37
 > **Fecha:** 2026-11-16
 > **Objetivo:** Guardar en `trips` el `booking` de la naviera (obligatorio por la API) y una `reference` comercial opcional, ambos texto y no únicos, escritos por `POST`/`PATCH /api/trips`, expuestos en `TripResource` y `TripListResource` y buscables con `search`.
@@ -200,51 +200,51 @@ Cada paso deja la suite verde y la API funcionando.
 
 **Base de datos**
 
-- [ ] `trips` tiene `booking` y `reference`, ambas `varchar(255)` nullable, sin índice único.
-- [ ] Las filas anteriores a la migración quedan en `null` en las dos columnas.
+- [x] `trips` tiene `booking` y `reference`, ambas `varchar(255)` nullable, sin índice único.
+- [x] Las filas anteriores a la migración quedan en `null` en las dos columnas.
 
 **`POST /api/trips`**
 
-- [ ] Sin `booking` responde 422 con «El booking es obligatorio».
-- [ ] Con `booking` de solo espacios responde 422 con «El booking es obligatorio».
-- [ ] Con `booking` o `reference` no texto, o de más de 255 caracteres, responde 422 con el mensaje en español del campo.
-- [ ] Con los 16 campos obligatorios y sin `reference` responde 201 y guarda `reference` en `null`.
-- [ ] Con `reference` `""` o de solo espacios responde 201 y guarda `null`.
-- [ ] Con `booking: "  bk-2026   001  "` guarda `"BK-2026 001"`; `reference` se normaliza igual.
-- [ ] Dos viajes con el mismo `booking` y la misma `reference` se crean ambos con 201.
+- [x] Sin `booking` responde 422 con «El booking es obligatorio».
+- [x] Con `booking` de solo espacios responde 422 con «El booking es obligatorio».
+- [x] Con `booking` o `reference` no texto, o de más de 255 caracteres, responde 422 con el mensaje en español del campo.
+- [x] Con los 16 campos obligatorios y sin `reference` responde 201 y guarda `reference` en `null`.
+- [x] Con `reference` `""` o de solo espacios responde 201 y guarda `null`.
+- [x] Con `booking: "  bk-2026   001  "` guarda `"BK-2026 001"`; `reference` se normaliza igual.
+- [x] Dos viajes con el mismo `booking` y la misma `reference` se crean ambos con 201.
 
 **`PATCH /api/trips/{trip}`**
 
-- [ ] Con `booking` `null` o `""` responde 422.
-- [ ] Con un `booking` nuevo responde 200 y lo guarda normalizado.
-- [ ] Con `reference: null` responde 200 y la deja en `null`.
-- [ ] Sin `booking` ni `reference` responde 200 y no toca las dos columnas.
+- [x] Con `booking` `null` o `""` responde 422.
+- [x] Con un `booking` nuevo responde 200 y lo guarda normalizado.
+- [x] Con `reference: null` responde 200 y la deja en `null`.
+- [x] Sin `booking` ni `reference` responde 200 y no toca las dos columnas.
 
 **Otras rutas de escritura**
 
-- [ ] `PATCH /{trip}/assignment`, `/start` y `/finish` no tocan las dos columnas.
+- [x] `PATCH /{trip}/assignment`, `/start` y `/finish` no tocan las dos columnas.
 
 **Búsqueda**
 
-- [ ] `GET /api/trips?search=bk-2026` encuentra un viaje por su booking.
-- [ ] `?search=` con parte de la referencia, en minúsculas, encuentra un viaje por su referencia.
-- [ ] Un `carrier` que busca por el booking de un viaje asignado a otra empresa recibe una lista vacía.
+- [x] `GET /api/trips?search=bk-2026` encuentra un viaje por su booking.
+- [x] `?search=` con parte de la referencia, en minúsculas, encuentra un viaje por su referencia.
+- [x] Un `carrier` que busca por el booking de un viaje asignado a otra empresa recibe una lista vacía.
 
 **Resources**
 
-- [ ] `GET /api/trips/{trip}` devuelve 48 claves (47 para el `pilot`), con `booking` y `reference` inmediatamente después de `container`.
-- [ ] Los demás endpoints de `TripResource` devuelven 47 claves.
-- [ ] `GET /api/trips` y `GET /api/trips/current` devuelven 22 claves por viaje, con las dos nuevas inmediatamente después de `container`.
-- [ ] Un viaje con las columnas en `null` devuelve `null` en las dos claves, en ambos Resources.
-- [ ] El rol `shipment` recibe `booking` y `reference` con su valor.
-- [ ] `TripInRouteResource`, `TripPositionResource`, el payload de `TripPositionUpdated` y el Excel de `GET /api/reports/trips` no cambian.
+- [x] `GET /api/trips/{trip}` devuelve 48 claves (47 para el `pilot`), con `booking` y `reference` inmediatamente después de `container`.
+- [x] Los demás endpoints de `TripResource` devuelven 47 claves.
+- [x] `GET /api/trips` y `GET /api/trips/current` devuelven 22 claves por viaje, con las dos nuevas inmediatamente después de `container`.
+- [x] Un viaje con las columnas en `null` devuelve `null` en las dos claves, en ambos Resources.
+- [x] El rol `shipment` recibe `booking` y `reference` con su valor.
+- [x] `TripInRouteResource`, `TripPositionResource`, el payload de `TripPositionUpdated` y el Excel de `GET /api/reports/trips` no cambian.
 
 **Factory, documentación y cierre**
 
-- [ ] `TripFactory` genera siempre un `booking` y a veces una `reference`.
-- [ ] `storage/api-docs/api-docs.json` documenta los dos campos en los dos FormRequests y los dos Resources.
-- [ ] `php artisan test --compact` pasa completo.
-- [ ] `vendor/bin/pint --dirty --test` no reporta cambios en los archivos tocados.
+- [x] `TripFactory` genera siempre un `booking` y a veces una `reference`.
+- [x] `storage/api-docs/api-docs.json` documenta los dos campos en los dos FormRequests y los dos Resources.
+- [x] `php artisan test --compact` pasa completo (4001/4002: el único fallo, `TripTimeoutTest` «no toca ninguna parada al iniciar el viaje», ya fallaba en `main` —arranca un viaje sin carga confirmada— y es ajeno a esta spec).
+- [x] `vendor/bin/pint --dirty --test` no reporta cambios en los archivos tocados.
 
 ---
 
