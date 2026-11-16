@@ -600,7 +600,7 @@ class TripService implements TripServiceInterface
          * lock, así que una asignación y una cancelación simultáneas se serializan y la
          * segunda ve el estado que dejó la primera.
          */
-        return DB::transaction(function () use ($user, $id) {
+        $trip = DB::transaction(function () use ($user, $id) {
             $trip = $this->resolveWritableTrip($id, lock: true);
 
             /** Separado del «solo pendiente» para que un reintento del front se explique solo. */
@@ -627,8 +627,16 @@ class TripService implements TripServiceInterface
                 'cancelled_by' => $user->id,
             ]);
 
-            return $this->loadDetail($trip);
+            return $trip;
         });
+
+        /**
+         * Fuera y después de la transacción, como en assign(): una guarda que falla no llega
+         * aquí y no despacha nada. Solo avisa al piloto, si lo había (SPEC 42).
+         */
+        SendTripNotification::dispatchAfterResponse($trip->id, TripNotificationType::Cancelled);
+
+        return $this->loadDetail($trip);
     }
 
     /**

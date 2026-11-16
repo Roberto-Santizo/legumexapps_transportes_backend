@@ -443,3 +443,70 @@ it('sin credencial de Firebase las tres acciones responden igual', function () {
 
     Log::shouldHaveReceived('error')->times(3);
 });
+
+/*
+|--------------------------------------------------------------------------
+| /cancel → trip.cancelled (SPEC 42)
+|--------------------------------------------------------------------------
+*/
+
+it('/cancel despacha el job después de la respuesta', function () {
+    Bus::fake();
+
+    $trip = Trip::factory()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}/cancel")->assertOk();
+
+    Bus::assertDispatchedAfterResponse(
+        SendTripNotification::class,
+        fn (SendTripNotification $job): bool => $job->tripId === $trip->id && $job->type === TripNotificationType::Cancelled,
+    );
+    Bus::assertDispatchedAfterResponseTimes(SendTripNotification::class, 1);
+});
+
+it('envía trip.cancelled solo a los tokens del piloto asignado, con su título, cuerpo y data', function () {
+    $team = tripNotificationTeam();
+    $trip = tripNotificationTakenBy($team, ['order' => 'ORD-2026-0042']);
+
+    $pilotTokens = [tripNotificationDeviceToken($team['pilot']), tripNotificationDeviceToken($team['pilot'])];
+    tripNotificationFollowers($team);
+    tripNotificationDeviceToken(userWithRole(UserRole::Pilot));
+
+    asUser(userWithRole(UserRole::Export))->patchJson("/api/trips/{$trip->id}/cancel")->assertOk();
+
+    expect(tripNotificationOnlySend('trip.cancelled'))->toBe(tripNotificationSortedTokens($pilotTokens));
+
+    $sent = tripNotificationDouble()->sent[0];
+
+    expect($sent['title'])->toBe('Viaje cancelado')
+        ->and($sent['body'])->toBe('El viaje con orden ORD-2026-0042 fue cancelado')
+        ->and($sent['data'])->toBe(['type' => 'trip.cancelled', 'tripId' => (string) $trip->id]);
+});
+
+it('cancelar un viaje sin piloto no llama al proveedor', function () {
+    $team = tripNotificationTeam();
+    $trip = Trip::factory()->create();
+    tripNotificationFollowers($team);
+    tripNotificationDeviceToken($team['pilot']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}/cancel")->assertOk();
+
+    expect(tripNotificationDouble()->sent)->toBe([]);
+});
+
+it('un /cancel que responde 4xx no despacha el job', function (Closure $scene, int $status) {
+    Bus::fake();
+
+    [$user, $uri] = $scene();
+
+    asUser($user)->patchJson($uri)->assertStatus($status);
+
+    Bus::assertNotDispatched(SendTripNotification::class);
+    Bus::assertNotDispatchedAfterResponse(SendTripNotification::class);
+})->with([
+    '404' => [fn () => [userWithRole(UserRole::Administrator), '/api/trips/999999/cancel'], 404],
+    '403' => [fn () => [userWithRole(UserRole::Carrier), '/api/trips/'.Trip::factory()->create()->id.'/cancel'], 403],
+    '400 borrado' => [fn () => [userWithRole(UserRole::Administrator), '/api/trips/'.Trip::factory()->trashed()->create()->id.'/cancel'], 400],
+    '400 ya cancelado' => [fn () => [userWithRole(UserRole::Administrator), '/api/trips/'.Trip::factory()->assigned()->cancelled()->create()->id.'/cancel'], 400],
+    '400 en ruta' => [fn () => [userWithRole(UserRole::Administrator), '/api/trips/'.Trip::factory()->inRoute()->create()->id.'/cancel'], 400],
+]);
