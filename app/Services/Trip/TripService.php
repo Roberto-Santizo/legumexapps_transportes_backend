@@ -348,6 +348,9 @@ class TripService implements TripServiceInterface
     {
         $trip = $this->resolveWritableTrip($id);
 
+        /** Sin 403 que respetar: la ruta ya es solo de administrator y export (SPEC 42). */
+        $this->ensureTripIsNotCancelled($trip);
+
         /**
          * Se traduce clave a clave contra el mapa: lo que el contrato no nombra —pilotId,
          * vehicleId, assignedBy, registeredBy— no tiene columna donde caer y se ignora en
@@ -432,6 +435,9 @@ class TripService implements TripServiceInterface
 
             $this->ensureCarrierCanAssign($carrier, $trip);
 
+            /** Después del 403: otra empresa no se entera de que el viaje está cancelado. */
+            $this->ensureTripIsNotCancelled($trip);
+
             /**
              * Congelar la tripulación al arrancar: cambiarle el piloto a un viaje ya
              * iniciado dejaría un start_date puesto por alguien que ya no aparece.
@@ -512,6 +518,8 @@ class TripService implements TripServiceInterface
 
         $this->ensureUserIsTheAssignedPilot($user, $trip, 'iniciar');
 
+        $this->ensureTripIsNotCancelled($trip);
+
         if ($trip->start_date !== null) {
             throw new BadRequestError('El viaje ya fue iniciado');
         }
@@ -548,6 +556,8 @@ class TripService implements TripServiceInterface
         $trip = $this->resolveWritableTrip($id);
 
         $this->ensureUserIsTheAssignedPilot($user, $trip, 'finalizar');
+
+        $this->ensureTripIsNotCancelled($trip);
 
         if ($trip->end_date !== null) {
             throw new BadRequestError('El viaje ya fue finalizado');
@@ -1149,6 +1159,24 @@ class TripService implements TripServiceInterface
     private function emergencyExpensesAmountSum(): array
     {
         return ['emergencyExpenses as total_emergency_expenses_amount'];
+    }
+
+    /**
+     * Reject any write on a cancelled trip (SPEC 42): a cancelled trip is history and
+     * only the soft delete may still touch it.
+     *
+     * Deliberately **not** inside resolveWritableTrip(), which destroy() shares and which
+     * must keep letting a cancelled trip be deleted. Each caller places it after its own
+     * scope or ownership 403 and right before the state guard it already had, so a third
+     * party never learns that the trip was cancelled.
+     *
+     * @throws BadRequestError when the trip is cancelled
+     */
+    private function ensureTripIsNotCancelled(Trip $trip): void
+    {
+        if ($trip->status === TripStatus::Cancelled) {
+            throw new BadRequestError('El viaje está cancelado');
+        }
     }
 
     /**

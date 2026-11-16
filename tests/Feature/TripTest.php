@@ -4779,3 +4779,118 @@ it('pinta el detalle de un viaje cancelado con 50 claves, 49 para su piloto, y e
         ->and($pilot['cancelledAt'])->toMatch(tripDatePattern())
         ->and(array_keys($list))->toBe(tripListResourceKeys())->toHaveCount(22);
 });
+
+/**
+ * A trip taken by the given team and then cancelled, exactly as `/cancel` leaves it.
+ *
+ * @param  array{carrier: Carrier, owner: User, pilot: User, vehicle: Vehicle}  $team
+ */
+function tripCancelledFor(array $team): Trip
+{
+    return tripAssignedTo($team, [
+        'status' => TripStatus::Cancelled,
+        'cancelled_at' => now(),
+        'cancelled_by' => userWithRole(UserRole::Administrator)->id,
+    ]);
+}
+
+it('responde 400 «El viaje está cancelado» al PATCH general, sin tocar nada', function () {
+    $trip = Trip::factory()->cancelled()->create(['order' => 'ORD-ORIGINAL']);
+
+    asUser(userWithRole(UserRole::Export))->patchJson("/api/trips/{$trip->id}", ['order' => 'otra', 'status' => 'pending'])
+        ->assertStatus(400)
+        ->assertExactJson(['statusCode' => 400, 'message' => 'El viaje está cancelado', 'data' => null]);
+
+    expect($trip->fresh()->order)->toBe('ORD-ORIGINAL')
+        ->and($trip->fresh()->status)->toBe(TripStatus::Cancelled);
+});
+
+it('responde 400 «El viaje está cancelado» al PATCH general aunque el cuerpo venga vacío', function () {
+    $trip = Trip::factory()->cancelled()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", [])
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'El viaje está cancelado');
+});
+
+it('responde 400 «El viaje está cancelado» a /assignment de la empresa que lo tomó y de una cualquiera si estaba libre', function (bool $asignado) {
+    $team = tripTeam();
+    $trip = $asignado ? tripCancelledFor($team) : Trip::factory()->cancelled()->create();
+    $fuels = TripFuel::query()->count();
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($team))
+        ->assertStatus(400)
+        ->assertExactJson(['statusCode' => 400, 'message' => 'El viaje está cancelado', 'data' => null]);
+
+    expect(TripFuel::query()->count())->toBe($fuels);
+})->with(['asignado' => true, 'libre' => false]);
+
+it('responde 403, y no 400, a /assignment de otra empresa sobre un viaje cancelado ajeno', function () {
+    $trip = tripCancelledFor(tripTeam());
+    $otra = tripTeam();
+
+    asUser($otra['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($otra))
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes asignar un viaje que ya tomó otra empresa transportista');
+});
+
+it('responde 400 «El viaje está cancelado» a /start y /finish del piloto asignado', function (string $accion) {
+    $team = tripTeam();
+    $trip = tripCancelledFor($team);
+    tripFuelConfirmed($trip->id);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/{$accion}")
+        ->assertStatus(400)
+        ->assertExactJson(['statusCode' => 400, 'message' => 'El viaje está cancelado', 'data' => null]);
+
+    expect($trip->fresh()->status)->toBe(TripStatus::Cancelled)
+        ->and($trip->fresh()->start_date)->toBeNull();
+})->with(['start', 'finish']);
+
+it('responde 403, y no 400, a /start y /finish de un piloto no asignado sobre un viaje cancelado', function (string $accion, string $verbo) {
+    $trip = tripCancelledFor(tripTeam());
+    $otro = tripTeam();
+
+    asUser($otro['pilot'])->patchJson("/api/trips/{$trip->id}/{$accion}")
+        ->assertForbidden()
+        ->assertJsonPath('message', "No puedes {$verbo} un viaje que no tienes asignado");
+})->with([
+    'start' => ['start', 'iniciar'],
+    'finish' => ['finish', 'finalizar'],
+]);
+
+it('deja borrar un viaje cancelado con 200, y después responde 404 al leerlo', function () {
+    $trip = Trip::factory()->cancelled()->create();
+    $admin = userWithRole(UserRole::Administrator);
+
+    asUser($admin)->deleteJson("/api/trips/{$trip->id}")->assertOk();
+
+    $this->assertSoftDeleted('trips', ['id' => $trip->id]);
+
+    asUser($admin)->getJson("/api/trips/{$trip->id}")->assertNotFound();
+});
+
+it('sigue leyendo el detalle y las filas hijas de un viaje cancelado como antes', function () {
+    $team = tripTeam();
+    $trip = tripCancelledFor($team);
+    TripFuel::factory()->create(['trip_id' => $trip->id]);
+    TripExpense::factory()->create(['trip_id' => $trip->id]);
+    TripFinishedProduct::factory()->create(['trip_id' => $trip->id]);
+    $admin = userWithRole(UserRole::Administrator);
+
+    asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->assertJsonPath('data.status', 'cancelled');
+    asUser($admin)->getJson("/api/trips/{$trip->id}/fuels")->assertOk()->assertJsonCount(1, 'data');
+    asUser($admin)->getJson("/api/trips/{$trip->id}/expenses")->assertOk()->assertJsonCount(1, 'data');
+    asUser($admin)->getJson("/api/trips/{$trip->id}/emergency-expenses")->assertOk()->assertJsonCount(0, 'data');
+    asUser($admin)->getJson("/api/trips/{$trip->id}/positions")->assertOk()->assertJsonCount(0, 'data');
+    asUser($admin)->getJson("/api/trips/{$trip->id}/timeouts")->assertOk()->assertJsonCount(0, 'data');
+    asUser($admin)->getJson("/api/trip-finished-products?tripId={$trip->id}")->assertOk()->assertJsonCount(1, 'data');
+});
+
+it('responde 400 «El costo solo está disponible para viajes finalizados» a un viaje cancelado', function () {
+    $trip = Trip::factory()->cancelled()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}/cost")
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'El costo solo está disponible para viajes finalizados');
+});
