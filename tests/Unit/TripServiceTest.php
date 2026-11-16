@@ -119,9 +119,9 @@ it('resuelve la implementación de viajes registrada en el provider', function (
     expect(tripService())->toBeInstanceOf(TripService::class);
 });
 
-it('declara los nueve métodos del contrato', function () {
+it('declara los diez métodos del contrato', function () {
     expect(get_class_methods(TripServiceInterface::class))->toEqualCanonicalizing([
-        'getTrips', 'getTripById', 'create', 'update', 'destroy', 'assign', 'start', 'finish', 'getCurrentTrip',
+        'getTrips', 'getTripById', 'create', 'update', 'destroy', 'assign', 'start', 'finish', 'cancel', 'getCurrentTrip',
     ]);
 });
 
@@ -1556,3 +1556,60 @@ it('arranca sin exigir ningún viático confirmado', function () {
 
     expect(tripService()->start($team['pilot'], $trip->id)->status)->toBe(TripStatus::InRoute);
 });
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 42 — cancel()
+|--------------------------------------------------------------------------
+*/
+
+it('cancela un viaje libre escribiendo las tres columnas juntas', function () {
+    $admin = tripServiceUser(UserRole::Administrator);
+    $trip = Trip::factory()->create();
+
+    $cancelado = tripService()->cancel($admin, $trip->id);
+
+    expect($cancelado->status)->toBe(TripStatus::Cancelled)
+        ->and($cancelado->cancelled_at)->toBeInstanceOf(CarbonInterface::class)
+        ->and($cancelado->cancelled_by)->toBe($admin->id)
+        ->and($cancelado->relationLoaded('cancelledBy'))->toBeTrue()
+        ->and($cancelado->cancelledBy->is($admin))->toBeTrue()
+        ->and($trip->fresh()->status)->toBe(TripStatus::Cancelled);
+});
+
+it('cancela un viaje asignado sin tocar la tripulación, la bonificación, el seguro ni las cargas', function () {
+    $team = tripServiceTeam();
+    $trip = Trip::factory()->create([
+        'pilot_id' => $team['pilot']->id,
+        'vehicle_id' => $team['vehicle']->id,
+        'assigned_by' => $team['owner']->id,
+        'bonus' => 300,
+        'cargo_insurance' => 75,
+    ]);
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id]);
+
+    tripService()->cancel(tripServiceUser(UserRole::Export), $trip->id);
+
+    $fresco = $trip->fresh();
+
+    expect($fresco->status)->toBe(TripStatus::Cancelled)
+        ->and($fresco->pilot_id)->toBe($team['pilot']->id)
+        ->and($fresco->vehicle_id)->toBe($team['vehicle']->id)
+        ->and($fresco->assigned_by)->toBe($team['owner']->id)
+        ->and($fresco->bonus)->toBe('300.00')
+        ->and($fresco->cargo_insurance)->toBe('75.00')
+        ->and(TripFuel::query()->where('trip_id', $trip->id)->count())->toBe(1);
+});
+
+it('aplica las cuatro guardas de cancel() en orden', function (Closure $build, string $error, string $mensaje) {
+    $trip = $build();
+
+    expect(fn () => tripService()->cancel(tripServiceUser(UserRole::Administrator), $trip?->id ?? 999999))
+        ->toThrow($error, $mensaje);
+})->with([
+    'inexistente' => [fn () => null, NotFoundError::class, 'El viaje no existe'],
+    'borrado y cancelado' => [fn () => Trip::factory()->cancelled()->trashed()->create(), BadRequestError::class, 'El viaje ya fue eliminado'],
+    'ya cancelado' => [fn () => Trip::factory()->cancelled()->create(), BadRequestError::class, 'El viaje ya fue cancelado'],
+    'en ruta' => [fn () => Trip::factory()->inRoute()->create(), BadRequestError::class, 'Solo se puede cancelar un viaje pendiente'],
+    'finalizado' => [fn () => Trip::factory()->finished()->create(), BadRequestError::class, 'Solo se puede cancelar un viaje pendiente'],
+]);

@@ -18,9 +18,9 @@ use OpenApi\Attributes as OA;
 #[OA\Tag(
     name: 'Trips',
     description: <<<'TEXT'
-    Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con NUEVE ENDPOINTS, porque tres rutas fijas de acción (/assignment, /start y /finish) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».
+    Viajes de exportación: el viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Es el dominio con más dependencias del proyecto —consume Clients, Shipping Lines, Departure Points, Locations, Vehicles, Pilots y la polilínea de Places— y el único con DIEZ ENDPOINTS, porque cuatro rutas fijas de acción (/assignment, /start, /finish y, desde SPEC 42, /cancel) se reparten la escritura con el PATCH general y una cuarta ruta fija, /current, responde de un vistazo si el piloto está conduciendo. Los nueve exigen token JWT (Authorization: Bearer {token}); sin él la respuesta es 401 con «El token de sesión no es válido o ha expirado».
 
-    PERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».
+    PERMISOS POR RUTA, que no se deducen de las firmas. GET /api/trips y GET /api/trips/{trip}: CUALQUIER AUTENTICADO, sin role: —lo que cada uno alcanza lo decide el ámbito dentro del service, no el middleware—. POST /api/trips, PATCH /api/trips/{trip} y DELETE /api/trips/{trip}: SOLO administrator. PATCH /api/trips/{trip}/cancel: SOLO administrator y export. PATCH /api/trips/{trip}/assignment: SOLO carrier, y además con carrier.required —un carrier sin empresa recibe 403 antes de llegar al service—. PATCH /api/trips/{trip}/start y /finish: SOLO pilot. GET /api/trips/current: SOLO pilot, y sin parámetros —pregunta siempre por el usuario autenticado—. Los 403 de rol traen «No tienes permisos para acceder a este recurso» y el de empresa, «Debes estar vinculado a un transportista para acceder a este recurso».
 
     ATENCIÓN — EL ÁMBITO DE LECTURA ES ADQUIRIDO, NO HEREDADO, Y ES EL AVISO CENTRAL DEL DOMINIO. Un viaje NO TIENE carrierId: nace de nadie, porque el administrador lo publica antes de saber quién lo hará. administrator y manager ven TODOS los viajes; un carrier ve los pending con pilotId y vehicleId en null —LA BOLSA DE VIAJES DISPONIBLES— MÁS los asignados por su propia empresa; un pilot ve SOLO aquellos donde pilotId es él, y LA BOLSA NO LE APARECE. assignedBy guarda el USUARIO que asignó, pero el filtro compara la EMPRESA de ese usuario, así que cualquier compañero de esa empresa ve el viaje y puede reasignarlo, y el viaje no queda huérfano de vista si esa persona se va. En el show, un viaje FUERA DE ÁMBITO ES 403, NO 404. Y el ámbito se aplica ANTES que los filtros: un ?status=pending desde otra empresa no revela los viajes ya tomados.
 
@@ -825,6 +825,80 @@ class TripController extends Controller
             $finished = $tripService->finish(auth('api')->user(), $trip);
 
             return ResponseHandler::success(new TripResource($finished), 'Viaje finalizado correctamente', 200);
+        } catch (\Throwable $th) {
+            return ResponseHandler::error($th);
+        }
+    }
+
+    #[OA\Patch(
+        path: '/api/trips/{trip}/cancel',
+        operationId: 'cancelTrip',
+        summary: 'Cancelar un viaje',
+        description: <<<'TEXT'
+        Cancela un viaje pendiente (SPEC 42): mueve status a cancelled y escribe cancelledAt y cancelledByName. El viaje queda como REGISTRO DE SOLO LECTURA: sigue saliendo en el listado (statusLabel «Cancelado», filtrable con ?status=cancelled), en el detalle, en el tablero y en el Excel, pero cualquier escritura posterior —el PATCH general, /assignment, /start, /finish, las cargas, los viáticos, los gastos emergentes y las líneas de productos terminados— responde 400 «El viaje está cancelado». El DELETE sigue permitido.
+
+        ATENCIÓN — CANCELAR NO ES BORRAR. Un viaje creado por error se sigue borrando con DELETE (404 al leerlo después). Un viaje real que no se hará se cancela: es historial y conserva cliente, orden, tripulación, bonificación, seguro, cargas, viáticos y líneas, que esta acción NO TOCA.
+
+        ATENCIÓN — NO TIENE CUERPO, igual que /start y /finish. No lleva FormRequest: cualquier campo enviado se ignora, la fecha la pone el now() DEL SERVIDOR y quién canceló sale del token.
+
+        ATENCIÓN — SOLO administrator Y export (middleware role:administrator,export), los mismos que crean y editan viajes; el resto de roles recibe 403. Sin carrier.required.
+
+        Solo desde pending, asignado o no. Es IRREVERSIBLE: no existe ruta para descancelar; si el viaje vuelve a hacerse, se crea uno nuevo. Si el viaje tenía piloto, se le envía la notificación push trip.cancelled.
+
+        El orden de las guardas es: no existe (404) → borrado (400) → ya cancelado (400) → no está pending (400). El PATCH general NO cancela: status cancelled ahí es 422.
+        TEXT,
+        security: [['bearerAuth' => []]],
+        tags: ['Trips'],
+        parameters: [
+            new OA\Parameter(
+                name: 'trip',
+                description: 'Identificador numérico del viaje (trips.id). Tiene que estar pending. La ruta se declara ANTES del apiResource, o el comodín {trip} capturaría «cancel».',
+                in: 'path',
+                required: true,
+                schema: new OA\Schema(type: 'integer', example: 1),
+            ),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Viaje cancelado correctamente. Devuelve el viaje con status cancelled, cancelledAt con la HORA DEL SERVIDOR en el formato d-m-Y h:i:s A y cancelledByName con el nombre del usuario del token. La tripulación, la bonificación, el seguro y los totales no cambian.',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'statusCode', type: 'integer', example: 200),
+                        new OA\Property(property: 'message', type: 'string', example: 'Viaje cancelado correctamente'),
+                        new OA\Property(property: 'data', ref: '#/components/schemas/Trip'),
+                    ],
+                    type: 'object',
+                ),
+            ),
+            new OA\Response(
+                response: 400,
+                description: 'Tres casos con su mensaje literal: «El viaje ya fue eliminado» —sobre una fila borrada, que aquí NO es 404—; «El viaje ya fue cancelado» —un reintento—; y «Solo se puede cancelar un viaje pendiente» —el viaje está in_route o finished—.',
+                content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
+            ),
+            new OA\Response(
+                response: 401,
+                description: 'Token ausente, manipulado o expirado. El mensaje devuelto es: El token de sesión no es válido o ha expirado',
+                content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
+            ),
+            new OA\Response(
+                response: 403,
+                description: 'El rol no es administrator ni export —carrier, pilot, manager, user y shipment caen aquí—: «No tienes permisos para acceder a este recurso».',
+                content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
+            ),
+            new OA\Response(
+                response: 404,
+                description: 'El id no corresponde a ningún viaje, ni vivo ni borrado. Mensaje: El viaje no existe.',
+                content: new OA\JsonContent(ref: '#/components/schemas/ApiError'),
+            ),
+        ],
+    )]
+    public function cancel(int $trip, TripServiceInterface $tripService)
+    {
+        try {
+            $cancelled = $tripService->cancel(auth('api')->user(), $trip);
+
+            return ResponseHandler::success(new TripResource($cancelled), 'Viaje cancelado correctamente', 200);
         } catch (\Throwable $th) {
             return ResponseHandler::error($th);
         }

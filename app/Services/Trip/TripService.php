@@ -52,7 +52,8 @@ class TripService implements TripServiceInterface
     private const MAX_PER_PAGE = 100;
 
     /**
-     * The eight relations a detail read carries, so painting a trip never falls into N+1.
+     * The nine relations a detail read carries —`cancelledBy` since SPEC 42—, so painting
+     * a trip never falls into N+1.
      *
      * The pilot comes with its documents nested: `TripResource` paints `pilotDpiImage`
      * and `pilotLicenseImage` from them, and resolving those per trip would cost one
@@ -61,7 +62,7 @@ class TripService implements TripServiceInterface
      */
     private const RELATIONS = [
         'client', 'shippingLine', 'departurePoint', 'location',
-        'pilot.pilotDocument', 'vehicle', 'assignedBy', 'registeredBy',
+        'pilot.pilotDocument', 'vehicle', 'assignedBy', 'registeredBy', 'cancelledBy',
     ];
 
     /**
@@ -579,6 +580,45 @@ class TripService implements TripServiceInterface
         SendTripNotification::dispatchAfterResponse($trip->id, TripNotificationType::Finished);
 
         return $trip->load(self::RELATIONS);
+    }
+
+    #[Override]
+    public function cancel(User $user, int $id): Trip
+    {
+        /**
+         * Mismo patrón que assign(): las guardas van dentro de la transacción y detrás del
+         * lock, así que una asignación y una cancelación simultáneas se serializan y la
+         * segunda ve el estado que dejó la primera.
+         */
+        return DB::transaction(function () use ($user, $id) {
+            $trip = $this->resolveWritableTrip($id, lock: true);
+
+            /** Separado del «solo pendiente» para que un reintento del front se explique solo. */
+            if ($trip->status === TripStatus::Cancelled) {
+                throw new BadRequestError('El viaje ya fue cancelado');
+            }
+
+            /**
+             * Solo desde pending: un in_route ya tiene rastro, paradas y quizá gastos
+             * emergentes, y un finished tiene costo. Libre o asignado, da igual.
+             */
+            if ($trip->status !== TripStatus::Pending) {
+                throw new BadRequestError('Solo se puede cancelar un viaje pendiente');
+            }
+
+            /**
+             * Las tres columnas en un solo update(): no existe un cancelado sin quién ni
+             * cuándo. La tripulación, la bonificación, el seguro y las filas hijas se
+             * quedan como estaban: son el registro de lo que el viaje llegó a tener.
+             */
+            $trip->update([
+                'status' => TripStatus::Cancelled,
+                'cancelled_at' => now(),
+                'cancelled_by' => $user->id,
+            ]);
+
+            return $this->loadDetail($trip);
+        });
     }
 
     /**

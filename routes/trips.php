@@ -20,7 +20,7 @@ $exceptShipment = UserRole::allExcept(UserRole::Shipment);
 
 Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function () use ($administrator, $carrier, $pilot, $export, $exceptShipment): void {
     /**
-     * Las cuatro rutas fijas van antes del apiResource: si no, las captura el comodín
+     * Las cinco rutas fijas van antes del apiResource: si no, las captura el comodín
      * {trip} y `/assignment` se resolvería como el detalle de un viaje llamado así.
      *
      * Cada una lleva su propio rol, que es justo lo que se gana al no meter las tres
@@ -44,6 +44,15 @@ Route::prefix('trips')->name('trips.')->middleware('jwt.auth')->group(function (
     Route::patch('/{trip}/finish', [TripController::class, 'finish'])
         ->middleware(["role:{$pilot}"])
         ->name('finish');
+
+    /**
+     * Cancelar (SPEC 42) es de quien crea y edita viajes, no del transportista que lo
+     * tomó: soltar un viaje no es cancelarlo. Sin cuerpo, como /start, y sin
+     * carrier.required: ninguno de los dos roles tiene empresa.
+     */
+    Route::patch('/{trip}/cancel', [TripController::class, 'cancel'])
+        ->middleware(["role:{$administrator},{$export}"])
+        ->name('cancel');
 
     /**
      * La única ruta fija que no lleva {trip}, y por eso la que más obliga a mirar el orden

@@ -32,9 +32,9 @@ use Tests\TestCase;
 /**
  * Every trips endpoint as method and URI, for the middleware datasets.
  *
- * Nine: the five of the apiResource plus the four fixed routes declared before it so
- * the {trip} wildcard does not swallow them — the three actions and /current, the only
- * one of them that carries no {trip} at all.
+ * Ten: the five of the apiResource plus the five fixed routes declared before it so
+ * the {trip} wildcard does not swallow them — the four actions (/cancel since SPEC 42)
+ * and /current, the only one of them that carries no {trip} at all.
  *
  * @return array<string, array{string, string}>
  */
@@ -49,12 +49,13 @@ function tripEndpoints(): array
         'assignment' => ['PATCH', '/api/trips/1/assignment'],
         'start' => ['PATCH', '/api/trips/1/start'],
         'finish' => ['PATCH', '/api/trips/1/finish'],
+        'cancel' => ['PATCH', '/api/trips/1/cancel'],
         'current' => ['GET', '/api/trips/current'],
     ];
 }
 
 /**
- * The three endpoints restricted to the administrator.
+ * The four endpoints restricted to the administrator and export: /cancel since SPEC 42.
  *
  * @return array<string, array{string, string}>
  */
@@ -64,6 +65,7 @@ function tripWriteEndpoints(): array
         'store' => ['POST', '/api/trips'],
         'update' => ['PATCH', '/api/trips/1'],
         'destroy' => ['DELETE', '/api/trips/1'],
+        'cancel' => ['PATCH', '/api/trips/1/cancel'],
     ];
 }
 
@@ -367,7 +369,7 @@ function tripDatePattern(): string
 |--------------------------------------------------------------------------
 */
 
-it('rechaza con 401 cualquiera de las nueve rutas de viajes sin token', function (string $method, string $uri) {
+it('rechaza con 401 cualquiera de las diez rutas de viajes sin token', function (string $method, string $uri) {
     $this->json($method, $uri)
         ->assertUnauthorized()
         ->assertExactJson([
@@ -377,7 +379,7 @@ it('rechaza con 401 cualquiera de las nueve rutas de viajes sin token', function
         ]);
 })->with(tripEndpoints());
 
-it('rechaza con 403 a quien no es administrador ni export en el alta, la edición y la baja', function (string $method, string $uri, UserRole $role) {
+it('rechaza con 403 a quien no es administrador ni export en el alta, la edición, la baja y la cancelación', function (string $method, string $uri, UserRole $role) {
     asUser(userWithRole($role))->json($method, $uri)
         ->assertForbidden()
         ->assertExactJson([
@@ -4638,4 +4640,106 @@ it('oculta al transportista un viaje cancelado que nunca se asignó', function (
     $data = asUser($team['owner'])->getJson('/api/trips')->assertOk()->json('data');
 
     expect(collect($data)->pluck('id')->all())->not->toContain($cancelado->id);
+});
+
+it('cancela un viaje pendiente libre o asignado y responde 200 con el viaje cancelado', function (UserRole $role, bool $asignado) {
+    $actor = userWithRole($role);
+    $trip = $asignado ? Trip::factory()->assigned()->create() : Trip::factory()->create();
+
+    $this->freezeSecond();
+
+    $response = asUser($actor)->patchJson("/api/trips/{$trip->id}/cancel")
+        ->assertOk()
+        ->assertJsonPath('statusCode', 200)
+        ->assertJsonPath('message', 'Viaje cancelado correctamente')
+        ->assertJsonPath('data.id', $trip->id)
+        ->assertJsonPath('data.status', 'cancelled');
+
+    $fresco = $trip->fresh();
+
+    expect($fresco->status)->toBe(TripStatus::Cancelled)
+        ->and($fresco->cancelled_at->equalTo(now()))->toBeTrue()
+        ->and($fresco->cancelled_by)->toBe($actor->id)
+        ->and(array_keys($response->json('data')))->toBe(tripResourceKeys());
+})->with([
+    'administrador' => UserRole::Administrator,
+    'export' => UserRole::Export,
+])->with([
+    'libre' => false,
+    'asignado' => true,
+]);
+
+it('no toca la tripulación, la bonificación, el seguro ni las filas hijas al cancelar', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['bonus' => 250, 'cargo_insurance' => 100]);
+    $fuel = TripFuel::factory()->create(['trip_id' => $trip->id]);
+    $expense = TripExpense::factory()->create(['trip_id' => $trip->id]);
+    $line = TripFinishedProduct::factory()->create(['trip_id' => $trip->id]);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}/cancel")->assertOk();
+
+    $this->assertDatabaseHas('trips', [
+        'id' => $trip->id,
+        'pilot_id' => $team['pilot']->id,
+        'vehicle_id' => $team['vehicle']->id,
+        'assigned_by' => $team['owner']->id,
+        'bonus' => '250.00',
+        'cargo_insurance' => '100.00',
+    ]);
+    $this->assertDatabaseHas('trip_fuels', ['id' => $fuel->id, 'trip_id' => $trip->id, 'gallons' => $fuel->gallons]);
+    $this->assertDatabaseHas('trip_expenses', ['id' => $expense->id, 'trip_id' => $trip->id, 'amount' => $expense->amount]);
+    $this->assertDatabaseHas('trip_finished_products', ['id' => $line->id, 'trip_id' => $trip->id, 'boxes' => $line->boxes]);
+});
+
+it('ignora el cuerpo de la cancelación: quién canceló sale del token', function () {
+    $admin = userWithRole(UserRole::Administrator);
+    $otro = userWithRole(UserRole::Administrator);
+    $trip = Trip::factory()->create();
+
+    asUser($admin)->patchJson("/api/trips/{$trip->id}/cancel", [
+        'cancelledBy' => $otro->id,
+        'cancelled_by' => $otro->id,
+        'cancelledAt' => '2020-01-01 00:00:00',
+        'status' => 'pending',
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.status', 'cancelled');
+
+    expect($trip->fresh()->cancelled_by)->toBe($admin->id)
+        ->and($trip->fresh()->cancelled_at->isToday())->toBeTrue();
+});
+
+it('responde 404 al cancelar un viaje inexistente', function () {
+    asUser(userWithRole(UserRole::Administrator))->patchJson('/api/trips/999999/cancel')
+        ->assertNotFound()
+        ->assertExactJson(['statusCode' => 404, 'message' => 'El viaje no existe', 'data' => null]);
+});
+
+it('responde 400 al cancelar un viaje borrado, ya cancelado o que no está pendiente', function (string $estado, string $mensaje) {
+    $trip = match ($estado) {
+        'borrado' => Trip::factory()->trashed()->create(),
+        'cancelado' => Trip::factory()->cancelled()->create(),
+        'en ruta' => Trip::factory()->inRoute()->create(),
+        'finalizado' => Trip::factory()->finished()->create(),
+    };
+    $antes = Trip::withTrashed()->find($trip->id)->status;
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}/cancel")
+        ->assertStatus(400)
+        ->assertExactJson(['statusCode' => 400, 'message' => $mensaje, 'data' => null]);
+
+    expect(Trip::withTrashed()->find($trip->id)->status)->toBe($antes);
+})->with([
+    'borrado' => ['borrado', 'El viaje ya fue eliminado'],
+    'ya cancelado' => ['cancelado', 'El viaje ya fue cancelado'],
+    'en ruta' => ['en ruta', 'Solo se puede cancelar un viaje pendiente'],
+    'finalizado' => ['finalizado', 'Solo se puede cancelar un viaje pendiente'],
+]);
+
+it('responde 400 «ya fue eliminado», y no «ya fue cancelado», sobre un cancelado que luego se borró', function () {
+    $trip = Trip::factory()->cancelled()->trashed()->create();
+
+    asUser(userWithRole(UserRole::Export))->patchJson("/api/trips/{$trip->id}/cancel")
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'El viaje ya fue eliminado');
 });
