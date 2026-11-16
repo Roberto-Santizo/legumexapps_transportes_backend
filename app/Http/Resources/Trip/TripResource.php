@@ -10,8 +10,12 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 47 keys in camelCase, the largest resource of the
- * project (48 in `GET /api/trips/{trip}`, which appends `positions`).
+ * The trip as the API paints it: 49 keys in camelCase, the largest resource of the
+ * project (50 in `GET /api/trips/{trip}`, which appends `positions`).
+ *
+ * `cancelledAt` and `cancelledByName` (SPEC 42) sit right after `endDate`, next to the
+ * other lifecycle marks: both `null` unless the trip was cancelled, and visible to every
+ * role.
  *
  * `booking` and `reference` (SPEC 41) sit right after `container`: two upper cased
  * strings or `null`, visible to every role —`shipment` included, they are not money—.
@@ -69,11 +73,11 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 47 CLAVES en camelCase (48 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start y /finish. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 22 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 49 CLAVES en camelCase (50 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start, /finish y /cancel. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 22 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
-    ATENCIÓN — LAS SIETE FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.
+    ATENCIÓN — LAS OCHO FECHAS NO VIAJAN EN ISO 8601, sino con el formato propio d-m-Y h:i:s A (día-mes-año y hora de 12 horas con AM/PM), igual que en Clients, Locations, Departure Points y Shipping Lines. Por eso recolectionDate, shipDate, startDate, endDate, cancelledAt, createdAt, updatedAt y deletedAt se documentan como string SIN format date-time: parsearlas como ISO falla.
 
     ATENCIÓN — EL status PUEDE CONTRADECIR A LAS FECHAS, Y EL RELATO LO CUENTAN LAS FECHAS. No hay máquina de estados: el PATCH del administrador acepta pending, in_route y finished sin comprobar el orden ni tocar las fechas, así que existen viajes finished sin startDate y viajes pending con startDate y endDate puestos (un finished devuelto a pending conserva sus dos fechas de ejecución). Cuando status y fechas se contradigan, el frontend debe pintar el relato desde startDate y endDate, no desde status.
 
@@ -97,7 +101,9 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — cargoInsurance es la clave 42, entre bonus y createdAt: el seguro de la carga en GTQ que la empresa fijó en el mismo /assignment. Mismas reglas que bonus —un solo monto, sin confirmación, reasignar lo sobrescribe, null sin asignar y SIEMPRE null para shipment— pero concepto propio: nunca se suma con la bonificación.
 
-    Las 47 claves salen siempre en este orden (48 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, booking, reference, transport, recolectionDate, shipDate, startDate, endDate, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, cargoInsurance, createdAt, updatedAt y deletedAt.
+    ATENCIÓN — cancelledAt y cancelledByName (SPEC 42) van justo después de endDate: cuándo y quién canceló el viaje con PATCH /api/trips/{trip}/cancel. Las dos son null salvo en un viaje cancelado, y las ven todos los roles.
+
+    Las 49 claves salen siempre en este orden (50 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, booking, reference, transport, recolectionDate, shipDate, startDate, endDate, cancelledAt, cancelledByName, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, cargoInsurance, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -234,6 +240,20 @@ use OpenApi\Attributes as OA;
             type: 'string',
             nullable: true,
             example: '05-09-2026 02:30:10 PM',
+        ),
+        new OA\Property(
+            property: 'cancelledAt',
+            description: 'Cuándo se canceló el viaje (SPEC 42). Es null salvo en un viaje cancelado, y la pone el now() DEL SERVIDOR en PATCH /api/trips/{trip}/cancel: no se acepta en ningún cuerpo. Se escribe junto a cancelledByName y status cancelled, y no se borra nunca —no hay descancelación—. Mismo formato propio d-m-Y h:i:s A.',
+            type: 'string',
+            nullable: true,
+            example: '16-11-2026 03:12:40 PM',
+        ),
+        new OA\Property(
+            property: 'cancelledByName',
+            description: 'Nombre del usuario (administrator o export) que canceló el viaje (SPEC 42), tomado del token en PATCH /api/trips/{trip}/cancel. Es null salvo en un viaje cancelado. Sin id al lado, como registeredByName.',
+            type: 'string',
+            nullable: true,
+            example: 'Ana López',
         ),
         new OA\Property(
             property: 'polyline',
@@ -469,6 +489,9 @@ class TripResource extends JsonResource
             'shipDate' => $this->ship_date?->format('d-m-Y h:i:s A'),
             'startDate' => $this->start_date?->format('d-m-Y h:i:s A'),
             'endDate' => $this->end_date?->format('d-m-Y h:i:s A'),
+            /** SPEC 42: las dos en null salvo en un viaje cancelado. */
+            'cancelledAt' => $this->cancelled_at?->format('d-m-Y h:i:s A'),
+            'cancelledByName' => $this->cancelledBy?->name,
             'polyline' => $this->polyline,
             /** Los mismos pares que devuelve GET /api/places/directions para esta cadena. */
             'points' => PolylineDecoder::decode($this->polyline),

@@ -288,7 +288,7 @@ function tripPayloadProductLine(mixed $clientId): array
 }
 
 /**
- * The 47 keys `TripResource` promises, in the order the resource declares them.
+ * The 49 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
  * its name —the vehicle adds a third key, `vehicleImage`—, `points` is derived from
@@ -310,7 +310,7 @@ function tripResourceKeys(): array
         'departurePointId', 'departurePointName',
         'locationId', 'locationName',
         'destination', 'container', 'booking', 'reference', 'transport',
-        'recolectionDate', 'shipDate', 'startDate', 'endDate',
+        'recolectionDate', 'shipDate', 'startDate', 'endDate', 'cancelledAt', 'cancelledByName',
         'polyline', 'points', 'estimatedKilometers', 'estimatedHours',
         'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations',
         'pilotId', 'pilotName', 'pilotDpiImage', 'pilotLicenseImage',
@@ -322,7 +322,7 @@ function tripResourceKeys(): array
 }
 
 /**
- * The 48 keys of `GET /api/trips/{trip}` for any role but `pilot`: the 47 of
+ * The 50 keys of `GET /api/trips/{trip}` for any role but `pilot`: the 49 of
  * `TripResource` plus the `positions` trail, which only the detail loads.
  *
  * @return array<int, string>
@@ -2363,7 +2363,7 @@ it('sigue borrando con 200 un cliente y una naviera sin viajes', function () {
 |--------------------------------------------------------------------------
 */
 
-it('devuelve 22 claves en el listado y las 48 del detalle, y no las confunde', function () {
+it('devuelve 22 claves en el listado y las 50 del detalle, y no las confunde', function () {
     $admin = userWithRole(UserRole::Administrator);
     $team = tripTeam();
     $trip = tripAssignedTo($team, ['registered_by' => $admin->id]);
@@ -2371,7 +2371,7 @@ it('devuelve 22 claves en el listado y las 48 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(47)
+    expect(tripResourceKeys())->toHaveCount(49)
         ->and(tripListResourceKeys())->toHaveCount(22)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripDetailKeys());
@@ -3285,7 +3285,7 @@ it('coloca las dos claves del recorrido justo después de las estimaciones de SP
     $indexOfPoints = array_search('points', $keys, true);
 
     expect(array_slice($keys, $indexOfPoints, 8))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations'])
-        ->and($keys)->toHaveCount(48);
+        ->and($keys)->toHaveCount(50);
 });
 
 it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
@@ -3372,10 +3372,10 @@ it('devuelve las dos estimaciones como cadena de dos decimales justo después de
     $keys = array_keys($response->json('data'));
 
     expect($keys)->toBe(tripDetailKeys())
-        ->and($keys[22])->toBe('estimatedKilometers')
-        ->and($keys[23])->toBe('estimatedHours')
-        ->and($keys[21])->toBe('points')
-        ->and($keys[24])->toBe('traveledPolyline');
+        ->and($keys[24])->toBe('estimatedKilometers')
+        ->and($keys[25])->toBe('estimatedHours')
+        ->and($keys[23])->toBe('points')
+        ->and($keys[26])->toBe('traveledPolyline');
 });
 
 it('rellena a dos decimales una estimación entera o de un decimal', function () {
@@ -3706,7 +3706,7 @@ it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el list
     $indexOfFuel = array_search('totalFuelGallons', $keys, true);
 
     expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'totalEmergencyExpensesAmount'])
-        ->and($keys)->toHaveCount(48);
+        ->and($keys)->toHaveCount(50);
 
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
 
@@ -3786,11 +3786,11 @@ it('coloca traveledKilometers y traveledHours justo después de traveledPoints y
     $keys = array_keys(asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data'));
 
     expect($keys)->toBe(tripDetailKeys())
-        ->and($keys[25])->toBe('traveledPoints')
-        ->and($keys[26])->toBe('traveledKilometers')
-        ->and($keys[27])->toBe('traveledHours')
-        ->and($keys[28])->toBe('observations')
-        ->and($keys)->toHaveCount(48);
+        ->and($keys[27])->toBe('traveledPoints')
+        ->and($keys[28])->toBe('traveledKilometers')
+        ->and($keys[29])->toBe('traveledHours')
+        ->and($keys[30])->toBe('observations')
+        ->and($keys)->toHaveCount(50);
 });
 
 it('devuelve null en las dos métricas reales de un viaje pending o in_route, presentes y no ausentes', function (TripStatus $status) {
@@ -4204,15 +4204,15 @@ it('fija en cero los gastos emergentes del detalle para shipment y los muestra a
         ->assertJsonPath('data.totalEmergencyExpensesAmount', '850.00');
 });
 
-it('pinta 48 claves en el detalle y 47 para el piloto asignado, con el listado en 22', function () {
+it('pinta 50 claves en el detalle y 49 para el piloto asignado, con el listado en 22', function () {
     $trip = Trip::factory()->inRoute()->create();
 
     $admin = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
     $pilot = asUser(User::findOrFail($trip->pilot_id))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
     $listado = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips')->assertOk()->json('data.0');
 
-    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(48)
-        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(47)
+    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(50)
+        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(49)
         ->and($listado)->not->toHaveKey('totalEmergencyExpensesAmount')
         ->and(array_keys($listado))->toHaveCount(22);
 });
@@ -4508,7 +4508,7 @@ it('pinta el booking y la referencia justo después del contenedor en el detalle
             ->and($viaje['reference'])->toBe('PEDIDO CLIENTE-77');
     }
 
-    expect(array_keys($detalle))->toHaveCount(48)
+    expect(array_keys($detalle))->toHaveCount(50)
         ->and(array_keys($listado))->toHaveCount(22)
         ->and(array_keys($actual))->toBe(tripListResourceKeys());
 });
@@ -4522,7 +4522,7 @@ it('devuelve 47 claves en las escrituras del TripResource, con el booking y la r
         ->assertJsonPath('data.booking', 'BK-2026 001')
         ->assertJsonPath('data.reference', 'PEDIDO 77');
 
-    expect(array_keys($response->json('data')))->toBe(tripResourceKeys())->toHaveCount(47);
+    expect(array_keys($response->json('data')))->toBe(tripResourceKeys())->toHaveCount(49);
 
     $editado = asUser(userWithRole(UserRole::Administrator))->patchJson('/api/trips/'.$response->json('data.id'), ['reference' => null])
         ->assertOk()
@@ -4742,4 +4742,40 @@ it('responde 400 «ya fue eliminado», y no «ya fue cancelado», sobre un cance
     asUser(userWithRole(UserRole::Export))->patchJson("/api/trips/{$trip->id}/cancel")
         ->assertStatus(400)
         ->assertJsonPath('message', 'El viaje ya fue eliminado');
+});
+
+it('devuelve cancelledAt y cancelledByName con valor, justo después de endDate, en la respuesta de /cancel', function () {
+    $admin = User::factory()->create(['role' => UserRole::Administrator, 'name' => 'Ana López']);
+    $trip = Trip::factory()->create();
+
+    $data = asUser($admin)->patchJson("/api/trips/{$trip->id}/cancel")->assertOk()->json('data');
+    $keys = array_keys($data);
+
+    expect($data['cancelledAt'])->toMatch(tripDatePattern())
+        ->and($data['cancelledByName'])->toBe('Ana López')
+        ->and($keys)->toHaveCount(49)
+        ->and(array_slice($keys, array_search('endDate', $keys, true) + 1, 2))->toBe(['cancelledAt', 'cancelledByName']);
+});
+
+it('devuelve cancelledAt y cancelledByName en null en un viaje no cancelado', function () {
+    $trip = Trip::factory()->finished()->create();
+
+    asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.cancelledAt', null)
+        ->assertJsonPath('data.cancelledByName', null);
+});
+
+it('pinta el detalle de un viaje cancelado con 50 claves, 49 para su piloto, y el listado sigue en 22', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, ['status' => TripStatus::Cancelled, 'cancelled_at' => now(), 'cancelled_by' => userWithRole(UserRole::Export)->id]);
+
+    $admin = asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $pilot = asUser($team['pilot'])->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $list = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips?status=cancelled')->assertOk()->json('data.0');
+
+    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(50)
+        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(49)
+        ->and($pilot['cancelledAt'])->toMatch(tripDatePattern())
+        ->and(array_keys($list))->toBe(tripListResourceKeys())->toHaveCount(22);
 });
