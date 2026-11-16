@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\TripStatus;
 use App\Enums\UserRole;
 use App\Models\Carrier;
 use App\Models\Trip;
@@ -738,4 +739,50 @@ it('responde 400 al administrador que registra un viático en un viaje sin asign
         ->assertJsonPath('message', 'El viaje aún no fue asignado');
 
     expect(TripExpense::count())->toBe(0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 42 — Viaje cancelado
+|--------------------------------------------------------------------------
+*/
+
+it('responde 400 «El viaje está cancelado» al registrar un viático en un viaje cancelado de la empresa', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripExpenseScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    asUser($owner)->postJson("/api/trips/{$trip->id}/expenses", tripExpensePayload())
+        ->assertBadRequest()
+        ->assertExactJson(['statusCode' => 400, 'message' => 'El viaje está cancelado', 'data' => null]);
+
+    expect(TripExpense::count())->toBe(0);
+});
+
+it('responde 403, y no 400, al viático de otra empresa sobre un viaje cancelado', function () {
+    ['trip' => $trip] = tripExpenseScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    asUser(tripExpenseStranger())->postJson("/api/trips/{$trip->id}/expenses", tripExpensePayload())
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes registrar viáticos en un viaje que no tomó tu empresa transportista');
+});
+
+it('responde 400 «El viaje está cancelado» al confirmar un viático, también si ya estaba confirmado', function (bool $confirmado) {
+    ['trip' => $trip, 'pilot' => $pilot] = tripExpenseScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+    $expense = $confirmado
+        ? TripExpense::factory()->confirmed()->create(['trip_id' => $trip->id])
+        : TripExpense::factory()->create(['trip_id' => $trip->id]);
+
+    asUser($pilot)->patchJson("/api/trip-expenses/{$expense->id}/confirm")
+        ->assertBadRequest()
+        ->assertJsonPath('message', 'El viaje está cancelado');
+
+    expect($expense->fresh()->received_at === null)->toBe(! $confirmado);
+})->with(['sin confirmar' => false, 'ya confirmado' => true]);
+
+it('responde 403, y no 400, al piloto no asignado que confirma el viático de un viaje cancelado', function () {
+    ['trip' => $trip] = tripExpenseScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+    $expense = TripExpense::factory()->create(['trip_id' => $trip->id]);
+
+    asUser(userWithRole(UserRole::Pilot))->patchJson("/api/trip-expenses/{$expense->id}/confirm")
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes confirmar el viático de un viaje que no tienes asignado');
 });
