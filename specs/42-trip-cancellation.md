@@ -1,6 +1,6 @@
 # SPEC 42 — Cancelación del viaje
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 24, SPEC 27 (`27-trip-fuels.md`), SPEC 29, SPEC 31, SPEC 35, SPEC 37, SPEC 39
 > **Fecha:** 2026-11-16
 > **Objetivo:** Añadir el estado `cancelled` a `TripStatus` y una ruta `PATCH /api/trips/{trip}/cancel` con la que `administrator` y `export` cancelan un viaje `pending`, asignado o no, dejándolo como registro de solo lectura.
@@ -293,67 +293,67 @@ Cada paso deja la suite verde y la API funcionando.
 
 **Base de datos y enum**
 
-- [ ] `trips` tiene `cancelled_at` (timestamp) y `cancelled_by` (FK a `users`, sin `cascade`), ambas nullable.
-- [ ] Las filas anteriores a la migración quedan en `null` en las dos columnas.
-- [ ] `TripStatus::Cancelled->value === 'cancelled'` y `TripStatus::Cancelled->label() === 'Cancelado'`.
+- [x] `trips` tiene `cancelled_at` (timestamp) y `cancelled_by` (FK a `users`, sin `cascade`), ambas nullable.
+- [x] Las filas anteriores a la migración quedan en `null` en las dos columnas.
+- [x] `TripStatus::Cancelled->value === 'cancelled'` y `TripStatus::Cancelled->label() === 'Cancelado'`.
 
 **`PATCH /api/trips/{trip}/cancel`**
 
-- [ ] `administrator` y `export` cancelan un viaje `pending` libre y responden 200 «Viaje cancelado correctamente».
-- [ ] `administrator` y `export` cancelan un viaje `pending` asignado y responden 200.
-- [ ] Tras cancelar, `status` es `cancelled`, `cancelled_at` tiene la hora del servidor y `cancelled_by` es el usuario del token.
-- [ ] Cancelar no cambia `pilot_id`, `vehicle_id`, `assigned_by`, `bonus`, `cargo_insurance` ni las filas de `trip_fuels`, `trip_expenses` y `trip_finished_products`.
-- [ ] `carrier`, `pilot`, `manager`, `user` y `shipment` reciben 403; sin token, 401.
-- [ ] Un viaje inexistente responde 404 «El viaje no existe».
-- [ ] Un viaje borrado responde 400 «El viaje ya fue eliminado».
-- [ ] Un viaje ya cancelado responde 400 «El viaje ya fue cancelado».
-- [ ] Un viaje `in_route` o `finished` responde 400 «Solo se puede cancelar un viaje pendiente».
-- [ ] Un cuerpo enviado se ignora: la respuesta no cambia y `cancelled_by` sigue siendo el usuario del token.
+- [x] `administrator` y `export` cancelan un viaje `pending` libre y responden 200 «Viaje cancelado correctamente».
+- [x] `administrator` y `export` cancelan un viaje `pending` asignado y responden 200.
+- [x] Tras cancelar, `status` es `cancelled`, `cancelled_at` tiene la hora del servidor y `cancelled_by` es el usuario del token.
+- [x] Cancelar no cambia `pilot_id`, `vehicle_id`, `assigned_by`, `bonus`, `cargo_insurance` ni las filas de `trip_fuels`, `trip_expenses` y `trip_finished_products`.
+- [x] `carrier`, `pilot`, `manager`, `user` y `shipment` reciben 403; sin token, 401.
+- [x] Un viaje inexistente responde 404 «El viaje no existe».
+- [x] Un viaje borrado responde 400 «El viaje ya fue eliminado».
+- [x] Un viaje ya cancelado responde 400 «El viaje ya fue cancelado».
+- [x] Un viaje `in_route` o `finished` responde 400 «Solo se puede cancelar un viaje pendiente».
+- [x] Un cuerpo enviado se ignora: la respuesta no cambia y `cancelled_by` sigue siendo el usuario del token.
 
 **Solo lectura**
 
-- [ ] Sobre un viaje cancelado responden 400 «El viaje está cancelado»:
-  - [ ] El `PATCH` general.
-  - [ ] `/assignment`, `/start` y `/finish`.
-  - [ ] `POST /fuels` y la confirmación de carga.
-  - [ ] `POST /expenses` y la confirmación de viático.
-  - [ ] `POST`, `PATCH` y `DELETE` de gastos emergentes.
-  - [ ] `POST`, `PATCH` y `DELETE` de líneas de producto terminado.
-- [ ] Un `carrier` de otra empresa sigue recibiendo 403 (no 400) en `/assignment`, `POST /fuels` y `POST /expenses` de un viaje cancelado.
-- [ ] Un piloto no asignado sigue recibiendo 403 (no 400) en `/start`, `/finish` y las dos confirmaciones.
-- [ ] `DELETE /api/trips/{trip}` sobre un viaje cancelado responde 200 y lo borra.
-- [ ] Todas las lecturas de un viaje cancelado (`GET /{trip}`, `/fuels`, `/expenses`, `/emergency-expenses`, `/positions`, `/timeouts`, `trip-finished-products`) siguen respondiendo como antes.
-- [ ] `GET /{trip}/cost` de un viaje cancelado responde 400 «El costo solo está disponible para viajes finalizados».
-- [ ] `PATCH /api/trips/{trip}` con `status: cancelled` responde 422.
+- [x] Sobre un viaje cancelado responden 400 «El viaje está cancelado»:
+  - [x] El `PATCH` general.
+  - [x] `/assignment`, `/start` y `/finish`.
+  - [x] `POST /fuels` y la confirmación de carga.
+  - [x] `POST /expenses` y la confirmación de viático.
+  - [x] `POST`, `PATCH` y `DELETE` de gastos emergentes.
+  - [x] `POST`, `PATCH` y `DELETE` de líneas de producto terminado.
+- [x] Un `carrier` de otra empresa sigue recibiendo 403 (no 400) en `/assignment`, `POST /fuels` y `POST /expenses` de un viaje cancelado.
+- [x] Un piloto no asignado sigue recibiendo 403 (no 400) en `/start`, `/finish` y las dos confirmaciones.
+- [x] `DELETE /api/trips/{trip}` sobre un viaje cancelado responde 200 y lo borra.
+- [x] Todas las lecturas de un viaje cancelado (`GET /{trip}`, `/fuels`, `/expenses`, `/emergency-expenses`, `/positions`, `/timeouts`, `trip-finished-products`) siguen respondiendo como antes.
+- [x] `GET /{trip}/cost` de un viaje cancelado responde 400 «El costo solo está disponible para viajes finalizados».
+- [x] `PATCH /api/trips/{trip}` con `status: cancelled` responde 422.
 
 **Resources y listados**
 
-- [ ] La respuesta de `/cancel` y los demás endpoints del `TripResource` devuelven 49 claves, con `cancelledAt` y `cancelledByName` inmediatamente después de `endDate`.
-- [ ] `GET /api/trips/{trip}` devuelve 50 claves (49 para el `pilot`).
-- [ ] Un viaje no cancelado devuelve `null` en `cancelledAt` y `cancelledByName`.
-- [ ] `GET /api/trips` sigue devolviendo 22 claves por viaje e incluye los cancelados sin filtro.
-- [ ] `GET /api/trips` devuelve `statusLabel: "Cancelado"` para los cancelados.
-- [ ] `GET /api/trips?status=cancelled` devuelve solo los cancelados.
-- [ ] Un `carrier` ve en el listado el viaje cancelado que asignó su empresa.
-- [ ] Un `carrier` no ve un viaje cancelado que nunca se asignó.
-- [ ] La columna «Estado» de `GET /api/reports/trips` muestra «Cancelado», sin columnas nuevas.
+- [x] La respuesta de `/cancel` y los demás endpoints del `TripResource` devuelven 49 claves, con `cancelledAt` y `cancelledByName` inmediatamente después de `endDate`.
+- [x] `GET /api/trips/{trip}` devuelve 50 claves (49 para el `pilot`).
+- [x] Un viaje no cancelado devuelve `null` en `cancelledAt` y `cancelledByName`.
+- [x] `GET /api/trips` sigue devolviendo 22 claves por viaje e incluye los cancelados sin filtro.
+- [x] `GET /api/trips` devuelve `statusLabel: "Cancelado"` para los cancelados.
+- [x] `GET /api/trips?status=cancelled` devuelve solo los cancelados.
+- [x] Un `carrier` ve en el listado el viaje cancelado que asignó su empresa.
+- [x] Un `carrier` no ve un viaje cancelado que nunca se asignó.
+- [x] La columna «Estado» de `GET /api/reports/trips` muestra «Cancelado», sin columnas nuevas.
 
 **Dashboard**
 
-- [ ] `GET /api/dashboard/trips` devuelve `byStatus` con cuatro claves (`pending`, `inRoute`, `finished`, `cancelled`), con `0` si no hay filas.
-- [ ] La suma de las cuatro claves de `byStatus` es igual a `total`.
+- [x] `GET /api/dashboard/trips` devuelve `byStatus` con cuatro claves (`pending`, `inRoute`, `finished`, `cancelled`), con `0` si no hay filas.
+- [x] La suma de las cuatro claves de `byStatus` es igual a `total`.
 
 **Push**
 
-- [ ] Cancelar un viaje asignado envía una entrega por cada token del piloto, con título «Viaje cancelado», cuerpo «El viaje con orden {order} fue cancelado» y `data` `{ type: "trip.cancelled", tripId }`, ambos string.
-- [ ] Cancelar un viaje sin piloto no llama a `PushNotificationServiceInterface::send()`.
-- [ ] Un `/cancel` que falla con 4xx no despacha `SendTripNotification`.
+- [x] Cancelar un viaje asignado envía una entrega por cada token del piloto, con título «Viaje cancelado», cuerpo «El viaje con orden {order} fue cancelado» y `data` `{ type: "trip.cancelled", tripId }`, ambos string.
+- [x] Cancelar un viaje sin piloto no llama a `PushNotificationServiceInterface::send()`.
+- [x] Un `/cancel` que falla con 4xx no despacha `SendTripNotification`.
 
 **Documentación y cierre**
 
-- [ ] `storage/api-docs/api-docs.json` documenta la ruta `/cancel`, el valor `cancelled` del enum, las dos claves de `TripResource` y `byStatus.cancelled`.
-- [ ] `php artisan test --compact` pasa completo.
-- [ ] `vendor/bin/pint --dirty --test` no reporta cambios en los archivos tocados.
+- [x] `storage/api-docs/api-docs.json` documenta la ruta `/cancel`, el valor `cancelled` del enum, las dos claves de `TripResource` y `byStatus.cancelled`.
+- [x] `php artisan test --compact` pasa completo.
+- [x] `vendor/bin/pint --dirty --test` no reporta cambios en los archivos tocados.
 
 ---
 
