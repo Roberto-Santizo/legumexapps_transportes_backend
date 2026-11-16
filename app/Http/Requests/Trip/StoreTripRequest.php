@@ -160,7 +160,7 @@ class StoreTripRequest extends FormRequest
     {
         $merge = [];
 
-        foreach (['order', 'container'] as $field) {
+        foreach (['order', 'container', 'booking'] as $field) {
             if (is_string($this->input($field))) {
                 $merge[$field] = Trip::normalizeReference($this->input($field));
             }
@@ -202,6 +202,7 @@ class StoreTripRequest extends FormRequest
             'locationId' => ['required', 'integer', 'exists:locations,id'],
             'destination' => ['required', 'string', 'max:255'],
             'container' => ['required', 'string', 'max:255'],
+            'booking' => ['required', 'string', 'max:255'],
             'transport' => ['required', 'string', 'max:255'],
             /** Las dos fechas planificadas van siempre al futuro, y el embarque nunca antes de la recolección. */
             'recolectionDate' => ['required', 'date', 'after:now'],

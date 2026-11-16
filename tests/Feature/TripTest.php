@@ -247,6 +247,7 @@ function tripPayload(array $overrides = []): array
         'locationId' => Location::factory()->port()->active()->create()->id,
         'destination' => 'Rotterdam, Países Bajos',
         'container' => 'msku 123456 7',
+        'booking' => 'bk-2026-0001',
         'transport' => 'Rastra 40 pies',
         'recolectionDate' => now()->addDays(3)->startOfSecond()->format('Y-m-d H:i:s'),
         'shipDate' => now()->addDays(5)->startOfSecond()->format('Y-m-d H:i:s'),
@@ -667,16 +668,16 @@ it('rechaza con 422 el alta cuando falta cualquiera de los campos obligatorios',
     'products' => ['products', 'Los productos terminados son obligatorios'],
 ]);
 
-it('rechaza con 422 un alta con el cuerpo vacío señalando los quince campos', function () {
+it('rechaza con 422 un alta con el cuerpo vacío señalando los dieciséis campos', function () {
     $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', [])
         ->assertStatus(422)
         ->assertJsonValidationErrors([
             'order', 'clientId', 'shippingLineId', 'departurePointId', 'locationId',
-            'destination', 'container', 'transport', 'recolectionDate', 'shipDate',
+            'destination', 'container', 'booking', 'transport', 'recolectionDate', 'shipDate',
             'polyline', 'estimatedKilometers', 'estimatedHours', 'observations', 'products',
         ]);
 
-    expect(array_keys($response->json('errors')))->toHaveCount(15);
+    expect(array_keys($response->json('errors')))->toHaveCount(16);
 
     /** El 422 sale con el formato de Laravel, no con el sobre del ResponseHandler. */
     expect(array_keys($response->json()))->toBe(['message', 'errors']);
