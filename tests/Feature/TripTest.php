@@ -2066,6 +2066,42 @@ it('aplica el ámbito antes de la búsqueda: un transportista no ve por booking 
         ->and(collect(asUser($propia['owner'])->getJson('/api/trips?search=bk-2026')->assertOk()->json('data'))->pluck('id')->all())->toBe([$mio->id]);
 });
 
+it('busca también en la orden de venta sin distinguir mayúsculas', function (string $search) {
+    $admin = userWithRole(UserRole::Administrator);
+
+    $buscado = Trip::factory()->create(['order' => 'ORD-2026-0001', 'booking' => 'BK-2026 001', 'reference' => null, 'ov' => 'OV-2026 15']);
+    Trip::factory()->create(['order' => 'ORD-2026-9999', 'booking' => 'BK-9999 999', 'reference' => null, 'ov' => 'OV-9999 99']);
+
+    $data = asUser($admin)->getJson('/api/trips?search='.urlencode($search))->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->toBe([$buscado->id]);
+})->with([
+    'trozo de la OV en minúsculas' => ['ov-2026'],
+    'OV con espacios de sobra' => ['  ov-2026   15 '],
+]);
+
+it('no se rompe con viajes cuya orden de venta es null', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    $conOv = Trip::factory()->create(['reference' => null, 'ov' => 'OV-2026 15']);
+    Trip::factory()->create(['reference' => null, 'ov' => null]);
+
+    $data = asUser($admin)->getJson('/api/trips?search=ov-2026')->assertOk()->json('data');
+
+    expect(collect($data)->pluck('id')->all())->toBe([$conOv->id]);
+});
+
+it('aplica el ámbito antes de la búsqueda: un transportista no ve por OV el viaje que tomó otra empresa', function () {
+    $propia = tripTeam();
+    $ajena = tripTeam();
+
+    tripAssignedTo($ajena, ['ov' => 'OV-2026 001']);
+    $mio = tripAssignedTo($propia, ['ov' => 'OV-2026 002']);
+
+    expect(asUser($propia['owner'])->getJson('/api/trips?search=ov-2026 001')->assertOk()->json('data'))->toBe([])
+        ->and(collect(asUser($propia['owner'])->getJson('/api/trips?search=ov-2026')->assertOk()->json('data'))->pluck('id')->all())->toBe([$mio->id]);
+});
+
 it('devuelve el listado completo cuando el término de búsqueda viene vacío', function () {
     $admin = userWithRole(UserRole::Administrator);
     Trip::factory()->count(3)->create();

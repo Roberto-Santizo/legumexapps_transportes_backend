@@ -206,9 +206,9 @@ class TripService implements TripServiceInterface
 
         /**
          * El término se normaliza como una referencia —colapsando espacios y en mayúsculas—;
-         * `order`, `container`, `booking` y `reference` están siempre en mayúsculas, así que
-         * con eso basta para ser insensible a mayúsculas. Una `reference` en null no casa
-         * con ningún LIKE y no rompe el grupo.
+         * `order`, `container`, `booking`, `reference` y `ov` están siempre en mayúsculas, así
+         * que con eso basta para ser insensible a mayúsculas. Una `reference` o una `ov` en
+         * null no casa con ningún LIKE y no rompe el grupo.
          */
         $search = Trip::normalizeReference($filters['search'] ?? '');
 
@@ -218,7 +218,8 @@ class TripService implements TripServiceInterface
                 $builder->where('order', 'LIKE', '%'.$search.'%')
                     ->orWhere('container', 'LIKE', '%'.$search.'%')
                     ->orWhere('booking', 'LIKE', '%'.$search.'%')
-                    ->orWhere('reference', 'LIKE', '%'.$search.'%');
+                    ->orWhere('reference', 'LIKE', '%'.$search.'%')
+                    ->orWhere('ov', 'LIKE', '%'.$search.'%');
             });
         }
 
