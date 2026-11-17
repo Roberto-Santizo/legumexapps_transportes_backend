@@ -249,6 +249,23 @@ it('guarda la referencia en null cuando llega vacía, en blanco, en null o no ll
     'ausente' => [[]],
 ]);
 
+it('persiste la orden de venta normalizada como la referencia', function () {
+    $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData(['ov' => '  ov-2026   15  ']));
+
+    expect($trip->fresh()->ov)->toBe('OV-2026 15');
+});
+
+it('guarda la orden de venta en null cuando llega vacía, en blanco, en null o no llega', function (array $overrides) {
+    $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData($overrides));
+
+    expect($trip->fresh()->ov)->toBeNull();
+})->with([
+    'vacía' => [['ov' => '']],
+    'en blanco' => [['ov' => '   ']],
+    'null' => [['ov' => null]],
+    'ausente' => [[]],
+]);
+
 it('persiste la distancia y la duración estimadas tal cual llegan, sin cast', function () {
     $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData([
         'estimatedKilometers' => '104.32',
@@ -582,6 +599,27 @@ it('no toca el booking ni la referencia cuando el payload no los trae', function
 
     expect($trip->fresh()->booking)->toBe('BK-00000001')
         ->and($trip->fresh()->reference)->toBe('REF-0001');
+});
+
+it('reescribe la orden de venta normalizada y la borra con null, vacía o en blanco', function (?string $ov, ?string $esperado) {
+    $trip = Trip::factory()->create(['ov' => 'OV-000001']);
+
+    $actualizado = tripService()->update($trip->id, ['ov' => $ov]);
+
+    expect($actualizado->fresh()->ov)->toBe($esperado);
+})->with([
+    'nueva' => [' ov-2026   777 ', 'OV-2026 777'],
+    'null' => [null, null],
+    'vacía' => ['', null],
+    'en blanco' => ['   ', null],
+]);
+
+it('no toca la orden de venta cuando el payload no la trae', function () {
+    $trip = Trip::factory()->create(['ov' => 'OV-000001']);
+
+    tripService()->update($trip->id, ['destination' => 'Miami, Estados Unidos']);
+
+    expect($trip->fresh()->ov)->toBe('OV-000001');
 });
 
 it('trata un payload vacío como un no-op que devuelve el viaje intacto', function () {
