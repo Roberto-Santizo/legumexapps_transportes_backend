@@ -3013,6 +3013,70 @@ it('sigue diciendo que el viaje ya fue iniciado sobre un viaje en curso, y no ha
         ]);
 });
 
+it('rechaza con 400 el arranque si el piloto ya tiene otro viaje en ruta', function () {
+    $team = tripTeam();
+    tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(2)]);
+
+    $trip = tripAssignedTo($team);
+    tripFuelConfirmed($trip->id);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertStatus(400)
+        ->assertExactJson([
+            'statusCode' => 400,
+            'message' => 'Ya tienes un viaje en ruta; finalízalo antes de iniciar otro',
+            'data' => null,
+        ]);
+
+    $fresco = $trip->fresh();
+
+    expect($fresco->status)->toBe(TripStatus::Pending)
+        ->and($fresco->start_date)->toBeNull();
+});
+
+it('avisa del viaje en ruta antes que del combustible sin confirmar', function () {
+    $team = tripTeam();
+    tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(2)]);
+
+    $trip = tripAssignedTo($team);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertStatus(400)
+        ->assertJsonPath('message', 'Ya tienes un viaje en ruta; finalízalo antes de iniciar otro');
+});
+
+it('arranca otro viaje una vez finalizado el anterior', function () {
+    $team = tripTeam();
+    $anterior = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(4)]);
+
+    $trip = tripAssignedTo($team);
+    tripFuelConfirmed($trip->id);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")->assertStatus(400);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$anterior->id}/finish")->assertOk();
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertOk()
+        ->assertJsonPath('data.status', TripStatus::InRoute->value);
+});
+
+it('no cuenta el viaje en ruta de otro piloto ni uno en ruta ya borrado', function () {
+    $team = tripTeam();
+
+    Trip::factory()->inRoute()->create();
+
+    $borrado = tripAssignedTo($team, ['status' => TripStatus::InRoute, 'start_date' => now()->subHours(2)]);
+    $borrado->delete();
+
+    $trip = tripAssignedTo($team);
+    tripFuelConfirmed($trip->id);
+
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")
+        ->assertOk()
+        ->assertJsonPath('data.status', TripStatus::InRoute->value);
+});
+
 it('sigue rechazando con 403 al piloto que no es el asignado, antes de mirar el combustible', function () {
     $team = tripTeam();
     $trip = tripAssignedTo($team);

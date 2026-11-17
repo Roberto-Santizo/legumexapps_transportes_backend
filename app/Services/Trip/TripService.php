@@ -269,7 +269,7 @@ class TripService implements TripServiceInterface
             ->where('pilot_id', '=', $user->id)
             /** Sobre el status y no sobre start_date: un viaje devuelto a pending no está en curso. */
             ->where('status', '=', TripStatus::InRoute->value)
-            /** Nada impide dos viajes en curso a la vez, así que el desempate se escribe aquí. */
+            /** /start ya no deja arrancar un segundo, pero el PATCH del administrador sí puede: el desempate se queda. */
             ->orderByDesc('start_date')
             ->orderByDesc('id')
             ->first();
@@ -525,7 +525,17 @@ class TripService implements TripServiceInterface
         }
 
         /**
-         * Cuarta y última guarda (SPEC 27), deliberadamente DESPUÉS de «El viaje ya fue
+         * Un piloto conduce un viaje a la vez: mientras tenga otro `in_route` —iniciado y
+         * sin finalizar— no arranca este. Lee el **status**, la misma condición que
+         * `getCurrentTrip()` y el POST de posiciones, para que «el viaje en curso» del
+         * piloto sea siempre uno solo. Va detrás de «El viaje ya fue iniciado» (un
+         * reintento sobre el propio viaje se explica solo) y antes del combustible: con
+         * otro viaje en ruta, confirmar una carga no le serviría de nada.
+         */
+        $this->ensurePilotHasNoTripInRoute($user, $trip);
+
+        /**
+         * Última guarda (SPEC 27), deliberadamente DESPUÉS de «El viaje ya fue
          * iniciado» para que un reintento sobre un viaje en curso no hable de combustible.
          *
          * Es lo que convierte la confirmación del piloto en un requisito real y no en un
@@ -1184,6 +1194,29 @@ class TripService implements TripServiceInterface
     {
         if ($trip->status === TripStatus::Cancelled) {
             throw new BadRequestError('El viaje está cancelado');
+        }
+    }
+
+    /**
+     * Reject a start while the pilot is already driving another trip.
+     *
+     * Soft-deleted trips do not count (default scope), and the trip being started is
+     * excluded so the admin's PATCH hole (`in_route` without `start_date`) does not make
+     * a trip block itself. Two simultaneous starts of different trips are not serialised:
+     * accepted risk, the app sends one tap at a time.
+     *
+     * @throws BadRequestError when another trip of this pilot is `in_route`
+     */
+    private function ensurePilotHasNoTripInRoute(User $pilot, Trip $trip): void
+    {
+        $hasTripInRoute = Trip::query()
+            ->where('pilot_id', '=', $pilot->id)
+            ->where('status', '=', TripStatus::InRoute->value)
+            ->whereKeyNot($trip->id)
+            ->exists();
+
+        if ($hasTripInRoute) {
+            throw new BadRequestError('Ya tienes un viaje en ruta; finalízalo antes de iniciar otro');
         }
     }
 
