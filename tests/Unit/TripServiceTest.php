@@ -131,11 +131,11 @@ it('declara los diez métodos del contrato', function () {
 |--------------------------------------------------------------------------
 */
 
-it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30, las métricas reales de SPEC 32, el booking y la referencia de SPEC 41 y la cancelación de SPEC 42', function () {
+it('crea la tabla trips con sus columnas, incluida deleted_at, la traveled_polyline de SPEC 28, las estimaciones de SPEC 30, las métricas reales de SPEC 32, el booking y la referencia de SPEC 41, la cancelación de SPEC 42 y la orden de venta de SPEC 43', function () {
     expect(Schema::hasTable('trips'))->toBeTrue()
         ->and(Schema::getColumnListing('trips'))->toEqualCanonicalizing([
             'id', 'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
-            'destination', 'container', 'booking', 'reference', 'transport',
+            'destination', 'container', 'booking', 'reference', 'ov', 'transport',
             'recolection_date', 'ship_date', 'start_date', 'end_date', 'cancelled_at', 'cancelled_by',
             'polyline', 'estimated_kilometers', 'estimated_hours',
             'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
@@ -158,6 +158,20 @@ it('genera en la factory siempre un booking normalizado y solo a veces una refer
         ->and($viajes->pluck('reference')->filter()->every(fn (string $reference) => $reference === Trip::normalizeReference($reference)))->toBeTrue()
         ->and($viajes->pluck('reference')->contains(null))->toBeTrue()
         ->and($viajes->pluck('reference')->filter()->isNotEmpty())->toBeTrue();
+});
+
+it('deja ov nullable en la base de datos: un viaje sin orden de venta carga con null', function () {
+    $viaje = Trip::factory()->create(['ov' => null]);
+
+    expect($viaje->fresh()->ov)->toBeNull();
+});
+
+it('genera en la factory solo a veces una orden de venta, siempre normalizada', function () {
+    $viajes = Trip::factory()->count(30)->make();
+
+    expect($viajes->pluck('ov')->filter()->every(fn (string $ov) => preg_match('/^OV-\d{6}$/', $ov) === 1))->toBeTrue()
+        ->and($viajes->pluck('ov')->contains(null))->toBeTrue()
+        ->and($viajes->pluck('ov')->filter()->isNotEmpty())->toBeTrue();
 });
 
 it('deja las métricas reales en null por defecto y solo el estado finished de la factory las rellena', function () {
@@ -232,6 +246,23 @@ it('guarda la referencia en null cuando llega vacía, en blanco, en null o no ll
     'vacía' => [['reference' => '']],
     'en blanco' => [['reference' => '   ']],
     'null' => [['reference' => null]],
+    'ausente' => [[]],
+]);
+
+it('persiste la orden de venta normalizada como la referencia', function () {
+    $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData(['ov' => '  ov-2026   15  ']));
+
+    expect($trip->fresh()->ov)->toBe('OV-2026 15');
+});
+
+it('guarda la orden de venta en null cuando llega vacía, en blanco, en null o no llega', function (array $overrides) {
+    $trip = tripService()->create(tripServiceUser(UserRole::Administrator), tripServiceData($overrides));
+
+    expect($trip->fresh()->ov)->toBeNull();
+})->with([
+    'vacía' => [['ov' => '']],
+    'en blanco' => [['ov' => '   ']],
+    'null' => [['ov' => null]],
     'ausente' => [[]],
 ]);
 
@@ -568,6 +599,27 @@ it('no toca el booking ni la referencia cuando el payload no los trae', function
 
     expect($trip->fresh()->booking)->toBe('BK-00000001')
         ->and($trip->fresh()->reference)->toBe('REF-0001');
+});
+
+it('reescribe la orden de venta normalizada y la borra con null, vacía o en blanco', function (?string $ov, ?string $esperado) {
+    $trip = Trip::factory()->create(['ov' => 'OV-000001']);
+
+    $actualizado = tripService()->update($trip->id, ['ov' => $ov]);
+
+    expect($actualizado->fresh()->ov)->toBe($esperado);
+})->with([
+    'nueva' => [' ov-2026   777 ', 'OV-2026 777'],
+    'null' => [null, null],
+    'vacía' => ['', null],
+    'en blanco' => ['   ', null],
+]);
+
+it('no toca la orden de venta cuando el payload no la trae', function () {
+    $trip = Trip::factory()->create(['ov' => 'OV-000001']);
+
+    tripService()->update($trip->id, ['destination' => 'Miami, Estados Unidos']);
+
+    expect($trip->fresh()->ov)->toBe('OV-000001');
 });
 
 it('trata un payload vacío como un no-op que devuelve el viaje intacto', function () {

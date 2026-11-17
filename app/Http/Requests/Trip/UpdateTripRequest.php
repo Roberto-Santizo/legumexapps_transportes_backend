@@ -13,9 +13,9 @@ use OpenApi\Attributes as OA;
     schema: 'UpdateTripRequest',
     title: 'Actualización de viaje',
     description: <<<'TEXT'
-    Cuerpo JSON para editar un viaje. Es EXCLUSIVO del rol administrator. TODOS LOS CAMPOS SON OPCIONALES y solo se toca lo que venga: un CUERPO VACÍO responde 200 como no-op, sin mover siquiera updatedAt. Opcional NO es vaciable: enviar una clave en blanco, de solo espacios o con null es 422 —con UNA excepción: reference (SPEC 41), que null, "" o solo espacios BORRAN—.
+    Cuerpo JSON para editar un viaje. Es EXCLUSIVO del rol administrator. TODOS LOS CAMPOS SON OPCIONALES y solo se toca lo que venga: un CUERPO VACÍO responde 200 como no-op, sin mover siquiera updatedAt. Opcional NO es vaciable: enviar una clave en blanco, de solo espacios o con null es 422 —con DOS excepciones: reference (SPEC 41) y ov (SPEC 43), que null, "" o solo espacios BORRAN—.
 
-    Son los catorce campos del alta anteriores a SPEC 37 MÁS booking y reference (SPEC 41) MÁS status, y MENOS pilotId y vehicleId. products (SPEC 37) NO se acepta: se ignora en silencio, y cambiar clientId en un viaje con productos terminados es 400.
+    Son los catorce campos del alta anteriores a SPEC 37 MÁS booking y reference (SPEC 41) MÁS ov (SPEC 43) MÁS status, y MENOS pilotId y vehicleId. products (SPEC 37) NO se acepta: se ignora en silencio, y cambiar clientId en un viaje con productos terminados es 400.
 
     ATENCIÓN — EL ADMINISTRADOR NO PUEDE ASIGNAR NI DESASIGNAR. pilotId y vehicleId NO SE ACEPTAN AQUÍ y mandarlos SE IGNORA EN SILENCIO CON 200: el viaje conserva la asignación que tuviera. Cambiar la tripulación es cosa de PATCH /api/trips/{trip}/assignment, exclusiva del carrier. Tampoco se reescriben assignedBy ni registeredBy: mandarlos se descarta igual. Consecuencia real: SI NINGUNA EMPRESA TOMA UN VIAJE, NADIE PUEDE DESATASCARLO POR API —la única salida es borrarlo y volver a crearlo—.
 
@@ -29,7 +29,7 @@ use OpenApi\Attributes as OA;
 
     Las dos fechas planificadas DEJAN DE EXIGIR FUTURO —editar un viaje ya arrancado no puede obligar a reprogramarlo—; el orden entre ellas se mantiene y solo se comprueba cuando las dos viajan juntas. startDate y endDate NO se aceptan por ninguna vía: las pone el servidor en /start y /finish.
 
-    Normalización idéntica a la del alta: order, container, booking y reference en MAYÚSCULAS con espacios colapsados; destination, transport y observations con solo trim.
+    Normalización idéntica a la del alta: order, container, booking, reference y ov en MAYÚSCULAS con espacios colapsados; destination, transport y observations con solo trim.
     TEXT,
     properties: [
         new OA\Property(
@@ -91,6 +91,14 @@ use OpenApi\Attributes as OA;
             maxLength: 255,
             nullable: true,
             example: 'PEDIDO CLIENTE-77',
+        ),
+        new OA\Property(
+            property: 'ov',
+            description: 'Orden de venta del viaje (SPEC 43). OPCIONAL y NULLABLE; si trae valor, texto y de 255 caracteres como máximo (mensajes: La orden de venta debe ser texto / La orden de venta no puede superar los 255 caracteres). Se normaliza igual que la referencia: recorte, COLAPSO de espacios internos y MAYÚSCULAS. ATENCIÓN — vacía, de solo espacios o null se guarda como null: mandar null, "" o solo espacios BORRA la orden de venta con 200. Si no se manda, no se toca. NO ES ÚNICA.',
+            type: 'string',
+            maxLength: 255,
+            nullable: true,
+            example: 'OV-2026 15',
         ),
         new OA\Property(
             property: 'transport',
@@ -159,24 +167,27 @@ class UpdateTripRequest extends FormRequest
     }
 
     /**
-     * Normalize the four commercial references before the rules run.
+     * Normalize the five commercial references before the rules run.
      *
      * Same rule as the store request: without the trim happening here, a reference of
      * only spaces would pass as a blank string instead of failing required. The optional
-     * `reference` (SPEC 41) left empty is merged as null, which clears it.
+     * `reference` (SPEC 41) and `ov` (SPEC 43) left empty are merged as null, which
+     * clears them.
      */
     protected function prepareForValidation(): void
     {
         $merge = [];
 
-        foreach (['order', 'container', 'booking', 'reference'] as $field) {
+        foreach (['order', 'container', 'booking', 'reference', 'ov'] as $field) {
             if (is_string($this->input($field))) {
                 $merge[$field] = Trip::normalizeReference($this->input($field));
             }
         }
 
-        if (array_key_exists('reference', $merge) && $merge['reference'] === '') {
-            $merge['reference'] = null;
+        foreach (['reference', 'ov'] as $field) {
+            if (array_key_exists($field, $merge) && $merge[$field] === '') {
+                $merge[$field] = null;
+            }
         }
 
         foreach (['destination', 'transport', 'observations'] as $field) {
@@ -227,6 +238,7 @@ class UpdateTripRequest extends FormRequest
             /** El booking no se puede vaciar; la referencia sí: null o "" la borran (SPEC 41). */
             'booking' => ['sometimes', 'required', 'string', 'max:255'],
             'reference' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'ov' => ['sometimes', 'nullable', 'string', 'max:255'],
             'transport' => ['sometimes', 'required', 'string', 'max:255'],
             'recolectionDate' => ['sometimes', 'required', 'date'],
             'shipDate' => ['sometimes', 'required', 'date', 'after_or_equal:recolectionDate'],
@@ -270,6 +282,8 @@ class UpdateTripRequest extends FormRequest
             'booking.max' => 'El booking no puede superar los 255 caracteres',
             'reference.string' => 'La referencia debe ser texto',
             'reference.max' => 'La referencia no puede superar los 255 caracteres',
+            'ov.string' => 'La orden de venta debe ser texto',
+            'ov.max' => 'La orden de venta no puede superar los 255 caracteres',
             'transport.required' => 'El transporte es obligatorio',
             'transport.string' => 'El transporte debe ser texto',
             'transport.max' => 'El transporte no puede superar los 255 caracteres',

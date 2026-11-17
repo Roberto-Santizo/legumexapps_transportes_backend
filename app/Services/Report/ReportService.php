@@ -81,12 +81,13 @@ final class ReportService implements ReportServiceInterface
     /**
      * Headers of the downloadable trips report (`downloadTrips()`), in the order the
      * business asked for. «Destino» is the free-text final destination and «Punto de
-     * llegada» the port (`location`). No money columns, for any role.
+     * llegada» the port (`location`). «OV» is the optional sales order (SPEC 43), second
+     * for every role because it is neither money nor product. No money columns, for any role.
      *
      * @var list<string>
      */
     private const array TRIP_REPORT_HEADERS = [
-        'Orden', 'Cliente', 'Producto', 'Cajas', 'Naviera', 'Destino', 'Contenedor',
+        'Orden', 'OV', 'Cliente', 'Producto', 'Cajas', 'Naviera', 'Destino', 'Contenedor',
         'Punto de Partida', 'Fecha de recolección', 'Fecha de embarque', 'Booking',
         'Punto de llegada', 'Transporte', 'Status',
     ];
@@ -336,6 +337,7 @@ final class ReportService implements ReportServiceInterface
     {
         return [
             $trip->order,
+            $trip->ov,
             $trip->client?->name,
             ...($product ?? []),
             $trip->shippingLine?->name,

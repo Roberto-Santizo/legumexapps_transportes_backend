@@ -32,7 +32,7 @@ interface TripServiceInterface
      *                                                                                                                                                                                                                                                                         status: value of TripStatus, exact match;
      *                                                                                                                                                                                                                                                                         clientId, shippingLineId, locationId, pilotId, vehicleId: numeric ids, exact match;
      *                                                                                                                                                                                                                                                                         dateFrom, dateTo: parseable dates matched against recolection_date;
-     *                                                                                                                                                                                                                                                                         search: LIKE term matched against the order, the container, the booking **and** the reference, all stored upper cased;
+     *                                                                                                                                                                                                                                                                         search: LIKE term matched against the order, the container, the booking, the reference **and** the sales order (ov), all stored upper cased;
      *                                                                                                                                                                                                                                                                         limit: page size requested by the client, clamped to [1, 100].
      * @return LengthAwarePaginator<int, Trip>|Collection<int, Trip>
      */
@@ -52,10 +52,11 @@ interface TripServiceInterface
     /**
      * Publish a new trip.
      *
-     * The order, the container, the booking and the reference are normalized to upper case
-     * with collapsed inner whitespace; destination, transport and observations are stored
-     * exactly as typed. None of the four references is unique: two trips may share them all.
-     * The reference is optional (SPEC 41): absent, empty or blank is stored as null.
+     * The order, the container, the booking, the reference and the sales order (ov) are
+     * normalized to upper case with collapsed inner whitespace; destination, transport and
+     * observations are stored exactly as typed. None of the five references is unique: two
+     * trips may share them all. The reference (SPEC 41) and the sales order (SPEC 43) are
+     * optional: absent, empty or blank is stored as null.
      *
      * status is forced to pending and registered_by comes from the given user, never
      * from the body; pilot_id, vehicle_id and assigned_by are **discarded** if they
@@ -67,12 +68,12 @@ interface TripServiceInterface
      * (SPEC 37), when the finished product has been deleted or belongs to another client.
      * The trip and its lines are written in one transaction: a refused line creates nothing.
      *
-     * @param  array{order: string, clientId: int, shippingLineId: int, departurePointId: int, locationId: int, destination: string, container: string, booking: string, reference?: string|null, transport: string, recolectionDate: string, shipDate: string, polyline: string, estimatedKilometers: float|string, estimatedHours: float|string, observations: string, products: list<array{finishedProductId: int|string, boxes: int|string}>}  $data
-     *                                                                                                                                                                                                                                                                                                                                                                                                                                                    recolectionDate and shipDate arrive already validated as future dates, with
-     *                                                                                                                                                                                                                                                                                                                                                                                                                                                    shipDate at or after recolectionDate; polyline is the encoded route the
-     *                                                                                                                                                                                                                                                                                                                                                                                                                                                    frontend resolved through GET /api/places/directions — this service never calls
-     *                                                                                                                                                                                                                                                                                                                                                                                                                                                    Google, and never recomputes it. estimatedKilometers and estimatedHours come
-     *                                                                                                                                                                                                                                                                                                                                                                                                                                                    from that same response and are stored as sent, never checked against the line.
+     * @param  array{order: string, clientId: int, shippingLineId: int, departurePointId: int, locationId: int, destination: string, container: string, booking: string, reference?: string|null, ov?: string|null, transport: string, recolectionDate: string, shipDate: string, polyline: string, estimatedKilometers: float|string, estimatedHours: float|string, observations: string, products: list<array{finishedProductId: int|string, boxes: int|string}>}  $data
+     *                                                                                                                                                                                                                                                                                                                                                                                                                                                                      recolectionDate and shipDate arrive already validated as future dates, with
+     *                                                                                                                                                                                                                                                                                                                                                                                                                                                                      shipDate at or after recolectionDate; polyline is the encoded route the
+     *                                                                                                                                                                                                                                                                                                                                                                                                                                                                      frontend resolved through GET /api/places/directions — this service never calls
+     *                                                                                                                                                                                                                                                                                                                                                                                                                                                                      Google, and never recomputes it. estimatedKilometers and estimatedHours come
+     *                                                                                                                                                                                                                                                                                                                                                                                                                                                                      from that same response and are stored as sent, never checked against the line.
      */
     public function create(User $user, array $data): Trip;
 
@@ -83,7 +84,7 @@ interface TripServiceInterface
      * sees every trip: there is no scope left to check.
      *
      * Only the given keys are touched and an empty payload is a no-op, not an error. A
-     * `reference` sent as null, empty or blank clears it (SPEC 41); the booking is
+     * `reference` (SPEC 41) or `ov` (SPEC 43) sent as null, empty or blank clears it; the booking is
      * normalized like the order and never cleared.
      * The catalogs are revalidated even when the payload only moves a date, so a trip
      * cannot be edited while pointing at a port that was deactivated in the meantime.
@@ -96,7 +97,7 @@ interface TripServiceInterface
      * Throws a NotFoundError when the trip does not exist, a BadRequestError when it
      * has already been deleted, and the same catalog BadRequestErrors as create().
      *
-     * @param  array{order?: string, clientId?: int, shippingLineId?: int, departurePointId?: int, locationId?: int, destination?: string, container?: string, booking?: string, reference?: string|null, transport?: string, recolectionDate?: string, shipDate?: string, polyline?: string, estimatedKilometers?: float|string, estimatedHours?: float|string, observations?: string, status?: string}  $data
+     * @param  array{order?: string, clientId?: int, shippingLineId?: int, departurePointId?: int, locationId?: int, destination?: string, container?: string, booking?: string, reference?: string|null, ov?: string|null, transport?: string, recolectionDate?: string, shipDate?: string, polyline?: string, estimatedKilometers?: float|string, estimatedHours?: float|string, observations?: string, status?: string}  $data
      */
     public function update(int $id, array $data): Trip;
 

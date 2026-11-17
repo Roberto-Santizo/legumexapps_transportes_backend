@@ -113,19 +113,20 @@ class TripService implements TripServiceInterface
     ];
 
     /**
-     * The four references normalized to upper case with collapsed inner whitespace.
+     * The five references normalized to upper case with collapsed inner whitespace.
      *
      * `destination`, `transport` and `observations` are deliberately not here: they keep
      * the casing they were typed with.
      */
-    private const REFERENCE_FIELDS = ['order', 'container', 'booking', 'reference'];
+    private const REFERENCE_FIELDS = ['order', 'container', 'booking', 'reference', 'ov'];
 
     /**
-     * The references that may be absent (SPEC 41): `null`, empty or blank all become `null`.
+     * The references that may be absent (`reference` from SPEC 41, `ov` from SPEC 43):
+     * `null`, empty or blank all become `null`.
      *
      * The booking is not here: blank is a 422 in the FormRequest, never a stored `null`.
      */
-    private const OPTIONAL_REFERENCE_FIELDS = ['reference'];
+    private const OPTIONAL_REFERENCE_FIELDS = ['reference', 'ov'];
 
     /**
      * The fields the administrator's general PATCH is allowed to write.
@@ -149,6 +150,7 @@ class TripService implements TripServiceInterface
         'container' => 'container',
         'booking' => 'booking',
         'reference' => 'reference',
+        'ov' => 'ov',
         'transport' => 'transport',
         'recolectionDate' => 'recolection_date',
         'shipDate' => 'ship_date',
@@ -204,9 +206,9 @@ class TripService implements TripServiceInterface
 
         /**
          * El término se normaliza como una referencia —colapsando espacios y en mayúsculas—;
-         * `order`, `container`, `booking` y `reference` están siempre en mayúsculas, así que
-         * con eso basta para ser insensible a mayúsculas. Una `reference` en null no casa
-         * con ningún LIKE y no rompe el grupo.
+         * `order`, `container`, `booking`, `reference` y `ov` están siempre en mayúsculas, así
+         * que con eso basta para ser insensible a mayúsculas. Una `reference` o una `ov` en
+         * null no casa con ningún LIKE y no rompe el grupo.
          */
         $search = Trip::normalizeReference($filters['search'] ?? '');
 
@@ -216,7 +218,8 @@ class TripService implements TripServiceInterface
                 $builder->where('order', 'LIKE', '%'.$search.'%')
                     ->orWhere('container', 'LIKE', '%'.$search.'%')
                     ->orWhere('booking', 'LIKE', '%'.$search.'%')
-                    ->orWhere('reference', 'LIKE', '%'.$search.'%');
+                    ->orWhere('reference', 'LIKE', '%'.$search.'%')
+                    ->orWhere('ov', 'LIKE', '%'.$search.'%');
             });
         }
 
@@ -303,6 +306,8 @@ class TripService implements TripServiceInterface
                 'booking' => Trip::normalizeReference($data['booking']),
                 /** Opcional: ausente, vacía o en blanco se guarda null, nunca una cadena vacía. */
                 'reference' => $this->normalizeOptionalReference($data['reference'] ?? null),
+                /** La orden de venta (SPEC 43) sigue la misma regla que la referencia. */
+                'ov' => $this->normalizeOptionalReference($data['ov'] ?? null),
                 /** Los tres de texto libre entran tal como se teclearon: solo el trim del FormRequest. */
                 'destination' => $data['destination'],
                 'transport' => $data['transport'],
