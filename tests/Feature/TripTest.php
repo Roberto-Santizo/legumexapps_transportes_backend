@@ -854,6 +854,54 @@ it('deja que dos viajes compartan el mismo booking y la misma referencia', funct
     expect(Trip::query()->where('booking', 'BK-2026-0001')->where('reference', 'REF-1')->count())->toBe(2);
 });
 
+it('guarda la orden de venta en null cuando no llega, llega vacía, de solo espacios o en null', function (array $overrides) {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload($overrides))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', ['id' => $response->json('data.id'), 'ov' => null]);
+})->with([
+    'ausente' => [[]],
+    'vacía' => [['ov' => '']],
+    'de solo espacios' => [['ov' => '     ']],
+    'null' => [['ov' => null]],
+]);
+
+it('guarda la orden de venta en mayúsculas con los espacios colapsados', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload(['ov' => '  ov-2026   15  ']))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', ['id' => $response->json('data.id'), 'ov' => 'OV-2026 15']);
+});
+
+it('rechaza con 422 una orden de venta no texto o de más de 255 caracteres', function (mixed $ov, string $mensaje) {
+    asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload(['ov' => $ov]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['ov'])
+        ->assertJsonFragment([$mensaje]);
+
+    expect(Trip::withTrashed()->count())->toBe(0);
+})->with([
+    'no texto' => [['OV'], 'La orden de venta debe ser texto'],
+    'número' => [12345, 'La orden de venta debe ser texto'],
+    'de 256 caracteres' => [str_repeat('O', 256), 'La orden de venta no puede superar los 255 caracteres'],
+]);
+
+it('acepta 255 caracteres en la orden de venta', function () {
+    $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload(['ov' => str_repeat('O', 255)]))
+        ->assertCreated();
+
+    $this->assertDatabaseHas('trips', ['id' => $response->json('data.id'), 'ov' => str_repeat('O', 255)]);
+});
+
+it('deja que dos viajes compartan la misma orden de venta', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    asUser($admin)->postJson('/api/trips', tripPayload(['ov' => 'ov-1']))->assertCreated();
+    asUser($admin)->postJson('/api/trips', tripPayload(['ov' => 'ov-1']))->assertCreated();
+
+    expect(Trip::query()->where('ov', 'OV-1')->count())->toBe(2);
+});
+
 it('rechaza con 422 una fecha planificada en el pasado', function (string $campo, string $mensaje) {
     asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
         $campo => now()->subDay()->format('Y-m-d H:i:s'),
@@ -1065,6 +1113,51 @@ it('no toca el booking ni la referencia cuando el PATCH no los manda', function 
 
     $this->assertDatabaseHas('trips', ['id' => $trip->id, 'booking' => 'BK-00000001', 'reference' => 'REF-0001']);
 });
+
+it('reescribe la orden de venta normalizada desde el PATCH', function () {
+    $trip = Trip::factory()->create(['ov' => 'OV-000001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['ov' => '  ov-2026   777 '])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'ov' => 'OV-2026 777']);
+});
+
+it('borra la orden de venta con 200 cuando el PATCH la manda en null, vacía o de solo espacios', function (mixed $ov) {
+    $trip = Trip::factory()->create(['ov' => 'OV-000001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['ov' => $ov])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'ov' => null]);
+})->with([
+    'null' => [null],
+    'vacía' => [''],
+    'de solo espacios' => ['   '],
+]);
+
+it('no toca la orden de venta cuando el PATCH no la manda', function () {
+    $trip = Trip::factory()->create(['ov' => 'OV-000001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['destination' => 'Hamburgo, Alemania'])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'ov' => 'OV-000001']);
+});
+
+it('rechaza con 422 una orden de venta no texto o de más de 255 caracteres en el PATCH', function (mixed $ov, string $mensaje) {
+    $trip = Trip::factory()->create(['ov' => 'OV-000001']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$trip->id}", ['ov' => $ov])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['ov'])
+        ->assertJsonFragment([$mensaje]);
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'ov' => 'OV-000001']);
+})->with([
+    'no texto' => [['OV'], 'La orden de venta debe ser texto'],
+    'de 256 caracteres' => [str_repeat('O', 256), 'La orden de venta no puede superar los 255 caracteres'],
+]);
 
 it('ignora con 200 la referencia ausente y no la confunde con un borrado', function () {
     $trip = Trip::factory()->create(['booking' => 'BK-00000001', 'reference' => 'REF-0001']);
