@@ -9,11 +9,12 @@ use OpenApi\Attributes as OA;
 #[OA\Schema(
     schema: 'TripsSummaryByStatus',
     title: 'Viajes por estado',
-    description: 'Conteo de viajes por cada uno de los TRES estados de TripStatus. LAS TRES CLAVES SALEN SIEMPRE, con 0 cuando no hay filas: el frontend las conoce de antemano y no tiene que comprobar si existen. Las claves van en camelCase (inRoute), no con el valor crudo del enum (in_route). Su suma es igual a total.',
+    description: 'Conteo de viajes por cada uno de los CUATRO estados de TripStatus (cancelled desde SPEC 42). LAS CUATRO CLAVES SALEN SIEMPRE, con 0 cuando no hay filas: el frontend las conoce de antemano y no tiene que comprobar si existen. Las claves van en camelCase (inRoute), no con el valor crudo del enum (in_route). Su suma es igual a total.',
     properties: [
         new OA\Property(property: 'pending', type: 'integer', example: 30),
         new OA\Property(property: 'inRoute', type: 'integer', example: 12),
         new OA\Property(property: 'finished', type: 'integer', example: 78),
+        new OA\Property(property: 'cancelled', type: 'integer', example: 0),
     ],
     type: 'object',
 )]
@@ -79,12 +80,12 @@ use OpenApi\Attributes as OA;
 
     LOS VIAJES BORRADOS QUEDAN SIEMPRE FUERA de los ocho bloques (SoftDeletes). unassigned es la bolsa libre de SPEC 24: los pending con pilotId y vehicleId en null.
 
-    ATENCIÓN — byStatus LLEVA SIEMPRE SUS TRES CLAVES, a 0 si no hay filas; los otros cinco desgloses SOLO traen filas con al menos un viaje y salen como [] con la base vacía. byCarrier, byClient, byShippingLine y byLocation van ordenados por total descendente e id ascendente; byMonth por month ascendente.
+    ATENCIÓN — byStatus LLEVA SIEMPRE SUS CUATRO CLAVES, a 0 si no hay filas; los otros cinco desgloses SOLO traen filas con al menos un viaje y salen como [] con la base vacía. byCarrier, byClient, byShippingLine y byLocation van ordenados por total descendente e id ascendente; byMonth por month ascendente.
 
     ATENCIÓN — byCarrier NO SUMA total. Los viajes sin asignar no tienen empresa y no aparecen en ese desglose. Con ?carrierId= todos los bloques se acotan a esa empresa y unassigned es siempre 0.
     TEXT,
     properties: [
-        new OA\Property(property: 'total', description: 'Viajes no borrados dentro del filtro. Es la suma de las tres claves de byStatus.', type: 'integer', example: 120),
+        new OA\Property(property: 'total', description: 'Viajes no borrados dentro del filtro. Es la suma de las cuatro claves de byStatus: los cancelados cuentan en total y en todos los desgloses.', type: 'integer', example: 120),
         new OA\Property(property: 'unassigned', description: 'Viajes pending con pilotId y vehicleId en null: la bolsa que ninguna empresa ha tomado. Con ?carrierId= es siempre 0.', type: 'integer', example: 7),
         new OA\Property(property: 'byStatus', ref: '#/components/schemas/TripsSummaryByStatus'),
         new OA\Property(property: 'byCarrier', type: 'array', items: new OA\Items(ref: '#/components/schemas/TripsSummaryByCarrier')),

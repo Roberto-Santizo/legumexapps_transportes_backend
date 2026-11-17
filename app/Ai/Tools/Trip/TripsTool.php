@@ -40,7 +40,7 @@ class TripsTool extends AssistantTool
 
     public function description(): string
     {
-        return 'Busca y lista viajes, del más reciente al más antiguo por fecha de recolección. Por viaje: id, orden, estado (pending, in_route, finished), naviera, punto de partida, puerto, contenedor, fechas de recolección, embarque, inicio y fin, kilómetros y horas estimados, observaciones, piloto, placa del vehículo y quién lo registró. Úsala para encontrar un viaje por su orden o contenedor (search) antes de pedir su detalle con trip, o para listar los de un estado, cliente, piloto, vehículo o periodo. Devuelve los primeros `limit` viajes y el total que cumple los filtros; si total es mayor que los devueltos, dilo. Un carrier ve la bolsa de viajes sin asignar más los que tomó su empresa.';
+        return 'Busca y lista viajes, del más reciente al más antiguo por fecha de recolección. Por viaje: id, orden, estado (pending, in_route, finished, cancelled), naviera, punto de partida, puerto, contenedor, fechas de recolección, embarque, inicio y fin, kilómetros y horas estimados, observaciones, piloto, placa del vehículo y quién lo registró. Úsala para encontrar un viaje por su orden o contenedor (search) antes de pedir su detalle con trip, o para listar los de un estado, cliente, piloto, vehículo o periodo. Devuelve los primeros `limit` viajes y el total que cumple los filtros; si total es mayor que los devueltos, dilo. Un carrier ve la bolsa de viajes sin asignar más los que tomó su empresa.';
     }
 
     public function schema(JsonSchema $schema): array

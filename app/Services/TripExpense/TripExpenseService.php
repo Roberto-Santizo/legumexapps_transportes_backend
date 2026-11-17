@@ -116,6 +116,9 @@ class TripExpenseService implements TripExpenseServiceInterface
             throw new ForbiddenError('No puedes confirmar el viático de un viaje que no tienes asignado');
         }
 
+        /** Antes de la reconfirmación idempotente: un cancelado no confirma nada (SPEC 42). */
+        $this->ensureTripIsNotCancelled($expense->trip);
+
         /**
          * Reconfirmar es 200 sin escribir nada: `received_at` es un hecho que ya ocurrió
          * y repetir la llamada no lo cambia, con el precedente de /confirm de SPEC 27.
@@ -159,6 +162,8 @@ class TripExpenseService implements TripExpenseServiceInterface
 
         $this->ensureCarrierTookTheTrip($user, $trip);
 
+        $this->ensureTripIsNotCancelled($trip);
+
         /**
          * Se registran viáticos en `pending` Y en `in_route` —un extra en carretera es
          * el caso real—, nunca después: un viaje cerrado ya no recibe nada.
@@ -168,6 +173,22 @@ class TripExpenseService implements TripExpenseServiceInterface
         }
 
         return $trip;
+    }
+
+    /**
+     * Reject any write on a cancelled trip (SPEC 42): a cancelled trip is history and
+     * accepts no allowance nor confirmation.
+     *
+     * Placed after the ownership 403 and right before the state guard this service
+     * already had, so a third party never learns that the trip was cancelled.
+     *
+     * @throws BadRequestError when the trip is cancelled
+     */
+    private function ensureTripIsNotCancelled(Trip $trip): void
+    {
+        if ($trip->status === TripStatus::Cancelled) {
+            throw new BadRequestError('El viaje está cancelado');
+        }
     }
 
     /**

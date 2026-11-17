@@ -152,7 +152,7 @@ it('admite a un transportista con empresa en todas las rutas del tablero', funct
 |--------------------------------------------------------------------------
 */
 
-it('devuelve el resumen de viajes vacío con las tres claves de estado a cero', function () {
+it('devuelve el resumen de viajes vacío con las cuatro claves de estado a cero', function () {
     asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips')
         ->assertOk()
         ->assertExactJson([
@@ -161,7 +161,7 @@ it('devuelve el resumen de viajes vacío con las tres claves de estado a cero', 
             'data' => [
                 'total' => 0,
                 'unassigned' => 0,
-                'byStatus' => ['pending' => 0, 'inRoute' => 0, 'finished' => 0],
+                'byStatus' => ['pending' => 0, 'inRoute' => 0, 'finished' => 0, 'cancelled' => 0],
                 'byCarrier' => [],
                 'byClient' => [],
                 'byShippingLine' => [],
@@ -181,12 +181,26 @@ it('cuenta los viajes por estado y deja fuera de byCarrier a los que nadie ha to
         ->assertOk()
         ->assertJsonPath('data.total', 4)
         ->assertJsonPath('data.unassigned', 2)
-        ->assertJsonPath('data.byStatus', ['pending' => 2, 'inRoute' => 1, 'finished' => 1])
+        ->assertJsonPath('data.byStatus', ['pending' => 2, 'inRoute' => 1, 'finished' => 1, 'cancelled' => 0])
         ->assertJsonPath('data.byCarrier', [
             ['carrierId' => $carrier->id, 'carrierName' => 'TRANSPORTES X', 'total' => 2],
         ]);
 
     expect(collect($response->json('data.byCarrier'))->sum('total'))->toBeLessThan($response->json('data.total'));
+});
+
+it('cuenta los viajes cancelados en byStatus.cancelled y en total, y la suma de las cuatro claves es total', function () {
+    Trip::factory()->create();
+    Trip::factory()->cancelled()->create();
+    Trip::factory()->assigned()->cancelled()->create();
+    Trip::factory()->finished()->create();
+
+    $response = asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips')
+        ->assertOk()
+        ->assertJsonPath('data.total', 4)
+        ->assertJsonPath('data.byStatus', ['pending' => 1, 'inRoute' => 0, 'finished' => 1, 'cancelled' => 2]);
+
+    expect(array_sum($response->json('data.byStatus')))->toBe($response->json('data.total'));
 });
 
 it('no cuenta un viaje borrado en ningún bloque del resumen', function () {
@@ -197,7 +211,7 @@ it('no cuenta un viaje borrado en ningún bloque del resumen', function () {
         ->assertOk()
         ->assertJsonPath('data.total', 0)
         ->assertJsonPath('data.unassigned', 0)
-        ->assertJsonPath('data.byStatus', ['pending' => 0, 'inRoute' => 0, 'finished' => 0])
+        ->assertJsonPath('data.byStatus', ['pending' => 0, 'inRoute' => 0, 'finished' => 0, 'cancelled' => 0])
         ->assertJsonPath('data.byCarrier', [])
         ->assertJsonPath('data.byClient', [])
         ->assertJsonPath('data.byMonth', []);
@@ -249,7 +263,7 @@ it('acota los ocho bloques del resumen a la empresa del filtro carrierId', funct
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.unassigned', 0)
-        ->assertJsonPath('data.byStatus', ['pending' => 1, 'inRoute' => 0, 'finished' => 0])
+        ->assertJsonPath('data.byStatus', ['pending' => 1, 'inRoute' => 0, 'finished' => 0, 'cancelled' => 0])
         ->assertJsonPath('data.byCarrier', [
             ['carrierId' => $mine->id, 'carrierName' => 'MIA', 'total' => 1],
         ])

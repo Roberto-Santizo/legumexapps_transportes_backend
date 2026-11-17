@@ -506,3 +506,32 @@ it('borra físicamente una de dos líneas con 200', function () {
     $this->assertDatabaseHas('trip_finished_products', ['id' => $keep->id]);
     expect($trip->fresh()->status)->toBe(TripStatus::Pending);
 });
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 42 — Viaje cancelado
+|--------------------------------------------------------------------------
+*/
+
+it('responde 400 «El viaje está cancelado» al añadir, editar o borrar una línea de un viaje cancelado', function (string $accion) {
+    $trip = Trip::factory()->cancelled()->create();
+    $line = tripFinishedProductLine($trip, ['boxes' => 10]);
+    tripFinishedProductLine($trip);
+    $admin = userWithRole(UserRole::Administrator);
+
+    $response = match ($accion) {
+        'POST' => asUser($admin)->postJson('/api/trip-finished-products', [
+            'tripId' => $trip->id,
+            'finishedProductId' => tripFinishedProductSku($trip)->id,
+            'boxes' => 5,
+        ]),
+        'PATCH' => asUser($admin)->patchJson("/api/trip-finished-products/{$line->id}", ['boxes' => 99]),
+        'DELETE' => asUser($admin)->deleteJson("/api/trip-finished-products/{$line->id}"),
+    };
+
+    $response->assertBadRequest()
+        ->assertExactJson(['statusCode' => 400, 'message' => 'El viaje está cancelado', 'data' => null]);
+
+    expect(TripFinishedProduct::query()->where('trip_id', $trip->id)->count())->toBe(2)
+        ->and($line->fresh()->boxes)->toBe(10);
+})->with(['POST', 'PATCH', 'DELETE']);

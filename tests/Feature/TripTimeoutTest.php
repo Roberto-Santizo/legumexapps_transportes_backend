@@ -3,6 +3,7 @@
 use App\Enums\UserRole;
 use App\Models\Carrier;
 use App\Models\Trip;
+use App\Models\TripFuel;
 use App\Models\TripPosition;
 use App\Models\TripTimeout;
 use App\Models\User;
@@ -231,6 +232,8 @@ it('no escribe nada en las paradas al finalizar un viaje que no tenía ninguna a
 it('no toca ninguna parada al iniciar el viaje', function () {
     $trip = Trip::factory()->assigned()->create();
     $pilot = User::findOrFail($trip->pilot_id);
+    /** /start exige una carga confirmada desde SPEC 27. */
+    TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id]);
 
     $timeout = TripTimeout::factory()->open()->create(['trip_id' => $trip->id]);
 

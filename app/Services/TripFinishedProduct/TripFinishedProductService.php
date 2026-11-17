@@ -119,11 +119,30 @@ class TripFinishedProductService implements TripFinishedProductServiceInterface
             throw new BadRequestError('El viaje ya fue eliminado');
         }
 
+        /** Sin 403 que respetar: las escrituras son solo de administrator y export (SPEC 42). */
+        $this->ensureTripIsNotCancelled($trip);
+
         if ($trip->status !== TripStatus::Pending) {
             throw new BadRequestError('Solo se pueden modificar los productos de un viaje pendiente');
         }
 
         return $trip;
+    }
+
+    /**
+     * Reject any write on a cancelled trip (SPEC 42): a cancelled trip is history and
+     * accepts no finished product line change.
+     *
+     * Placed after the ownership 403 and right before the state guard this service
+     * already had, so a third party never learns that the trip was cancelled.
+     *
+     * @throws BadRequestError when the trip is cancelled
+     */
+    private function ensureTripIsNotCancelled(Trip $trip): void
+    {
+        if ($trip->status === TripStatus::Cancelled) {
+            throw new BadRequestError('El viaje está cancelado');
+        }
     }
 
     /**

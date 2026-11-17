@@ -91,6 +91,7 @@ class TripEmergencyExpenseService implements TripEmergencyExpenseServiceInterfac
 
         $this->ensureTripIsNotDeleted($trip);
         $this->ensureCarrierTookTheTrip($user, $trip);
+        $this->ensureTripIsNotCancelled($trip);
 
         /**
          * Un imprevisto de carretera no ocurre en un viaje pendiente, y uno que llega
@@ -205,6 +206,7 @@ class TripEmergencyExpenseService implements TripEmergencyExpenseServiceInterfac
 
         $this->ensureTripIsNotDeleted($trip);
         $this->ensureCarrierTookTheTrip($user, $trip);
+        $this->ensureTripIsNotCancelled($trip);
 
         /** Solo alcanzable por el hueco de SPEC 24: el PATCH del administrador devuelve un viaje a `pending`. */
         if ($trip->status === TripStatus::Pending) {
@@ -221,6 +223,22 @@ class TripEmergencyExpenseService implements TripEmergencyExpenseServiceInterfac
     {
         if ($trip->trashed()) {
             throw new BadRequestError('El viaje ya fue eliminado');
+        }
+    }
+
+    /**
+     * Reject any write on a cancelled trip (SPEC 42): a cancelled trip is history and
+     * accepts no emergency expense, correction nor deletion.
+     *
+     * Placed after the ownership 403 and right before the state guard this service
+     * already had, so a third party never learns that the trip was cancelled.
+     *
+     * @throws BadRequestError when the trip is cancelled
+     */
+    private function ensureTripIsNotCancelled(Trip $trip): void
+    {
+        if ($trip->status === TripStatus::Cancelled) {
+            throw new BadRequestError('El viaje está cancelado');
         }
     }
 

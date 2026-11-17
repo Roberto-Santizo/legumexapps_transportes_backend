@@ -112,6 +112,9 @@ class TripFuelService implements TripFuelServiceInterface
             throw new ForbiddenError('No puedes confirmar la carga de un viaje que no tienes asignado');
         }
 
+        /** Antes de la reconfirmación idempotente: un cancelado no confirma nada (SPEC 42). */
+        $this->ensureTripIsNotCancelled($fuel->trip);
+
         /**
          * Reconfirmar es 200 sin escribir nada: `loaded_at` es un hecho que ya ocurrió y
          * repetir la llamada no lo cambia. Un móvil con mala señal reintenta y no debe ver
@@ -156,6 +159,8 @@ class TripFuelService implements TripFuelServiceInterface
 
         $this->ensureCarrierTookTheTrip($user, $trip);
 
+        $this->ensureTripIsNotCancelled($trip);
+
         /**
          * Se carga combustible en `pending` Y en `in_route` —una recarga en carretera es
          * el caso real—, nunca después: un viaje cerrado ya no recibe nada.
@@ -165,6 +170,22 @@ class TripFuelService implements TripFuelServiceInterface
         }
 
         return $trip;
+    }
+
+    /**
+     * Reject any write on a cancelled trip (SPEC 42): a cancelled trip is history and
+     * accepts no fuel load nor confirmation.
+     *
+     * Placed after the ownership 403 and right before the state guard this service
+     * already had, so a third party never learns that the trip was cancelled.
+     *
+     * @throws BadRequestError when the trip is cancelled
+     */
+    private function ensureTripIsNotCancelled(Trip $trip): void
+    {
+        if ($trip->status === TripStatus::Cancelled) {
+            throw new BadRequestError('El viaje está cancelado');
+        }
     }
 
     /**

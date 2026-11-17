@@ -62,7 +62,8 @@ class TripNotificationService implements TripNotificationServiceInterface
     /**
      * Resolve the device tokens of the recipients of the event.
      *
-     * The assignment goes to the assigned pilot only. The start and the finish go to
+     * The assignment and the cancellation (SPEC 42) go to the assigned pilot only —none
+     * when the trip had no pilot—. The start and the finish go to
      * every non-pilot user, except the carriers that do not own the company that took
      * the trip: the scope of SPEC 24 answers them 403 on the trip, so they do not hear
      * about it either. The company comes from `assigned_by` through currentCarrier();
@@ -72,7 +73,7 @@ class TripNotificationService implements TripNotificationServiceInterface
      */
     private function recipientTokens(Trip $trip, TripNotificationType $type): array
     {
-        if ($type === TripNotificationType::Assigned) {
+        if ($type === TripNotificationType::Assigned || $type === TripNotificationType::Cancelled) {
             if ($trip->pilot_id === null) {
                 return [];
             }
@@ -113,6 +114,7 @@ class TripNotificationService implements TripNotificationServiceInterface
             ],
             TripNotificationType::Started => ['Viaje iniciado', "Orden {$trip->order} · {$pilot} en ruta a {$destination}"],
             TripNotificationType::Finished => ['Viaje finalizado', "Orden {$trip->order} · {$pilot} llegó a {$destination}"],
+            TripNotificationType::Cancelled => ['Viaje cancelado', "El viaje con orden {$trip->order} fue cancelado"],
         };
     }
 }

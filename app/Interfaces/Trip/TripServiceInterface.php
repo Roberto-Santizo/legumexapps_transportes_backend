@@ -2,6 +2,8 @@
 
 namespace App\Interfaces\Trip;
 
+use App\Errors\BadRequestError;
+use App\Errors\NotFoundError;
 use App\Models\Trip;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -188,6 +190,24 @@ interface TripServiceInterface
      * begins.
      */
     public function finish(User $user, int $id): Trip;
+
+    /**
+     * Cancel the trip matching the given id, on behalf of the given user (SPEC 42).
+     *
+     * status moves to cancelled and cancelled_at / cancelled_by are written together with
+     * the server's now() and the authenticated user, in a single update and behind a row
+     * lock. The crew, the bonus, the cargo insurance, the fuel loads, the allowances and
+     * the finished product lines are left untouched: a cancelled trip is history, and
+     * from here on it accepts no further write — only the soft delete.
+     *
+     * The guards run in this order: the trip does not exist, it has been deleted, it is
+     * already cancelled, it is not pending. Who may cancel —administrator and export— is
+     * decided by the route, not here.
+     *
+     * @throws NotFoundError when the trip does not exist
+     * @throws BadRequestError when the trip has been deleted, is already cancelled or is not pending
+     */
+    public function cancel(User $user, int $id): Trip;
 
     /**
      * Return the trip the given user is driving right now, null while there is none.

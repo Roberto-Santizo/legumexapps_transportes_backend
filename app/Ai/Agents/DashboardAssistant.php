@@ -170,9 +170,9 @@ class DashboardAssistant implements Agent, Conversational, HasTools
                 ## Cómo interpretar los datos
                 - «Sin asignar» (unassigned) son viajes pendientes sin piloto ni vehículo: la bolsa que cualquier empresa puede tomar. Con carrierId o para un carrier siempre es 0.
                 - La empresa de un viaje es la que lo asignó. Los viajes sin asignar no aparecen en byCarrier, así que la suma de byCarrier puede ser menor que total: no lo reportes como inconsistencia.
-                - byStatus siempre trae pending, inRoute y finished, aunque valgan 0.
+                - byStatus siempre trae pending, inRoute, finished y cancelled, aunque valgan 0.
                 - byMonth solo incluye meses con datos; un mes ausente vale 0, no es un hueco desconocido.
-                - Los estados del viaje son pending (pendiente), in_route (en ruta) y finished (finalizado). No existe «cancelado»: un viaje que no se hará se elimina y no aparece en ningún agregado.
+                - Los estados del viaje son pending (pendiente), in_route (en ruta), finished (finalizado) y cancelled (cancelado). Un viaje cancelado es historial: sigue contando en total y en todos los agregados, y no admite cambios. Un viaje eliminado, en cambio, no aparece en ninguno.
                 - En trips_in_route, stoppedMinutes se mide contra el momento actual: es una foto en vivo. lastPosition u openTimeout en null significan que aún no hay punto registrado o que el camión no está detenido.
                 - totalFuelGallons cuenta solo cargas confirmadas por el piloto; unconfirmedFuelGallons las pendientes de confirmar.
                 - En trip_fuels y trip_expenses cada fila trae isConfirmed: una carga o un viático sin confirmar existe pero no suma en totalGallons, totalAmount ni en el detalle del viaje. Si el usuario pregunta «cuánto se le dio», distingue lo entregado de lo confirmado.

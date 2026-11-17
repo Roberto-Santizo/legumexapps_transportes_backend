@@ -52,7 +52,8 @@ class TripService implements TripServiceInterface
     private const MAX_PER_PAGE = 100;
 
     /**
-     * The eight relations a detail read carries, so painting a trip never falls into N+1.
+     * The nine relations a detail read carries —`cancelledBy` since SPEC 42—, so painting
+     * a trip never falls into N+1.
      *
      * The pilot comes with its documents nested: `TripResource` paints `pilotDpiImage`
      * and `pilotLicenseImage` from them, and resolving those per trip would cost one
@@ -61,7 +62,7 @@ class TripService implements TripServiceInterface
      */
     private const RELATIONS = [
         'client', 'shippingLine', 'departurePoint', 'location',
-        'pilot.pilotDocument', 'vehicle', 'assignedBy', 'registeredBy',
+        'pilot.pilotDocument', 'vehicle', 'assignedBy', 'registeredBy', 'cancelledBy',
     ];
 
     /**
@@ -268,7 +269,7 @@ class TripService implements TripServiceInterface
             ->where('pilot_id', '=', $user->id)
             /** Sobre el status y no sobre start_date: un viaje devuelto a pending no está en curso. */
             ->where('status', '=', TripStatus::InRoute->value)
-            /** Nada impide dos viajes en curso a la vez, así que el desempate se escribe aquí. */
+            /** /start ya no deja arrancar un segundo, pero el PATCH del administrador sí puede: el desempate se queda. */
             ->orderByDesc('start_date')
             ->orderByDesc('id')
             ->first();
@@ -346,6 +347,9 @@ class TripService implements TripServiceInterface
     public function update(int $id, array $data): Trip
     {
         $trip = $this->resolveWritableTrip($id);
+
+        /** Sin 403 que respetar: la ruta ya es solo de administrator y export (SPEC 42). */
+        $this->ensureTripIsNotCancelled($trip);
 
         /**
          * Se traduce clave a clave contra el mapa: lo que el contrato no nombra —pilotId,
@@ -431,6 +435,9 @@ class TripService implements TripServiceInterface
 
             $this->ensureCarrierCanAssign($carrier, $trip);
 
+            /** Después del 403: otra empresa no se entera de que el viaje está cancelado. */
+            $this->ensureTripIsNotCancelled($trip);
+
             /**
              * Congelar la tripulación al arrancar: cambiarle el piloto a un viaje ya
              * iniciado dejaría un start_date puesto por alguien que ya no aparece.
@@ -511,12 +518,24 @@ class TripService implements TripServiceInterface
 
         $this->ensureUserIsTheAssignedPilot($user, $trip, 'iniciar');
 
+        $this->ensureTripIsNotCancelled($trip);
+
         if ($trip->start_date !== null) {
             throw new BadRequestError('El viaje ya fue iniciado');
         }
 
         /**
-         * Cuarta y última guarda (SPEC 27), deliberadamente DESPUÉS de «El viaje ya fue
+         * Un piloto conduce un viaje a la vez: mientras tenga otro `in_route` —iniciado y
+         * sin finalizar— no arranca este. Lee el **status**, la misma condición que
+         * `getCurrentTrip()` y el POST de posiciones, para que «el viaje en curso» del
+         * piloto sea siempre uno solo. Va detrás de «El viaje ya fue iniciado» (un
+         * reintento sobre el propio viaje se explica solo) y antes del combustible: con
+         * otro viaje en ruta, confirmar una carga no le serviría de nada.
+         */
+        $this->ensurePilotHasNoTripInRoute($user, $trip);
+
+        /**
+         * Última guarda (SPEC 27), deliberadamente DESPUÉS de «El viaje ya fue
          * iniciado» para que un reintento sobre un viaje en curso no hable de combustible.
          *
          * Es lo que convierte la confirmación del piloto en un requisito real y no en un
@@ -547,6 +566,8 @@ class TripService implements TripServiceInterface
         $trip = $this->resolveWritableTrip($id);
 
         $this->ensureUserIsTheAssignedPilot($user, $trip, 'finalizar');
+
+        $this->ensureTripIsNotCancelled($trip);
 
         if ($trip->end_date !== null) {
             throw new BadRequestError('El viaje ya fue finalizado');
@@ -579,6 +600,53 @@ class TripService implements TripServiceInterface
         SendTripNotification::dispatchAfterResponse($trip->id, TripNotificationType::Finished);
 
         return $trip->load(self::RELATIONS);
+    }
+
+    #[Override]
+    public function cancel(User $user, int $id): Trip
+    {
+        /**
+         * Mismo patrón que assign(): las guardas van dentro de la transacción y detrás del
+         * lock, así que una asignación y una cancelación simultáneas se serializan y la
+         * segunda ve el estado que dejó la primera.
+         */
+        $trip = DB::transaction(function () use ($user, $id) {
+            $trip = $this->resolveWritableTrip($id, lock: true);
+
+            /** Separado del «solo pendiente» para que un reintento del front se explique solo. */
+            if ($trip->status === TripStatus::Cancelled) {
+                throw new BadRequestError('El viaje ya fue cancelado');
+            }
+
+            /**
+             * Solo desde pending: un in_route ya tiene rastro, paradas y quizá gastos
+             * emergentes, y un finished tiene costo. Libre o asignado, da igual.
+             */
+            if ($trip->status !== TripStatus::Pending) {
+                throw new BadRequestError('Solo se puede cancelar un viaje pendiente');
+            }
+
+            /**
+             * Las tres columnas en un solo update(): no existe un cancelado sin quién ni
+             * cuándo. La tripulación, la bonificación, el seguro y las filas hijas se
+             * quedan como estaban: son el registro de lo que el viaje llegó a tener.
+             */
+            $trip->update([
+                'status' => TripStatus::Cancelled,
+                'cancelled_at' => now(),
+                'cancelled_by' => $user->id,
+            ]);
+
+            return $trip;
+        });
+
+        /**
+         * Fuera y después de la transacción, como en assign(): una guarda que falla no llega
+         * aquí y no despacha nada. Solo avisa al piloto, si lo había (SPEC 42).
+         */
+        SendTripNotification::dispatchAfterResponse($trip->id, TripNotificationType::Cancelled);
+
+        return $this->loadDetail($trip);
     }
 
     /**
@@ -1109,6 +1177,47 @@ class TripService implements TripServiceInterface
     private function emergencyExpensesAmountSum(): array
     {
         return ['emergencyExpenses as total_emergency_expenses_amount'];
+    }
+
+    /**
+     * Reject any write on a cancelled trip (SPEC 42): a cancelled trip is history and
+     * only the soft delete may still touch it.
+     *
+     * Deliberately **not** inside resolveWritableTrip(), which destroy() shares and which
+     * must keep letting a cancelled trip be deleted. Each caller places it after its own
+     * scope or ownership 403 and right before the state guard it already had, so a third
+     * party never learns that the trip was cancelled.
+     *
+     * @throws BadRequestError when the trip is cancelled
+     */
+    private function ensureTripIsNotCancelled(Trip $trip): void
+    {
+        if ($trip->status === TripStatus::Cancelled) {
+            throw new BadRequestError('El viaje está cancelado');
+        }
+    }
+
+    /**
+     * Reject a start while the pilot is already driving another trip.
+     *
+     * Soft-deleted trips do not count (default scope), and the trip being started is
+     * excluded so the admin's PATCH hole (`in_route` without `start_date`) does not make
+     * a trip block itself. Two simultaneous starts of different trips are not serialised:
+     * accepted risk, the app sends one tap at a time.
+     *
+     * @throws BadRequestError when another trip of this pilot is `in_route`
+     */
+    private function ensurePilotHasNoTripInRoute(User $pilot, Trip $trip): void
+    {
+        $hasTripInRoute = Trip::query()
+            ->where('pilot_id', '=', $pilot->id)
+            ->where('status', '=', TripStatus::InRoute->value)
+            ->whereKeyNot($trip->id)
+            ->exists();
+
+        if ($hasTripInRoute) {
+            throw new BadRequestError('Ya tienes un viaje en ruta; finalízalo antes de iniciar otro');
+        }
     }
 
     /**

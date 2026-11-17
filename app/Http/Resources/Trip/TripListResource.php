@@ -45,7 +45,7 @@ use OpenApi\Attributes as OA;
 
     Y desde SPEC 32 trae también los dos números de la ruta REAL: traveledKilometers y traveledHours, calculados por el servidor UNA SOLA VEZ en PATCH /api/trips/{trip}/finish (suma Haversine en crudo del rastro y endDate menos startDate, sin descontar paradas), con el mismo formato de cadena de dos decimales. Van justo después de estimatedHours para pintar «estimado vs real» por fila. ATENCIÓN — SON null EN TODO VIAJE pending O in_route, incluido el de GET /api/trips/current, y en los finalizados antes de SPEC 32 (sin backfill); un viaje que terminó sin puntos vale "0.00", no null. La API no los compara con los estimados: el desvío es una resta del frontend.
 
-    Las cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, status sale con el valor crudo del enum en inglés y statusLabel con el mismo estado en español (Pendiente, En ruta, Finalizado). Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.
+    Las cinco fechas siguen en el formato propio d-m-Y h:i:s A, NO ISO 8601, status sale con el valor crudo del enum en inglés y statusLabel con el mismo estado en español (Pendiente, En ruta, Finalizado, Cancelado). Lo demás del contrato del listado —ámbito por rol, ocho filtros tolerantes, orden fijo recolection_date DESC e id DESC, paginación opt-in— no cambia.
 
     Las 22 claves salen siempre en este orden: id, order, status, statusLabel, shippingLineName, departurePointName, locationName, container, booking, reference, recolectionDate, shipDate, startDate, endDate, estimatedKilometers, estimatedHours, traveledKilometers, traveledHours, observations, pilotName, vehiclePlate y registeredByName.
     TEXT,
@@ -67,14 +67,14 @@ use OpenApi\Attributes as OA;
             property: 'status',
             description: 'Estado del viaje, con el VALOR CRUDO DEL ENUM EN INGLÉS y sin traducir: es el que espera el filtro status. Para pintarlo en español está statusLabel. NO HAY MÁQUINA DE ESTADOS: puede contradecir a startDate y endDate, y cuando eso pase el relato lo cuentan las fechas.',
             type: 'string',
-            enum: ['pending', 'in_route', 'finished'],
+            enum: ['pending', 'in_route', 'finished', 'cancelled'],
             example: 'pending',
         ),
         new OA\Property(
             property: 'statusLabel',
             description: 'El mismo estado que status, TRADUCIDO AL ESPAÑOL, solo para mostrar. No sirve como valor del filtro status.',
             type: 'string',
-            enum: ['Pendiente', 'En ruta', 'Finalizado'],
+            enum: ['Pendiente', 'En ruta', 'Finalizado', 'Cancelado'],
             example: 'Pendiente',
         ),
         new OA\Property(

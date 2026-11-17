@@ -151,7 +151,7 @@ it('busca viajes por orden o contenedor y filtra por estado', function () {
 
     $bySearch = callTripTool(tripTool(TripsTool::class, tripToolAdmin()), ['search' => '777']);
     $byStatus = callTripTool(tripTool(TripsTool::class, tripToolAdmin()), ['status' => TripStatus::Finished->value]);
-    $ignored = callTripTool(tripTool(TripsTool::class, tripToolAdmin()), ['status' => 'cancelled']);
+    $ignored = callTripTool(tripTool(TripsTool::class, tripToolAdmin()), ['status' => 'cerrado']);
 
     expect($bySearch['total'])->toBe(2)
         ->and($byStatus['total'])->toBe(1)

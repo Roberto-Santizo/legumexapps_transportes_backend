@@ -11,7 +11,8 @@ interface TripNotificationServiceInterface
      *
      * The trip is reloaded from its id, so the state read is the one already committed.
      * Recipients by type:
-     *  - `trip.assigned`: the tokens of the trip's `pilot_id`;
+     *  - `trip.assigned` and `trip.cancelled` (SPEC 42): the tokens of the trip's
+     *    `pilot_id`, none when the trip has no pilot;
      *  - `trip.started` / `trip.finished`: the tokens of every user whose role is not
      *    `pilot` and who is either not a `carrier` or the owner of the company of
      *    `assigned_by`.

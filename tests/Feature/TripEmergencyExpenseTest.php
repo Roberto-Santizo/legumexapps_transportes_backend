@@ -724,3 +724,50 @@ it('no mezcla los gastos emergentes con los viáticos del viaje', function () {
         ->assertOk()
         ->assertJsonPath('data.totalExpensesAmount', '300.00');
 });
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 42 — Viaje cancelado
+|--------------------------------------------------------------------------
+*/
+
+it('responde 400 «El viaje está cancelado» al registrar un gasto emergente en un viaje cancelado de la empresa', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripEmergencyExpenseScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    asUser($owner)->postJson("/api/trips/{$trip->id}/emergency-expenses", tripEmergencyExpensePayload())
+        ->assertBadRequest()
+        ->assertExactJson(['statusCode' => 400, 'message' => 'El viaje está cancelado', 'data' => null]);
+
+    expect(TripEmergencyExpense::count())->toBe(0);
+});
+
+it('responde 403, y no 400, al gasto emergente de otra empresa sobre un viaje cancelado', function () {
+    ['trip' => $trip] = tripEmergencyExpenseScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    asUser(tripEmergencyExpenseStranger())->postJson("/api/trips/{$trip->id}/emergency-expenses", tripEmergencyExpensePayload())
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes registrar gastos emergentes en un viaje que no tomó tu empresa transportista');
+});
+
+it('responde 400 «El viaje está cancelado» al corregir o borrar un gasto emergente de un viaje cancelado', function (string $method) {
+    ['trip' => $trip, 'owner' => $owner] = tripEmergencyExpenseScene();
+    $expense = TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 100]);
+    /** El hueco de SPEC 24 lo devuelve a pending y después se cancela. */
+    $trip->update(['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    asUser($owner)->json($method, "/api/trip-emergency-expenses/{$expense->id}", ['amount' => 999])
+        ->assertBadRequest()
+        ->assertJsonPath('message', 'El viaje está cancelado');
+
+    expect($expense->fresh()->amount)->toBe('100.00');
+})->with(['PATCH', 'DELETE']);
+
+it('responde 403, y no 400, al corregir o borrar desde otra empresa el gasto de un viaje cancelado', function (string $method) {
+    ['trip' => $trip] = tripEmergencyExpenseScene();
+    $expense = TripEmergencyExpense::factory()->create(['trip_id' => $trip->id, 'amount' => 100]);
+    $trip->update(['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    asUser(tripEmergencyExpenseStranger())->json($method, "/api/trip-emergency-expenses/{$expense->id}", ['amount' => 999])
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes registrar gastos emergentes en un viaje que no tomó tu empresa transportista');
+})->with(['PATCH', 'DELETE']);

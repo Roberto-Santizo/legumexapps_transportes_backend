@@ -7,4 +7,5 @@ enum TripNotificationType: string
     case Assigned = 'trip.assigned';
     case Started = 'trip.started';
     case Finished = 'trip.finished';
+    case Cancelled = 'trip.cancelled';
 }

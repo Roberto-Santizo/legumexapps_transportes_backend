@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\FuelType;
+use App\Enums\TripStatus;
 use App\Enums\UserRole;
 use App\Models\Carrier;
 use App\Models\Trip;
@@ -743,4 +744,50 @@ it('responde 400 al administrador que registra una carga en un viaje sin asignar
         ->assertJsonPath('message', 'El viaje aún no fue asignado');
 
     expect(TripFuel::count())->toBe(0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC 42 — Viaje cancelado
+|--------------------------------------------------------------------------
+*/
+
+it('responde 400 «El viaje está cancelado» al registrar una carga en un viaje cancelado de la empresa', function () {
+    ['trip' => $trip, 'owner' => $owner] = tripFuelScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    asUser($owner)->postJson("/api/trips/{$trip->id}/fuels", tripFuelPayload())
+        ->assertBadRequest()
+        ->assertExactJson(['statusCode' => 400, 'message' => 'El viaje está cancelado', 'data' => null]);
+
+    expect(TripFuel::count())->toBe(0);
+});
+
+it('responde 403, y no 400, a la carga de otra empresa sobre un viaje cancelado', function () {
+    ['trip' => $trip] = tripFuelScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+
+    asUser(tripFuelStranger())->postJson("/api/trips/{$trip->id}/fuels", tripFuelPayload())
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes registrar combustible en un viaje que no tomó tu empresa transportista');
+});
+
+it('responde 400 «El viaje está cancelado» al confirmar una carga, también si ya estaba confirmada', function (bool $confirmada) {
+    ['trip' => $trip, 'pilot' => $pilot] = tripFuelScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+    $fuel = $confirmada
+        ? TripFuel::factory()->confirmed()->create(['trip_id' => $trip->id])
+        : TripFuel::factory()->create(['trip_id' => $trip->id]);
+
+    asUser($pilot)->patchJson("/api/trip-fuels/{$fuel->id}/confirm")
+        ->assertBadRequest()
+        ->assertJsonPath('message', 'El viaje está cancelado');
+
+    expect($fuel->fresh()->loaded_at === null)->toBe(! $confirmada);
+})->with(['sin confirmar' => false, 'ya confirmada' => true]);
+
+it('responde 403, y no 400, al piloto no asignado que confirma la carga de un viaje cancelado', function () {
+    ['trip' => $trip] = tripFuelScene('assigned', ['status' => TripStatus::Cancelled, 'cancelled_at' => now()]);
+    $fuel = TripFuel::factory()->create(['trip_id' => $trip->id]);
+
+    asUser(userWithRole(UserRole::Pilot))->patchJson("/api/trip-fuels/{$fuel->id}/confirm")
+        ->assertForbidden()
+        ->assertJsonPath('message', 'No puedes confirmar la carga de un viaje que no tienes asignado');
 });
