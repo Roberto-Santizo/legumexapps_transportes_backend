@@ -10,8 +10,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use OpenApi\Attributes as OA;
 
 /**
- * The trip as the API paints it: 49 keys in camelCase, the largest resource of the
- * project (50 in `GET /api/trips/{trip}`, which appends `positions`).
+ * The trip as the API paints it: 50 keys in camelCase, the largest resource of the
+ * project (51 in `GET /api/trips/{trip}`, which appends `positions`).
  *
  * `cancelledAt` and `cancelledByName` (SPEC 42) sit right after `endDate`, next to the
  * other lifecycle marks: both `null` unless the trip was cancelled, and visible to every
@@ -19,6 +19,7 @@ use OpenApi\Attributes as OA;
  *
  * `booking` and `reference` (SPEC 41) sit right after `container`: two upper cased
  * strings or `null`, visible to every role —`shipment` included, they are not money—.
+ * `ov`, the optional sales order (SPEC 43), follows `reference` under the same rules.
  *
  * The six relations go out **flat**, as an id plus its name side by side, never as a
  * nested object: `clientId` + `clientName`, `vehicleId` + `vehiclePlate`, and so on.
@@ -73,7 +74,7 @@ use OpenApi\Attributes as OA;
     schema: 'Trip',
     title: 'Viaje de exportación',
     description: <<<'TEXT'
-    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 49 CLAVES en camelCase (50 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start, /finish y /cancel. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 22 claves.
+    El viaje que enlaza cliente, naviera, punto de partida y puerto de destino. Son 50 CLAVES en camelCase (51 en el detalle con positions) —el recurso más grande del proyecto— y salen con la misma forma en SIETE de los ocho endpoints del dominio: el detalle, el alta, la edición, la baja, /assignment, /start, /finish y /cancel. EL LISTADO NO USA ESTE ESQUEMA: GET /api/trips devuelve TripListItem, con solo 23 claves.
 
     ATENCIÓN — LAS SEIS RELACIONES SALEN PLANAS, NUNCA ANIDADAS: cada una es un par id + nombre puestos uno al lado del otro (clientId/clientName, shippingLineId/shippingLineName, departurePointId/departurePointName, locationId/locationName, pilotId/pilotName, vehicleId/vehiclePlate, assignedById/assignedByName), y de quien registró el viaje solo sale el nombre (registeredByName), sin id. DOS relaciones salen con CUATRO y TRES claves respectivamente: el piloto con pilotId, pilotName, pilotDpiImage y pilotLicenseImage, y el vehículo con vehicleId, vehiclePlate y vehicleImage. No hay objetos anidados: si se necesita el detalle completo de un cliente o de un vehículo hay que pedirlo a su propio dominio.
 
@@ -103,7 +104,7 @@ use OpenApi\Attributes as OA;
 
     ATENCIÓN — cancelledAt y cancelledByName (SPEC 42) van justo después de endDate: cuándo y quién canceló el viaje con PATCH /api/trips/{trip}/cancel. Las dos son null salvo en un viaje cancelado, y las ven todos los roles.
 
-    Las 49 claves salen siempre en este orden (50 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, booking, reference, transport, recolectionDate, shipDate, startDate, endDate, cancelledAt, cancelledByName, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, cargoInsurance, createdAt, updatedAt y deletedAt.
+    Las 50 claves salen siempre en este orden (51 en GET /api/trips/{trip}, que añade positions al final salvo para el piloto): id, order, status, clientId, clientName, shippingLineId, shippingLineName, departurePointId, departurePointName, locationId, locationName, destination, container, booking, reference, ov, transport, recolectionDate, shipDate, startDate, endDate, cancelledAt, cancelledByName, polyline, points, estimatedKilometers, estimatedHours, traveledPolyline, traveledPoints, traveledKilometers, traveledHours, observations, pilotId, pilotName, pilotDpiImage, pilotLicenseImage, vehicleId, vehiclePlate, vehicleImage, assignedById, assignedByName, registeredByName, totalFuelGallons, totalExpensesAmount, totalEmergencyExpensesAmount, bonus, cargoInsurance, createdAt, updatedAt y deletedAt.
     TEXT,
     properties: [
         new OA\Property(
@@ -207,6 +208,14 @@ use OpenApi\Attributes as OA;
             maxLength: 255,
             nullable: true,
             example: 'PEDIDO CLIENTE-77',
+        ),
+        new OA\Property(
+            property: 'ov',
+            description: 'Orden de venta OPCIONAL del viaje (SPEC 43), normalizada igual que la referencia: SIEMPRE EN MAYÚSCULAS y con los espacios interiores COLAPSADOS a uno. null significa «sin OV», legítimo en cualquier viaje, anterior o posterior a SPEC 43: nunca sale como cadena vacía. NO ES ÚNICA: una orden de venta puede cubrir varios viajes. Lo barre el filtro search. Visible para todos los roles, shipment incluido: no es dinero.',
+            type: 'string',
+            maxLength: 255,
+            nullable: true,
+            example: 'OV-2026 15',
         ),
         new OA\Property(
             property: 'transport',
@@ -484,6 +493,8 @@ class TripResource extends JsonResource
             /** SPEC 41: null en booking solo para viajes anteriores; null en reference es «sin referencia». */
             'booking' => $this->booking,
             'reference' => $this->reference,
+            /** SPEC 43: null es «sin orden de venta», como reference. */
+            'ov' => $this->ov,
             'transport' => $this->transport,
             'recolectionDate' => $this->recolection_date?->format('d-m-Y h:i:s A'),
             'shipDate' => $this->ship_date?->format('d-m-Y h:i:s A'),

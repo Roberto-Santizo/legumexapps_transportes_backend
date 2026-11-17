@@ -288,7 +288,7 @@ function tripPayloadProductLine(mixed $clientId): array
 }
 
 /**
- * The 49 keys `TripResource` promises, in the order the resource declares them.
+ * The 50 keys `TripResource` promises, in the order the resource declares them.
  *
  * The largest resource of the project: the six relations go out flat, as an id plus
  * its name —the vehicle adds a third key, `vehicleImage`—, `points` is derived from
@@ -297,7 +297,7 @@ function tripPayloadProductLine(mixed $clientId): array
  * and SPEC 32 closed the mirror with `traveledKilometers` and `traveledHours` right after it.
  * SPEC 39 added `totalEmergencyExpensesAmount` right after `totalExpensesAmount`, and the
  * assignment bonus and cargo insurance came right after it. SPEC 41 slid `booking` and
- * `reference` right after `container`.
+ * `reference` right after `container`, and SPEC 43 slid `ov` right after `reference`.
  *
  * @return array<int, string>
  */
@@ -309,7 +309,7 @@ function tripResourceKeys(): array
         'shippingLineId', 'shippingLineName',
         'departurePointId', 'departurePointName',
         'locationId', 'locationName',
-        'destination', 'container', 'booking', 'reference', 'transport',
+        'destination', 'container', 'booking', 'reference', 'ov', 'transport',
         'recolectionDate', 'shipDate', 'startDate', 'endDate', 'cancelledAt', 'cancelledByName',
         'polyline', 'points', 'estimatedKilometers', 'estimatedHours',
         'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations',
@@ -322,7 +322,7 @@ function tripResourceKeys(): array
 }
 
 /**
- * The 50 keys of `GET /api/trips/{trip}` for any role but `pilot`: the 49 of
+ * The 51 keys of `GET /api/trips/{trip}` for any role but `pilot`: the 50 of
  * `TripResource` plus the `positions` trail, which only the detail loads.
  *
  * @return array<int, string>
@@ -333,7 +333,7 @@ function tripDetailKeys(): array
 }
 
 /**
- * The 22 keys `TripListResource` promises, in the order the resource declares them.
+ * The 23 keys `TripListResource` promises, in the order the resource declares them.
  *
  * El listado es una vista de tabla: no trae los ids de las relaciones, ni `clientName`,
  * ni `destination`, ni `transport`, ni `polyline`, ni `points`, ni las tres marcas de
@@ -346,7 +346,7 @@ function tripListResourceKeys(): array
     return [
         'id', 'order', 'status', 'statusLabel',
         'shippingLineName', 'departurePointName', 'locationName',
-        'container', 'booking', 'reference',
+        'container', 'booking', 'reference', 'ov',
         'recolectionDate', 'shipDate', 'startDate', 'endDate',
         'estimatedKilometers', 'estimatedHours',
         'traveledKilometers', 'traveledHours',
@@ -2500,8 +2500,8 @@ it('devuelve 22 claves en el listado y las 50 del detalle, y no las confunde', f
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
     $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
 
-    expect(tripResourceKeys())->toHaveCount(49)
-        ->and(tripListResourceKeys())->toHaveCount(22)
+    expect(tripResourceKeys())->toHaveCount(50)
+        ->and(tripListResourceKeys())->toHaveCount(23)
         ->and(array_keys($delListado))->toBe(tripListResourceKeys())
         ->and(array_keys($detalle))->toBe(tripDetailKeys());
 });
@@ -3478,7 +3478,7 @@ it('coloca las dos claves del recorrido justo después de las estimaciones de SP
     $indexOfPoints = array_search('points', $keys, true);
 
     expect(array_slice($keys, $indexOfPoints, 8))->toBe(['points', 'estimatedKilometers', 'estimatedHours', 'traveledPolyline', 'traveledPoints', 'traveledKilometers', 'traveledHours', 'observations'])
-        ->and($keys)->toHaveCount(50);
+        ->and($keys)->toHaveCount(51);
 });
 
 it('devuelve la ruta real en los siete endpoints que pintan el TripResource', function () {
@@ -3565,10 +3565,10 @@ it('devuelve las dos estimaciones como cadena de dos decimales justo después de
     $keys = array_keys($response->json('data'));
 
     expect($keys)->toBe(tripDetailKeys())
-        ->and($keys[24])->toBe('estimatedKilometers')
-        ->and($keys[25])->toBe('estimatedHours')
-        ->and($keys[23])->toBe('points')
-        ->and($keys[26])->toBe('traveledPolyline');
+        ->and($keys[25])->toBe('estimatedKilometers')
+        ->and($keys[26])->toBe('estimatedHours')
+        ->and($keys[24])->toBe('points')
+        ->and($keys[27])->toBe('traveledPolyline');
 });
 
 it('rellena a dos decimales una estimación entera o de un decimal', function () {
@@ -3622,10 +3622,10 @@ it('trae las dos estimaciones entre endDate y observations en cada elemento del 
         $keys = array_keys($item);
 
         expect($keys)->toBe(tripListResourceKeys())
-            ->and($keys[13])->toBe('endDate')
-            ->and($keys[14])->toBe('estimatedKilometers')
-            ->and($keys[15])->toBe('estimatedHours')
-            ->and($keys[18])->toBe('observations')
+            ->and($keys[14])->toBe('endDate')
+            ->and($keys[15])->toBe('estimatedKilometers')
+            ->and($keys[16])->toBe('estimatedHours')
+            ->and($keys[19])->toBe('observations')
             ->and($item['estimatedKilometers'])->toMatch('/^\d+\.\d{2}$/')
             ->and($item['estimatedHours'])->toMatch('/^\d+\.\d{2}$/');
     }
@@ -3899,12 +3899,12 @@ it('coloca totalExpensesAmount justo después de totalFuelGallons y deja el list
     $indexOfFuel = array_search('totalFuelGallons', $keys, true);
 
     expect(array_slice($keys, $indexOfFuel, 3))->toBe(['totalFuelGallons', 'totalExpensesAmount', 'totalEmergencyExpensesAmount'])
-        ->and($keys)->toHaveCount(50);
+        ->and($keys)->toHaveCount(51);
 
     $delListado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
 
     expect($delListado)->not->toHaveKey('totalExpensesAmount')
-        ->and(array_keys($delListado))->toHaveCount(22);
+        ->and(array_keys($delListado))->toHaveCount(23);
 });
 
 /*
@@ -3979,11 +3979,11 @@ it('coloca traveledKilometers y traveledHours justo después de traveledPoints y
     $keys = array_keys(asUser(userWithRole(UserRole::Administrator))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data'));
 
     expect($keys)->toBe(tripDetailKeys())
-        ->and($keys[27])->toBe('traveledPoints')
-        ->and($keys[28])->toBe('traveledKilometers')
-        ->and($keys[29])->toBe('traveledHours')
-        ->and($keys[30])->toBe('observations')
-        ->and($keys)->toHaveCount(50);
+        ->and($keys[28])->toBe('traveledPoints')
+        ->and($keys[29])->toBe('traveledKilometers')
+        ->and($keys[30])->toBe('traveledHours')
+        ->and($keys[31])->toBe('observations')
+        ->and($keys)->toHaveCount(51);
 });
 
 it('devuelve null en las dos métricas reales de un viaje pending o in_route, presentes y no ausentes', function (TripStatus $status) {
@@ -4024,11 +4024,11 @@ it('trae las dos métricas reales entre estimatedHours y observations en cada el
         $keys = array_keys($item);
 
         expect($keys)->toBe(tripListResourceKeys())
-            ->and($keys[15])->toBe('estimatedHours')
-            ->and($keys[16])->toBe('traveledKilometers')
-            ->and($keys[17])->toBe('traveledHours')
-            ->and($keys[18])->toBe('observations')
-            ->and($keys)->toHaveCount(22);
+            ->and($keys[16])->toBe('estimatedHours')
+            ->and($keys[17])->toBe('traveledKilometers')
+            ->and($keys[18])->toBe('traveledHours')
+            ->and($keys[19])->toBe('observations')
+            ->and($keys)->toHaveCount(23);
     }
 
     $finalizado = collect($listado->json('data'))->firstWhere('status', 'finished');
@@ -4404,10 +4404,10 @@ it('pinta 50 claves en el detalle y 49 para el piloto asignado, con el listado e
     $pilot = asUser(User::findOrFail($trip->pilot_id))->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
     $listado = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips')->assertOk()->json('data.0');
 
-    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(50)
-        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(49)
+    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(51)
+        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(50)
         ->and($listado)->not->toHaveKey('totalEmergencyExpensesAmount')
-        ->and(array_keys($listado))->toHaveCount(22);
+        ->and(array_keys($listado))->toHaveCount(23);
 });
 
 it('trae totalEmergencyExpensesAmount en la respuesta de una escritura del viaje', function () {
@@ -4696,17 +4696,17 @@ it('pinta el booking y la referencia justo después del contenedor en el detalle
         $keys = array_keys($viaje);
         $indexOfContainer = array_search('container', $keys, true);
 
-        expect(array_slice($keys, $indexOfContainer, 3))->toBe(['container', 'booking', 'reference'])
+        expect(array_slice($keys, $indexOfContainer, 4))->toBe(['container', 'booking', 'reference', 'ov'])
             ->and($viaje['booking'])->toBe('BK-2026 001')
             ->and($viaje['reference'])->toBe('PEDIDO CLIENTE-77');
     }
 
-    expect(array_keys($detalle))->toHaveCount(50)
-        ->and(array_keys($listado))->toHaveCount(22)
+    expect(array_keys($detalle))->toHaveCount(51)
+        ->and(array_keys($listado))->toHaveCount(23)
         ->and(array_keys($actual))->toBe(tripListResourceKeys());
 });
 
-it('devuelve 47 claves en las escrituras del TripResource, con el booking y la referencia del alta', function () {
+it('devuelve 50 claves en las escrituras del TripResource, con el booking y la referencia del alta', function () {
     $response = asUser(userWithRole(UserRole::Administrator))->postJson('/api/trips', tripPayload([
         'booking' => '  bk-2026   001 ',
         'reference' => ' pedido 77 ',
@@ -4715,7 +4715,7 @@ it('devuelve 47 claves en las escrituras del TripResource, con el booking y la r
         ->assertJsonPath('data.booking', 'BK-2026 001')
         ->assertJsonPath('data.reference', 'PEDIDO 77');
 
-    expect(array_keys($response->json('data')))->toBe(tripResourceKeys())->toHaveCount(49);
+    expect(array_keys($response->json('data')))->toBe(tripResourceKeys())->toHaveCount(50);
 
     $editado = asUser(userWithRole(UserRole::Administrator))->patchJson('/api/trips/'.$response->json('data.id'), ['reference' => null])
         ->assertOk()
@@ -4780,6 +4780,113 @@ it('no cambia la forma del viaje en ruta del tablero', function () {
 
     expect($enRuta)->not->toHaveKey('booking')
         ->and($enRuta)->not->toHaveKey('reference')
+        ->and(array_keys($enRuta))->toHaveCount(16);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Orden de venta (SPEC 43)
+|--------------------------------------------------------------------------
+|
+| ov es opcional, sigue a reference en los dos Resources y la ve también shipment.
+*/
+
+it('pinta la orden de venta justo después de la referencia en el detalle, el listado y el viaje en curso', function () {
+    $team = tripTeam();
+    $trip = tripAssignedTo($team, [
+        'status' => TripStatus::InRoute,
+        'start_date' => now()->subHour(),
+        'reference' => 'PEDIDO CLIENTE-77',
+        'ov' => 'OV-2026 15',
+    ]);
+    $admin = userWithRole(UserRole::Administrator);
+
+    $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $listado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
+    $actual = asUser($team['pilot'])->getJson('/api/trips/current')->assertOk()->json('data');
+
+    foreach ([$detalle, $listado, $actual] as $viaje) {
+        $keys = array_keys($viaje);
+
+        expect($keys[array_search('reference', $keys, true) + 1])->toBe('ov')
+            ->and($viaje['ov'])->toBe('OV-2026 15');
+    }
+
+    expect(array_keys($detalle))->toBe(tripDetailKeys())->toHaveCount(51)
+        ->and(array_keys($listado))->toBe(tripListResourceKeys())->toHaveCount(23)
+        ->and(array_keys($actual))->toBe(tripListResourceKeys());
+});
+
+it('devuelve la orden de venta en las escrituras del TripResource', function () {
+    $admin = userWithRole(UserRole::Administrator);
+
+    $response = asUser($admin)->postJson('/api/trips', tripPayload(['ov' => '  ov-2026   15  ']))
+        ->assertCreated()
+        ->assertJsonPath('data.ov', 'OV-2026 15');
+
+    expect(array_keys($response->json('data')))->toBe(tripResourceKeys())->toHaveCount(50);
+
+    asUser($admin)->patchJson('/api/trips/'.$response->json('data.id'), ['ov' => ' ov-9 '])
+        ->assertOk()
+        ->assertJsonPath('data.ov', 'OV-9');
+
+    asUser($admin)->patchJson('/api/trips/'.$response->json('data.id'), ['ov' => ''])
+        ->assertOk()
+        ->assertJsonPath('data.ov', null);
+});
+
+it('devuelve null, y no la clave ausente, en un viaje sin orden de venta', function () {
+    $trip = Trip::factory()->create(['ov' => null]);
+    $admin = userWithRole(UserRole::Administrator);
+
+    $detalle = asUser($admin)->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
+    $listado = asUser($admin)->getJson('/api/trips')->assertOk()->json('data.0');
+
+    expect($detalle)->toHaveKey('ov')
+        ->and($detalle['ov'])->toBeNull()
+        ->and($listado)->toHaveKey('ov')
+        ->and($listado['ov'])->toBeNull();
+});
+
+it('deja ver la orden de venta al rol shipment, que no es dinero', function () {
+    $trip = Trip::factory()->create(['ov' => 'OV-2026 15']);
+    $shipment = userWithRole(UserRole::Shipment);
+
+    asUser($shipment)->getJson("/api/trips/{$trip->id}")
+        ->assertOk()
+        ->assertJsonPath('data.ov', 'OV-2026 15');
+
+    asUser($shipment)->getJson('/api/trips')
+        ->assertOk()
+        ->assertJsonPath('data.0.ov', 'OV-2026 15');
+});
+
+it('no toca la orden de venta en /assignment, /start, /finish ni /cancel', function () {
+    $team = tripTeam();
+    $trip = Trip::factory()->create(['ov' => 'OV-2026 15']);
+
+    asUser($team['owner'])->patchJson("/api/trips/{$trip->id}/assignment", tripAssignmentBody($team, ['ov' => 'OTRA']))
+        ->assertOk();
+    tripFuelConfirmed($trip->id);
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/start")->assertOk();
+    asUser($team['pilot'])->patchJson("/api/trips/{$trip->id}/finish")->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $trip->id, 'status' => TripStatus::Finished->value, 'ov' => 'OV-2026 15']);
+
+    $cancelable = Trip::factory()->create(['ov' => 'OV-2026 16']);
+
+    asUser(userWithRole(UserRole::Administrator))->patchJson("/api/trips/{$cancelable->id}/cancel", ['ov' => 'OTRA'])
+        ->assertOk();
+
+    $this->assertDatabaseHas('trips', ['id' => $cancelable->id, 'status' => TripStatus::Cancelled->value, 'ov' => 'OV-2026 16']);
+});
+
+it('no cambia la forma del viaje en ruta del tablero por la orden de venta', function () {
+    Trip::factory()->inRoute()->create(['ov' => 'OV-2026 15']);
+
+    $enRuta = asUser(userWithRole(UserRole::Administrator))->getJson('/api/dashboard/trips/in-route')->assertOk()->json('data.0');
+
+    expect($enRuta)->not->toHaveKey('ov')
         ->and(array_keys($enRuta))->toHaveCount(16);
 });
 
@@ -4946,7 +5053,7 @@ it('devuelve cancelledAt y cancelledByName con valor, justo después de endDate,
 
     expect($data['cancelledAt'])->toMatch(tripDatePattern())
         ->and($data['cancelledByName'])->toBe('Ana López')
-        ->and($keys)->toHaveCount(49)
+        ->and($keys)->toHaveCount(50)
         ->and(array_slice($keys, array_search('endDate', $keys, true) + 1, 2))->toBe(['cancelledAt', 'cancelledByName']);
 });
 
@@ -4967,10 +5074,10 @@ it('pinta el detalle de un viaje cancelado con 50 claves, 49 para su piloto, y e
     $pilot = asUser($team['pilot'])->getJson("/api/trips/{$trip->id}")->assertOk()->json('data');
     $list = asUser(userWithRole(UserRole::Administrator))->getJson('/api/trips?status=cancelled')->assertOk()->json('data.0');
 
-    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(50)
-        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(49)
+    expect(array_keys($admin))->toBe(tripDetailKeys())->toHaveCount(51)
+        ->and(array_keys($pilot))->toBe(tripResourceKeys())->toHaveCount(50)
         ->and($pilot['cancelledAt'])->toMatch(tripDatePattern())
-        ->and(array_keys($list))->toBe(tripListResourceKeys())->toHaveCount(22);
+        ->and(array_keys($list))->toBe(tripListResourceKeys())->toHaveCount(23);
 });
 
 /**
