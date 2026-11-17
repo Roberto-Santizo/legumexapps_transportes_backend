@@ -54,6 +54,8 @@ class TripFactory extends Factory
             'booking' => Trip::normalizeReference(fake()->bothify('BK-########')),
             /** Optional commercial reference: half the trips have none. */
             'reference' => fake()->boolean() ? Trip::normalizeReference(fake()->bothify('ref-####-??')) : null,
+            /** Optional sales order (SPEC 43): half the trips have none. */
+            'ov' => fake()->boolean() ? Trip::normalizeReference(fake()->bothify('ov-######')) : null,
             'transport' => fake()->randomElement(['Rastra 40 pies', 'Furgón refrigerado', 'Cabezal con plataforma']),
             'recolection_date' => $recolectionDate,
             'ship_date' => fake()->dateTimeBetween($recolectionDate, '+30 days'),

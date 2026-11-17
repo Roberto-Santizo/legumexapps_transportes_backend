@@ -71,6 +71,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * created before SPEC 41, because the API neither creates nor edits a trip without one;
  * a `null` reference means the trip has none, which is legitimate on any trip.
  *
+ * `ov` is the optional sales order ("orden de venta", SPEC 43), a commercial code twin of
+ * `reference`: free text, never unique —one sales order may cover several trips— and
+ * normalized like `order` and `container`. `null` means the trip has no sales order,
+ * which is legitimate on any trip, before or after SPEC 43.
+ *
  * `cancelled_at` and `cancelled_by` are the cancellation marks (SPEC 42), written
  * together by the server on `PATCH /{trip}/cancel` —never taken from a body— in the
  * same `update()` that moves `status` to `cancelled`. `null` in both means the trip was
@@ -80,7 +85,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 #[Fillable([
     'order', 'client_id', 'shipping_line_id', 'departure_point_id', 'location_id',
-    'destination', 'container', 'booking', 'reference', 'transport',
+    'destination', 'container', 'booking', 'reference', 'ov', 'transport',
     'recolection_date', 'ship_date', 'start_date', 'end_date',
     'polyline', 'estimated_kilometers', 'estimated_hours',
     'traveled_polyline', 'traveled_kilometers', 'traveled_hours', 'observations', 'status',
@@ -258,11 +263,11 @@ class Trip extends Model
     /**
      * Normalize a commercial reference: trim it, collapse inner whitespace and upper case it.
      *
-     * A single function shared by `order`, `container`, `booking` and `reference`, against
-     * the project's habit of repeating `normalizeName()` per model. That repetition exists so
-     * catalogs that are **different models** may diverge; here these are four fields of the
-     * **same** model
-     * following the very same rule, and duplicating it would protect nothing.
+     * A single function shared by `order`, `container`, `booking`, `reference` and `ov`,
+     * against the project's habit of repeating `normalizeName()` per model. That repetition
+     * exists so catalogs that are **different models** may diverge; here these are five
+     * fields of the **same** model following the very same rule, and duplicating it would
+     * protect nothing.
      *
      * `destination`, `transport` and `observations` deliberately get none of this: they
      * keep the casing they were typed with, and only the form request trims them.
