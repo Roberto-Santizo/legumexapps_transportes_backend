@@ -15,7 +15,7 @@ use OpenApi\Attributes as OA;
 
     PERMISOS — todo rol salvo pilot (403). Sin carrier.required. EL ÁMBITO ES EL DE GET /api/trips: el carrier recibe la bolsa libre más lo que tomó su empresa; administrator, manager, export, user y shipment, todos los viajes.
 
-    COLUMNAS POR ROL — 22 columnas base para todos; todos salvo shipment reciben después «Bonificación (Q)» y «Seguro de carga (Q)»; administrator, manager, export y shipment reciben además «Productos» y «Total de cajas» al final. Total: 26 para administrator, manager y export; 24 para carrier y user; 24 para shipment. carrier y user NO reciben los productos aunque GET /api/trip-finished-products sí les responda: el reporte tiene su propia matriz.
+    COLUMNAS POR ROL — 14 para administrator, manager, export y shipment, con UNA FILA POR LÍNEA DE PRODUCTO; 12 para carrier y user (sin «Producto» ni «Cajas»), una fila por viaje. Ningún rol recibe columnas de dinero. carrier y user NO reciben los productos aunque GET /api/trip-finished-products sí les responda: el reporte tiene su propia matriz.
 
     Nada se guarda en el bucket: el archivo se genera en la petición y no hay URL ni historial.
     TEXT,
@@ -42,11 +42,11 @@ class ReportController extends Controller
 
         CABECERAS: Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet y Content-Disposition attachment; filename="viajes-{dateFrom}_{dateTo}.xlsx". El frontend hace blob() y descarga con ese nombre.
 
-        COLUMNAS BASE (22, en este orden): Id, Orden, Estado, Cliente, Naviera, Punto de partida, Puerto, Destino final, Transporte, Contenedor, Fecha recolección, Fecha embarque, Inicio, Fin, Km estimados, Horas estimadas, Km reales, Horas reales, Observaciones, Piloto, Placa, Registrado por. Estado en español (Pendiente / En ruta / Finalizado / Cancelado); fechas en d-m-Y h:i:s A (NO ISO 8601); km y horas como celdas NUMÉRICAS; cualquier null es una celda vacía (un viaje de la bolsa trae vacíos Piloto y Placa).
+        COLUMNAS (14, en este orden): Orden, Cliente, Producto, Cajas, Naviera, Destino, Contenedor, Punto de Partida, Fecha de recolección, Fecha de embarque, Booking, Punto de llegada, Transporte, Status. «Destino» es el destino final en texto libre (destination); «Punto de llegada» es el puerto (location). Status en español (Pendiente / En ruta / Finalizado / Cancelado); fechas en d-m-Y h:i:s A (NO ISO 8601); cualquier null es una celda vacía (un viaje anterior a SPEC 41 trae vacío Booking).
 
-        SALVO PARA shipment, que no ve dinero, siguen a las base «Bonificación (Q)» y «Seguro de carga (Q)»: los dos montos que la empresa fijó en /assignment, como celdas NUMÉRICAS, vacías si el viaje no se asignó o se asignó antes de existir el dato.
+        «Producto» (nombre del producto terminado) y «Cajas» (número) SOLO PARA administrator, manager, export Y shipment, y el archivo trae UNA FILA POR LÍNEA DE PRODUCTO: un viaje con N líneas ocupa N filas consecutivas, en el orden de las líneas y con los datos del viaje repetidos en cada una; un viaje sin líneas ocupa una fila con las dos celdas vacías; un SKU borrado sigue saliendo. Para carrier y user las dos columnas no existen (12 columnas) y hay una fila por viaje. El tope de 5000 cuenta viajes, no filas.
 
-        SOLO PARA administrator, manager, export Y shipment se añaden al final «Productos» —texto «CODE × N cajas; CODE × N cajas» en el orden de las líneas, vacío sin líneas; un SKU borrado sigue saliendo— y «Total de cajas» —número, 0 sin líneas—.
+        La fila de encabezados sale con relleno azul oscuro, texto blanco en negrita, centrada, inmovilizada y con autofiltro; cada columna se ajusta al ancho de su contenido.
 
         Un rango sin viajes responde 200 con un archivo que solo trae la fila de encabezados. Con MÁS DE 5000 viajes responde 400 y no genera archivo: acota el rango.
         TEXT,

@@ -79,26 +79,17 @@ final class ReportService implements ReportServiceInterface
     ];
 
     /**
-     * Headers of the downloadable trips report (`downloadTrips()`): every authorized
-     * role gets these 22 columns.
+     * Headers of the downloadable trips report (`downloadTrips()`), in the order the
+     * business asked for. «Destino» is the free-text final destination and «Punto de
+     * llegada» the port (`location`). No money columns, for any role.
      *
      * @var list<string>
      */
     private const array TRIP_REPORT_HEADERS = [
-        'Id', 'Orden', 'Estado', 'Cliente', 'Naviera', 'Punto de partida', 'Puerto',
-        'Destino final', 'Transporte', 'Contenedor', 'Fecha recolección', 'Fecha embarque',
-        'Inicio', 'Fin', 'Km estimados', 'Horas estimadas', 'Km reales', 'Horas reales',
-        'Observaciones', 'Piloto', 'Placa', 'Registrado por',
+        'Orden', 'Cliente', 'Producto', 'Cajas', 'Naviera', 'Destino', 'Contenedor',
+        'Punto de Partida', 'Fecha de recolección', 'Fecha de embarque', 'Booking',
+        'Punto de llegada', 'Transporte', 'Status',
     ];
-
-    /**
-     * Headers of the money columns of the downloadable report —the bonus and the cargo
-     * insurance set on `/assignment`—, appended after the base columns for every role but
-     * `shipment`, which sees no money.
-     *
-     * @var list<string>
-     */
-    private const array TRIP_MONEY_HEADERS = ['Bonificación (Q)', 'Seguro de carga (Q)'];
 
     /**
      * Format of the dates in the downloadable report, the project's own and not ISO 8601.
@@ -106,11 +97,12 @@ final class ReportService implements ReportServiceInterface
     private const string REPORT_DATE_FORMAT = 'd-m-Y h:i:s A';
 
     /**
-     * Headers appended at the end of the downloadable report, only for `PRODUCT_ROLES`.
+     * Product headers inside `TRIP_REPORT_HEADERS`, kept only for `PRODUCT_ROLES`: one row
+     * per product line, so a trip with N lines takes N rows.
      *
      * @var list<string>
      */
-    private const array TRIP_PRODUCT_HEADERS = ['Productos', 'Total de cajas'];
+    private const array TRIP_PRODUCT_HEADERS = ['Producto', 'Cajas'];
 
     /**
      * Roles whose downloadable report carries the finished products of each trip.
@@ -283,9 +275,6 @@ final class ReportService implements ReportServiceInterface
 
         $withProducts = in_array($user->role, self::PRODUCT_ROLES, true);
 
-        /** Shipment no ve dinero: su reporte se queda sin bonificación ni seguro de la carga. */
-        $withMoney = $user->role !== UserRole::Shipment;
-
         if ($withProducts) {
             /** Solo quien ve los productos paga su consulta; `finishedProduct()` ya lee `withTrashed()`. */
             $trips->load([
@@ -294,20 +283,23 @@ final class ReportService implements ReportServiceInterface
             ]);
         }
 
+        /**
+         * Con productos, una fila por línea y los datos del viaje repetidos en cada una;
+         * un viaje sin líneas conserva una fila con las celdas de producto vacías.
+         */
         $rows = $trips
-            ->map(static fn (Trip $trip): array => [
-                ...self::tripReportRow($trip),
-                ...($withMoney ? [self::toNumber($trip->bonus), self::toNumber($trip->cargo_insurance)] : []),
-                ...($withProducts ? self::tripProductCells($trip) : []),
-            ])
+            ->flatMap(static fn (Trip $trip): array => $withProducts
+                ? array_map(
+                    static fn (array $product): array => self::tripReportRow($trip, $product),
+                    self::tripProductLines($trip),
+                )
+                : [self::tripReportRow($trip)])
             ->values()
             ->all();
 
-        $headers = [
-            ...self::TRIP_REPORT_HEADERS,
-            ...($withMoney ? self::TRIP_MONEY_HEADERS : []),
-            ...($withProducts ? self::TRIP_PRODUCT_HEADERS : []),
-        ];
+        $headers = $withProducts
+            ? self::TRIP_REPORT_HEADERS
+            : array_values(array_diff(self::TRIP_REPORT_HEADERS, self::TRIP_PRODUCT_HEADERS));
 
         return [
             'fileName' => 'viajes-'.$filters['dateFrom'].'_'.$filters['dateTo'].'.'.self::EXTENSION,
@@ -316,53 +308,46 @@ final class ReportService implements ReportServiceInterface
     }
 
     /**
-     * The two product cells of the downloadable report: `CODE × N cajas; …` in the order
-     * of the line ids —empty without lines— and the total of boxes, `0` without lines.
+     * The product cells of the downloadable report, one pair per line in the order of
+     * the line ids —name and boxes—, or a single empty pair without lines.
      *
-     * @return array{0: string|null, 1: int}
+     * @return non-empty-list<array{0: string|null, 1: int|null}>
      */
-    private static function tripProductCells(Trip $trip): array
+    private static function tripProductLines(Trip $trip): array
     {
-        $lines = $trip->finishedProducts;
+        $lines = $trip->finishedProducts
+            ->map(static fn ($line): array => [$line->finishedProduct->name, (int) $line->boxes])
+            ->values()
+            ->all();
 
-        $summary = $lines
-            ->map(static fn ($line): string => $line->finishedProduct->code.' × '.$line->boxes.' cajas')
-            ->implode('; ');
-
-        return [$summary === '' ? null : $summary, (int) $lines->sum('boxes')];
+        return $lines === [] ? [[null, null]] : $lines;
     }
 
     /**
-     * The base columns of the downloadable report, built from the model and not from
-     * `TripListResource`, which lacks the client, the final destination and the transport.
+     * One row of the downloadable report in the order of `TRIP_REPORT_HEADERS`, built
+     * from the model and not from `TripListResource`, which lacks the client, the final
+     * destination and the transport. Without `$product` the two product cells are left
+     * out, not blanked: the role does not get those columns.
      *
+     * @param  array{0: string|null, 1: int|null}|null  $product
      * @return list<scalar|null>
      */
-    private static function tripReportRow(Trip $trip): array
+    private static function tripReportRow(Trip $trip, ?array $product = null): array
     {
         return [
-            $trip->id,
             $trip->order,
-            $trip->status->label(),
             $trip->client?->name,
+            ...($product ?? []),
             $trip->shippingLine?->name,
-            $trip->departurePoint?->name,
-            $trip->location?->name,
             $trip->destination,
-            $trip->transport,
             $trip->container,
+            $trip->departurePoint?->name,
             $trip->recolection_date?->format(self::REPORT_DATE_FORMAT),
             $trip->ship_date?->format(self::REPORT_DATE_FORMAT),
-            $trip->start_date?->format(self::REPORT_DATE_FORMAT),
-            $trip->end_date?->format(self::REPORT_DATE_FORMAT),
-            self::toNumber($trip->estimated_kilometers),
-            self::toNumber($trip->estimated_hours),
-            self::toNumber($trip->traveled_kilometers),
-            self::toNumber($trip->traveled_hours),
-            $trip->observations,
-            $trip->pilot?->name,
-            $trip->vehicle?->plate,
-            $trip->registeredBy?->name,
+            $trip->booking,
+            $trip->location?->name,
+            $trip->transport,
+            $trip->status->label(),
         ];
     }
 

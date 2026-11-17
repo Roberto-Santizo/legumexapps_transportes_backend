@@ -339,17 +339,18 @@ function downloadedReportRows(string $contents): array
 }
 
 /**
- * The 22 base headers every authorized role gets.
+ * The headers of the report, in order; «Producto» and «Cajas» only for the roles that
+ * see the products.
  *
  * @return list<string>
  */
-function tripReportBaseHeaders(): array
+function tripReportHeaders(bool $withProducts = true): array
 {
     return [
-        'Id', 'Orden', 'Estado', 'Cliente', 'Naviera', 'Punto de partida', 'Puerto',
-        'Destino final', 'Transporte', 'Contenedor', 'Fecha recolección', 'Fecha embarque',
-        'Inicio', 'Fin', 'Km estimados', 'Horas estimadas', 'Km reales', 'Horas reales',
-        'Observaciones', 'Piloto', 'Placa', 'Registrado por',
+        'Orden', 'Cliente',
+        ...($withProducts ? ['Producto', 'Cajas'] : []),
+        'Naviera', 'Destino', 'Contenedor', 'Punto de Partida', 'Fecha de recolección',
+        'Fecha de embarque', 'Booking', 'Punto de llegada', 'Transporte', 'Status',
     ];
 }
 
@@ -379,23 +380,17 @@ function downloadReportService(SpreadsheetWriterInterface $writer, int $maxRows 
     );
 }
 
-it('descarga los viajes del rango con las 22 columnas base, sin subir nada al disco', function () {
+it('descarga los viajes del rango con las columnas del negocio en su orden, sin subir nada al disco', function () {
     $trip = Trip::factory()->finished()->create([
         'order' => 'ORD-0001',
         'destination' => 'Bodega Rotterdam',
         'transport' => 'Rastra 40 pies',
+        'booking' => 'BK-778',
         'recolection_date' => '2026-09-10 08:30:00',
         'ship_date' => '2026-09-12 14:00:00',
-        'start_date' => '2026-09-10 09:00:00',
-        'end_date' => '2026-09-10 15:00:00',
-        'estimated_kilometers' => 104.32,
-        'estimated_hours' => 1.75,
-        'traveled_kilometers' => 111.4,
-        'traveled_hours' => 2.1,
-        'observations' => 'Frágil',
         'bonus' => 250.5,
         'cargo_insurance' => 99.75,
-    ])->load('client', 'shippingLine', 'departurePoint', 'location', 'pilot', 'vehicle', 'registeredBy');
+    ])->load('client', 'shippingLine', 'departurePoint', 'location');
 
     $result = app(ReportServiceInterface::class)->downloadTrips(
         User::factory()->create(['role' => UserRole::User]),
@@ -407,30 +402,24 @@ it('descarga los viajes del rango con las 22 columnas base, sin subir nada al di
     expect($result['fileName'])->toBe('viajes-2026-09-01_2026-09-30.xlsx')
         ->and(Storage::disk(config('filesystems.default'))->allFiles())->toBeEmpty()
         ->and($rows)->toHaveCount(2)
-        ->and($rows[0])->toBe([...tripReportBaseHeaders(), 'Bonificación (Q)', 'Seguro de carga (Q)'])
+        ->and($rows[0])->toBe(tripReportHeaders(withProducts: false))
         ->and($rows[1])->toBe([
-            $trip->id, 'ORD-0001', 'Finalizado', $trip->client->name, $trip->shippingLine->name,
-            $trip->departurePoint->name, $trip->location->name, 'Bodega Rotterdam', 'Rastra 40 pies',
-            $trip->container, '10-09-2026 08:30:00 AM', '12-09-2026 02:00:00 PM',
-            '10-09-2026 09:00:00 AM', '10-09-2026 03:00:00 PM', 104.32, 1.75, 111.4, 2.1,
-            'Frágil', $trip->pilot->name, $trip->vehicle->plate, $trip->registeredBy->name, 250.5, 99.75,
+            'ORD-0001', $trip->client->name, $trip->shippingLine->name, 'Bodega Rotterdam',
+            $trip->container, $trip->departurePoint->name, '10-09-2026 08:30:00 AM',
+            '12-09-2026 02:00:00 PM', 'BK-778', $trip->location->name, 'Rastra 40 pies', 'Finalizado',
         ]);
 });
 
-it('deja vacías las celdas nulas: fechas de ejecución, métricas reales, piloto y placa', function () {
-    Trip::factory()->create(['recolection_date' => '2026-09-10 08:30:00']);
+it('deja vacías las celdas nulas y pone el estado en español al final', function () {
+    Trip::factory()->create(['recolection_date' => '2026-09-10 08:30:00', 'booking' => null]);
 
     $result = app(ReportServiceInterface::class)->downloadTrips(reportAdmin(), septemberReport());
     $row = downloadedReportRows($result['contents'])[1];
 
-    expect($row[2])->toBe('Pendiente')
-        ->and($row[12])->toBe('')
-        ->and($row[13])->toBe('')
-        ->and($row[14])->toBeFloat()
-        ->and($row[16])->toBe('')
-        ->and($row[17])->toBe('')
-        ->and($row[19])->toBe('')
-        ->and($row[20])->toBe('');
+    expect($row)->toHaveCount(14)
+        ->and([$row[2], $row[3]])->toBe(['', ''])
+        ->and($row[10])->toBe('')
+        ->and($row[13])->toBe('Pendiente');
 });
 
 it('filtra por día completo con bordes inclusivos, sin borrados y en orden de recolección desc', function () {
@@ -442,7 +431,7 @@ it('filtra por día completo con bordes inclusivos, sin borrados y en orden de r
 
     $result = app(ReportServiceInterface::class)->downloadTrips(reportAdmin(), septemberReport(['limit' => '1']));
 
-    expect(array_column(array_slice(downloadedReportRows($result['contents']), 1), 1))->toBe(['ORD-LAST', 'ORD-FIRST']);
+    expect(array_column(array_slice(downloadedReportRows($result['contents']), 1), 0))->toBe(['ORD-LAST', 'ORD-FIRST']);
 });
 
 it('devuelve un archivo con solo la cabecera cuando el rango no tiene viajes', function () {
@@ -461,7 +450,7 @@ it('aplica al transportista el ámbito del listado en la descarga', function () 
     Trip::factory()->assigned()->create(['order' => 'ORD-THEIRS', 'assigned_by' => $other->user_id, ...$date]);
 
     $result = app(ReportServiceInterface::class)->downloadTrips(reportCarrierOwner($carrier), septemberReport());
-    $orders = array_column(array_slice(downloadedReportRows($result['contents']), 1), 1);
+    $orders = array_column(array_slice(downloadedReportRows($result['contents']), 1), 0);
 
     expect($orders)->toHaveCount(2)
         ->and($orders)->toContain('ORD-POOL', 'ORD-MINE');
@@ -487,7 +476,7 @@ it('responde 400 por exceso de viajes antes de escribir el archivo, citando MAX_
         ->and($writer->calls)->toBe(0);
 });
 
-it('añade la bonificación y el seguro de la carga salvo a shipment y Productos y Total de cajas solo para los roles que los ven', function (UserRole $role, bool $withBonus, bool $withProducts) {
+it('incluye Producto y Cajas solo para los roles que ven los productos, sin columnas de dinero', function (UserRole $role, bool $withProducts) {
     Trip::factory()->create(['recolection_date' => '2026-09-10 08:00:00']);
 
     $user = $role === UserRole::Carrier
@@ -496,24 +485,20 @@ it('añade la bonificación y el seguro de la carga salvo a shipment y Productos
 
     $headers = downloadedReportRows(app(ReportServiceInterface::class)->downloadTrips($user, septemberReport())['contents'])[0];
 
-    expect($headers)->toBe([
-        ...tripReportBaseHeaders(),
-        ...($withBonus ? ['Bonificación (Q)', 'Seguro de carga (Q)'] : []),
-        ...($withProducts ? ['Productos', 'Total de cajas'] : []),
-    ]);
+    expect($headers)->toBe(tripReportHeaders($withProducts));
 })->with([
-    'administrator' => [UserRole::Administrator, true, true],
-    'manager' => [UserRole::Manager, true, true],
-    'export' => [UserRole::Export, true, true],
-    'shipment' => [UserRole::Shipment, false, true],
-    'carrier' => [UserRole::Carrier, true, false],
-    'user' => [UserRole::User, true, false],
+    'administrator' => [UserRole::Administrator, true],
+    'manager' => [UserRole::Manager, true],
+    'export' => [UserRole::Export, true],
+    'shipment' => [UserRole::Shipment, true],
+    'carrier' => [UserRole::Carrier, false],
+    'user' => [UserRole::User, false],
 ]);
 
-it('resume las líneas de productos en orden de línea, con su total y aunque el SKU esté borrado', function () {
-    $trip = Trip::factory()->create(['recolection_date' => '2026-09-10 08:00:00']);
-    $first = FinishedProduct::factory()->create(['code' => 'CODE1', 'client_id' => $trip->client_id]);
-    $second = FinishedProduct::factory()->create(['code' => 'CODE2', 'client_id' => $trip->client_id]);
+it('escribe una fila por línea de producto en orden de línea, aunque el SKU esté borrado', function () {
+    $trip = Trip::factory()->create(['order' => 'ORD-PRODUCTS', 'recolection_date' => '2026-09-10 08:00:00']);
+    $first = FinishedProduct::factory()->create(['code' => 'CODE1', 'name' => 'BROCOLI', 'client_id' => $trip->client_id]);
+    $second = FinishedProduct::factory()->create(['code' => 'CODE2', 'name' => 'EJOTE', 'client_id' => $trip->client_id]);
 
     TripFinishedProduct::factory()->create(['trip_id' => $trip->id, 'finished_product_id' => $first->id, 'boxes' => 120]);
     TripFinishedProduct::factory()->create(['trip_id' => $trip->id, 'finished_product_id' => $second->id, 'boxes' => 40]);
@@ -522,8 +507,12 @@ it('resume las líneas de productos en orden de línea, con su total y aunque el
     Trip::factory()->create(['order' => 'ORD-EMPTY', 'recolection_date' => '2026-09-05 08:00:00']);
 
     $rows = downloadedReportRows(app(ReportServiceInterface::class)->downloadTrips(reportAdmin(), septemberReport())['contents']);
+    $withoutProduct = static fn (array $row): array => [...array_slice($row, 0, 2), ...array_slice($row, 4)];
 
-    expect(array_slice($rows[1], 24))->toBe(['CODE1 × 120 cajas; CODE2 × 40 cajas', 160])
-        ->and($rows[2][1])->toBe('ORD-EMPTY')
-        ->and(array_slice($rows[2], 24))->toBe(['', 0]);
+    expect($rows)->toHaveCount(4)
+        ->and(array_column(array_slice($rows, 1), 0))->toBe(['ORD-PRODUCTS', 'ORD-PRODUCTS', 'ORD-EMPTY'])
+        ->and($withoutProduct($rows[1]))->toBe($withoutProduct($rows[2]))
+        ->and(array_slice($rows[1], 2, 2))->toBe(['BROCOLI', 120])
+        ->and(array_slice($rows[2], 2, 2))->toBe(['EJOTE', 40])
+        ->and(array_slice($rows[3], 2, 2))->toBe(['', '']);
 });
