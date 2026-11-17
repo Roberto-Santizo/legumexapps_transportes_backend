@@ -120,6 +120,7 @@ it('exporta los viajes filtrados a un xlsx en el disco por defecto y devuelve su
             'Horas estimadas', 'Observaciones', 'Piloto', 'Placa', 'Registrado por',
             'Bonificación (Q)', 'Seguro de carga (Q)',
         ])
+        ->and($rows[0])->not->toContain('OV')
         ->and(array_column(array_slice($rows, 1), 1))->toBe(['ORD-0002', 'ORD-0001'])
         ->and($rows[1][2])->toBe('Finalizado')
         ->and($rows[1][11])->toBeNumeric()
@@ -339,15 +340,15 @@ function downloadedReportRows(string $contents): array
 }
 
 /**
- * The headers of the report, in order; «Producto» and «Cajas» only for the roles that
- * see the products.
+ * The headers of the report, in order; «OV» second for every role (SPEC 43), «Producto»
+ * and «Cajas» only for the roles that see the products.
  *
  * @return list<string>
  */
 function tripReportHeaders(bool $withProducts = true): array
 {
     return [
-        'Orden', 'Cliente',
+        'Orden', 'OV', 'Cliente',
         ...($withProducts ? ['Producto', 'Cajas'] : []),
         'Naviera', 'Destino', 'Contenedor', 'Punto de Partida', 'Fecha de recolección',
         'Fecha de embarque', 'Booking', 'Punto de llegada', 'Transporte', 'Status',
@@ -386,6 +387,7 @@ it('descarga los viajes del rango con las columnas del negocio en su orden, sin 
         'destination' => 'Bodega Rotterdam',
         'transport' => 'Rastra 40 pies',
         'booking' => 'BK-778',
+        'ov' => 'OV-778',
         'recolection_date' => '2026-09-10 08:30:00',
         'ship_date' => '2026-09-12 14:00:00',
         'bonus' => 250.5,
@@ -404,22 +406,23 @@ it('descarga los viajes del rango con las columnas del negocio en su orden, sin 
         ->and($rows)->toHaveCount(2)
         ->and($rows[0])->toBe(tripReportHeaders(withProducts: false))
         ->and($rows[1])->toBe([
-            'ORD-0001', $trip->client->name, $trip->shippingLine->name, 'Bodega Rotterdam',
+            'ORD-0001', 'OV-778', $trip->client->name, $trip->shippingLine->name, 'Bodega Rotterdam',
             $trip->container, $trip->departurePoint->name, '10-09-2026 08:30:00 AM',
             '12-09-2026 02:00:00 PM', 'BK-778', $trip->location->name, 'Rastra 40 pies', 'Finalizado',
         ]);
 });
 
 it('deja vacías las celdas nulas y pone el estado en español al final', function () {
-    Trip::factory()->create(['recolection_date' => '2026-09-10 08:30:00', 'booking' => null]);
+    Trip::factory()->create(['recolection_date' => '2026-09-10 08:30:00', 'booking' => null, 'ov' => null]);
 
     $result = app(ReportServiceInterface::class)->downloadTrips(reportAdmin(), septemberReport());
     $row = downloadedReportRows($result['contents'])[1];
 
-    expect($row)->toHaveCount(14)
-        ->and([$row[2], $row[3]])->toBe(['', ''])
-        ->and($row[10])->toBe('')
-        ->and($row[13])->toBe('Pendiente');
+    expect($row)->toHaveCount(15)
+        ->and($row[1])->toBe('')
+        ->and([$row[3], $row[4]])->toBe(['', ''])
+        ->and($row[11])->toBe('')
+        ->and($row[14])->toBe('Pendiente');
 });
 
 it('filtra por día completo con bordes inclusivos, sin borrados y en orden de recolección desc', function () {
@@ -507,12 +510,12 @@ it('escribe una fila por línea de producto en orden de línea, aunque el SKU es
     Trip::factory()->create(['order' => 'ORD-EMPTY', 'recolection_date' => '2026-09-05 08:00:00']);
 
     $rows = downloadedReportRows(app(ReportServiceInterface::class)->downloadTrips(reportAdmin(), septemberReport())['contents']);
-    $withoutProduct = static fn (array $row): array => [...array_slice($row, 0, 2), ...array_slice($row, 4)];
+    $withoutProduct = static fn (array $row): array => [...array_slice($row, 0, 3), ...array_slice($row, 5)];
 
     expect($rows)->toHaveCount(4)
         ->and(array_column(array_slice($rows, 1), 0))->toBe(['ORD-PRODUCTS', 'ORD-PRODUCTS', 'ORD-EMPTY'])
         ->and($withoutProduct($rows[1]))->toBe($withoutProduct($rows[2]))
-        ->and(array_slice($rows[1], 2, 2))->toBe(['BROCOLI', 120])
-        ->and(array_slice($rows[2], 2, 2))->toBe(['EJOTE', 40])
-        ->and(array_slice($rows[3], 2, 2))->toBe(['', '']);
+        ->and(array_slice($rows[1], 3, 2))->toBe(['BROCOLI', 120])
+        ->and(array_slice($rows[2], 3, 2))->toBe(['EJOTE', 40])
+        ->and(array_slice($rows[3], 3, 2))->toBe(['', '']);
 });
