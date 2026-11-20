@@ -5,11 +5,12 @@ use App\Http\Controllers\FuelPriceController;
 use Illuminate\Support\Facades\Route;
 
 $administrator = UserRole::Administrator->value;
+$carrier = UserRole::Carrier->value;
 
 /** Lectura para todo rol salvo user y shipment, que solo consultan viajes. */
 $readers = UserRole::allExcept(UserRole::User, UserRole::Shipment);
 
-Route::prefix('fuel-prices')->name('fuel-prices.')->middleware(['jwt.auth', "role:{$readers}"])->group(function () use ($administrator): void {
+Route::prefix('fuel-prices')->name('fuel-prices.')->middleware(['jwt.auth', "role:{$readers}"])->group(function () use ($administrator, $carrier): void {
     /** Antes del apiResource: si no, el comodín {fuelPrice} capturaría /current. */
     Route::get('/current', [FuelPriceController::class, 'current'])
         ->name('current');
@@ -22,7 +23,7 @@ Route::prefix('fuel-prices')->name('fuel-prices.')->middleware(['jwt.auth', "rol
     Route::apiResource('/', FuelPriceController::class)
         ->parameters(['' => 'fuelPrice'])
         ->only(['index', 'store', 'show', 'update', 'destroy'])
-        ->middlewareFor('store', ["role:{$administrator}"])
-        ->middlewareFor('update', ["role:{$administrator}"])
-        ->middlewareFor('destroy', ["role:{$administrator}"]);
+        ->middlewareFor('store', ["role:{$administrator},{$carrier}"])
+        ->middlewareFor('update', ["role:{$administrator},{$carrier}"])
+        ->middlewareFor('destroy', ["role:{$administrator},{$carrier}"]);
 });
