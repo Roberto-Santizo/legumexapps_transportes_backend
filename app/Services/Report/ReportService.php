@@ -65,14 +65,14 @@ final class ReportService implements ReportServiceInterface
     private const string FILE_NAME_TIMESTAMP = 'Y-m-d-His';
 
     /**
-     * Headers of the trips sheet, in the order of `TripListResource`, plus the bonus and
-     * the cargo insurance of the trip at the end: the listing does not carry them, so they
-     * are read from the model.
+     * Headers of the trips sheet, in the order of `TripListResource`, plus the client right
+     * after the order and the bonus and the cargo insurance at the end: the listing does not
+     * carry those three, so they are read from the model.
      *
      * @var list<string>
      */
     private const array TRIP_HEADERS = [
-        'Id', 'Orden', 'Estado', 'Naviera', 'Punto de partida', 'Puerto', 'Contenedor',
+        'Id', 'Orden', 'Cliente', 'Estado', 'Naviera', 'Punto de partida', 'Puerto', 'Contenedor',
         'Fecha recolección', 'Fecha embarque', 'Inicio', 'Fin', 'Km estimados',
         'Horas estimadas', 'Observaciones', 'Piloto', 'Placa', 'Registrado por',
         'Bonificación (Q)', 'Seguro de carga (Q)',
@@ -82,12 +82,13 @@ final class ReportService implements ReportServiceInterface
      * Headers of the downloadable trips report (`downloadTrips()`), in the order the
      * business asked for. «Destino» is the free-text final destination and «Punto de
      * llegada» the port (`location`). «OV» is the optional sales order (SPEC 43), second
-     * for every role because it is neither money nor product. No money columns, for any role.
+     * for every role because it is neither money nor product, and «PO» the optional
+     * `reference` (SPEC 41), third for that same reason. No money columns, for any role.
      *
      * @var list<string>
      */
     private const array TRIP_REPORT_HEADERS = [
-        'Orden', 'OV', 'Cliente', 'Producto', 'Cajas', 'Naviera', 'Destino', 'Contenedor',
+        'Orden', 'OV', 'PO', 'Cliente', 'Producto', 'Cajas', 'Naviera', 'Destino', 'Contenedor',
         'Punto de Partida', 'Fecha de recolección', 'Fecha de embarque', 'Booking',
         'Punto de llegada', 'Transporte', 'Status',
     ];
@@ -166,12 +167,16 @@ final class ReportService implements ReportServiceInterface
         /** @var Collection $trips */
         $trips = $this->trips->getTrips($user, $this->withoutLimit($filters));
 
-        $rows = $trips->take($this->maxRows)->map(static function (Trip $model): array {
+        /** Una consulta, y solo sobre lo exportado: `LIST_RELATIONS` no trae el cliente. */
+        $exported = $trips->take($this->maxRows)->load('client');
+
+        $rows = $exported->map(static function (Trip $model): array {
             $trip = new TripListResource($model)->resolve();
 
             return [
                 $trip['id'],
                 $trip['order'],
+                $model->client?->name,
                 $trip['statusLabel'],
                 $trip['shippingLineName'],
                 $trip['departurePointName'],
@@ -338,6 +343,7 @@ final class ReportService implements ReportServiceInterface
         return [
             $trip->order,
             $trip->ov,
+            $trip->reference,
             $trip->client?->name,
             ...($product ?? []),
             $trip->shippingLine?->name,
