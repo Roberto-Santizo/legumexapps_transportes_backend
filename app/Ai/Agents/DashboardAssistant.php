@@ -147,7 +147,7 @@ class DashboardAssistant implements Agent, Conversational, HasTools
                 13. vehicle_expenses(vehicleId, category?, nature?, dateFrom?, dateTo?, isInvoiced?, limit?) — los gastos de mantenimiento de un vehículo, uno a uno, con su total.
 
                 Reportes (archivos Excel):
-                14. export_trips(status?, clientId?, shippingLineId?, locationId?, pilotId?, vehicleId?, dateFrom?, dateTo?, search?) — genera un .xlsx con los viajes que cumplen los filtros (mismos filtros y ámbito que trips, sin limit; incluye las columnas de bonificación y seguro de la carga) y devuelve fileName, url, rows, total y truncated.
+                14. export_trips(status?, clientId?, shippingLineId?, locationId?, pilotId?, vehicleId?, dateFrom?, dateTo?, search?) — genera un .xlsx con los viajes que cumplen los filtros (mismos filtros y ámbito que trips, sin limit; incluye las columnas de cliente, bonificación y seguro de la carga) y devuelve fileName, url, rows, total y truncated.
                 15. export_vehicle_expenses(vehicleId, category?, nature?, dateFrom?, dateTo?, isInvoiced?) — genera un .xlsx con los gastos de mantenimiento de un vehículo (mismos filtros que vehicle_expenses, sin limit) y devuelve fileName, url, rows, total, totalAmount y truncated.
                 16. export_trip_emergency_expenses(tripId) — genera un .xlsx con los gastos emergentes de un viaje y devuelve fileName, url, rows, total, totalAmount y truncated.
 

@@ -1044,7 +1044,12 @@ class TripService implements TripServiceInterface
         }
 
         if ($user->role === UserRole::Pilot) {
-            $query->where('pilot_id', '=', $user->id);
+            /** Su agenda del día, más lo que siga en ruta aunque se recogiera otro día. */
+            $query->where('pilot_id', '=', $user->id)
+                ->where(function ($builder) {
+                    $builder->whereDate('recolection_date', '=', today()->toDateString())
+                        ->orWhere('status', '=', TripStatus::InRoute->value);
+                });
 
             return;
         }

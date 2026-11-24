@@ -93,15 +93,15 @@ function tripsReportOrders(TestResponse $response): array
 }
 
 /**
- * The headers of the report, in order; «OV» second for every role (SPEC 43), «Producto»
- * and «Cajas» only for the roles that see the products.
+ * The headers of the report, in order; «OV» and «PO» (the `reference`) second and third for
+ * every role, «Producto» and «Cajas» only for the roles that see the products.
  *
  * @return list<string>
  */
 function tripsReportHeaders(bool $withProducts = true): array
 {
     return [
-        'Orden', 'OV', 'Cliente',
+        'Orden', 'OV', 'PO', 'Cliente',
         ...($withProducts ? ['Producto', 'Cajas'] : []),
         'Naviera', 'Destino', 'Contenedor', 'Punto de Partida', 'Fecha de recolección',
         'Fecha de embarque', 'Booking', 'Punto de llegada', 'Transporte', 'Status',
@@ -266,11 +266,11 @@ it('traduce el estado, formatea las fechas y deja vacío lo que falta', function
     $rows = tripsReportRows(asUser(userWithRole(UserRole::Administrator))->get(tripsReportUri()));
     [$done, $route, $pool] = array_slice($rows, 1);
 
-    expect([$done[14], $route[14], $pool[14]])->toBe(['Finalizado', 'En ruta', 'Pendiente'])
-        ->and($done[9])->toBe('10-09-2026 08:30:00 AM')
-        ->and($done[10])->toBe('12-09-2026 02:00:00 PM')
-        ->and($done[11])->toBe('BK-1')
-        ->and($pool[11])->toBe('');
+    expect([$done[15], $route[15], $pool[15]])->toBe(['Finalizado', 'En ruta', 'Pendiente'])
+        ->and($done[10])->toBe('10-09-2026 08:30:00 AM')
+        ->and($done[11])->toBe('12-09-2026 02:00:00 PM')
+        ->and($done[12])->toBe('BK-1')
+        ->and($pool[12])->toBe('');
 });
 
 it('muestra Cancelado en la columna Status de un viaje cancelado, sin columnas nuevas', function () {
@@ -281,7 +281,7 @@ it('muestra Cancelado en la columna Status de un viaje cancelado, sin columnas n
     expect($rows)->toHaveCount(2)
         ->and($rows[0])->toBe(tripsReportHeaders())
         ->and($rows[1][0])->toBe('ORD-CANCEL')
-        ->and($rows[1][14])->toBe('Cancelado');
+        ->and($rows[1][15])->toBe('Cancelado');
 });
 
 it('responde 200 con solo la fila de encabezados cuando el rango no tiene viajes', function () {
@@ -342,33 +342,35 @@ it('escribe una fila por línea de producto en orden de línea, repite el viaje 
     $rows = tripsReportRows(asUser(userWithRole(UserRole::Export))->get(tripsReportUri()));
     [, $firstLine, $secondLine, $withoutLines] = $rows;
 
-    $withoutProduct = static fn (array $row): array => [...array_slice($row, 0, 3), ...array_slice($row, 5)];
+    $withoutProduct = static fn (array $row): array => [...array_slice($row, 0, 4), ...array_slice($row, 6)];
 
     expect($rows)->toHaveCount(4)
         ->and($withoutProduct($firstLine))->toBe($withoutProduct($secondLine))
         ->and($firstLine[0])->toBe('ORD-PRODUCTS')
-        ->and(array_slice($firstLine, 3, 2))->toBe(['BROCOLI', 120])
-        ->and(array_slice($secondLine, 3, 2))->toBe(['EJOTE', 40])
+        ->and(array_slice($firstLine, 4, 2))->toBe(['BROCOLI', 120])
+        ->and(array_slice($secondLine, 4, 2))->toBe(['EJOTE', 40])
         ->and($withoutLines[0])->toBe('ORD-EMPTY')
-        ->and(array_slice($withoutLines, 3, 2))->toBe(['', '']);
+        ->and(array_slice($withoutLines, 4, 2))->toBe(['', '']);
 });
 
-it('pone la OV en la columna B para todos los roles: 15 columnas con productos y 13 sin ellos', function (UserRole $role, int $columns) {
-    septemberTrip(['order' => 'ORD-OV', 'ov' => 'OV-2026 15']);
+it('pone la OV en la columna B y la PO en la C para todos los roles: 16 columnas con productos y 14 sin ellos', function (UserRole $role, int $columns) {
+    septemberTrip(['order' => 'ORD-OV', 'ov' => 'OV-2026 15', 'reference' => 'PO-77']);
 
     [$headers, $row] = tripsReportRows(asUser(tripsReportUser($role))->get(tripsReportUri()));
 
     expect($headers)->toHaveCount($columns)
         ->and($headers[1])->toBe('OV')
+        ->and($headers[2])->toBe('PO')
         ->and($row)->toHaveCount($columns)
-        ->and($row[1])->toBe('OV-2026 15');
+        ->and($row[1])->toBe('OV-2026 15')
+        ->and($row[2])->toBe('PO-77');
 })->with([
-    'administrator' => [UserRole::Administrator, 15],
-    'manager' => [UserRole::Manager, 15],
-    'export' => [UserRole::Export, 15],
-    'shipment' => [UserRole::Shipment, 15],
-    'carrier' => [UserRole::Carrier, 13],
-    'user' => [UserRole::User, 13],
+    'administrator' => [UserRole::Administrator, 16],
+    'manager' => [UserRole::Manager, 16],
+    'export' => [UserRole::Export, 16],
+    'shipment' => [UserRole::Shipment, 16],
+    'carrier' => [UserRole::Carrier, 14],
+    'user' => [UserRole::User, 14],
 ]);
 
 it('repite la OV en cada fila de producto del viaje y deja la celda vacía en un viaje sin OV', function () {
