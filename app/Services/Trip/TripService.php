@@ -1044,12 +1044,9 @@ class TripService implements TripServiceInterface
         }
 
         if ($user->role === UserRole::Pilot) {
-            /** Su agenda del día, más lo que siga en ruta aunque se recogiera otro día. */
+            /** Lo que le queda por hacer: sus pendientes, sin importar la fecha, y lo que lleve en ruta. */
             $query->where('pilot_id', '=', $user->id)
-                ->where(function ($builder) {
-                    $builder->whereDate('recolection_date', '=', today()->toDateString())
-                        ->orWhere('status', '=', TripStatus::InRoute->value);
-                });
+                ->whereIn('status', [TripStatus::Pending->value, TripStatus::InRoute->value]);
 
             return;
         }
