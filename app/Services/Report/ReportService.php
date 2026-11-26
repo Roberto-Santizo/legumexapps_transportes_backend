@@ -83,14 +83,15 @@ final class ReportService implements ReportServiceInterface
      * business asked for. «Destino» is the free-text final destination and «Punto de
      * llegada» the port (`location`). «OV» is the optional sales order (SPEC 43), second
      * for every role because it is neither money nor product, and «PO» the optional
-     * `reference` (SPEC 41), third for that same reason. No money columns, for any role.
+     * `reference` (SPEC 41), third for that same reason. «Observaciones» closes the sheet,
+     * after «Status», for every role. No money columns, for any role.
      *
      * @var list<string>
      */
     private const array TRIP_REPORT_HEADERS = [
         'Orden', 'OV', 'PO', 'Cliente', 'Producto', 'Cajas', 'Naviera', 'Destino', 'Contenedor',
         'Punto de Partida', 'Fecha de recolección', 'Fecha de embarque', 'Booking',
-        'Punto de llegada', 'Transporte', 'Status',
+        'Punto de llegada', 'Transporte', 'Status', 'Observaciones',
     ];
 
     /**
@@ -356,6 +357,7 @@ final class ReportService implements ReportServiceInterface
             $trip->location?->name,
             $trip->transport,
             $trip->status->label(),
+            $trip->observations,
         ];
     }
 

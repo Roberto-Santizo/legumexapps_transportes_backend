@@ -104,7 +104,7 @@ function tripsReportHeaders(bool $withProducts = true): array
         'Orden', 'OV', 'PO', 'Cliente',
         ...($withProducts ? ['Producto', 'Cajas'] : []),
         'Naviera', 'Destino', 'Contenedor', 'Punto de Partida', 'Fecha de recolección',
-        'Fecha de embarque', 'Booking', 'Punto de llegada', 'Transporte', 'Status',
+        'Fecha de embarque', 'Booking', 'Punto de llegada', 'Transporte', 'Status', 'Observaciones',
     ];
 }
 
