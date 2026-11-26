@@ -366,7 +366,7 @@ function tripReportHeaders(bool $withProducts = true): array
         'Orden', 'OV', 'PO', 'Cliente',
         ...($withProducts ? ['Producto', 'Cajas'] : []),
         'Naviera', 'Destino', 'Contenedor', 'Punto de Partida', 'Fecha de recolección',
-        'Fecha de embarque', 'Booking', 'Punto de llegada', 'Transporte', 'Status',
+        'Fecha de embarque', 'Booking', 'Punto de llegada', 'Transporte', 'Status', 'Observaciones',
     ];
 }
 
@@ -408,6 +408,7 @@ it('descarga los viajes del rango con las columnas del negocio en su orden, sin 
         'ship_date' => '2026-09-12 14:00:00',
         'bonus' => 250.5,
         'cargo_insurance' => 99.75,
+        'observations' => 'Entregar en muelle 3',
     ])->load('client', 'shippingLine', 'departurePoint', 'location');
 
     $result = app(ReportServiceInterface::class)->downloadTrips(
@@ -425,16 +426,21 @@ it('descarga los viajes del rango con las columnas del negocio en su orden, sin 
             'ORD-0001', 'OV-778', 'PO-778', $trip->client->name, $trip->shippingLine->name, 'Bodega Rotterdam',
             $trip->container, $trip->departurePoint->name, '10-09-2026 08:30:00 AM',
             '12-09-2026 02:00:00 PM', 'BK-778', $trip->location->name, 'Rastra 40 pies', 'Finalizado',
+            'Entregar en muelle 3',
         ]);
 });
 
-it('deja vacías las celdas nulas y pone el estado en español al final', function () {
-    Trip::factory()->create(['recolection_date' => '2026-09-10 08:30:00', 'booking' => null, 'ov' => null, 'reference' => null]);
+it('deja vacías las celdas nulas y pone el estado en español antes de las observaciones', function () {
+    Trip::factory()->create([
+        'recolection_date' => '2026-09-10 08:30:00', 'booking' => null, 'ov' => null, 'reference' => null,
+        'observations' => null,
+    ]);
 
     $result = app(ReportServiceInterface::class)->downloadTrips(reportAdmin(), septemberReport());
     $row = downloadedReportRows($result['contents'])[1];
 
-    expect($row)->toHaveCount(16)
+    expect($row)->toHaveCount(17)
+        ->and($row[16])->toBe('')
         ->and($row[1])->toBe('')
         ->and($row[2])->toBe('')
         ->and([$row[4], $row[5]])->toBe(['', ''])
